@@ -1,0 +1,13 @@
+# Kertoo Netlifylle, mistä kansiosta funktiot löytyvät sekä
+# lokaalissa kehityksessä (dev) että julkaisun yhteydessä (build).
+[build]
+  functions = "netlify/functions"
+
+[dev]
+  functions = "netlify/functions"
+
+# Ohjaa selaimen tekemät /api/* -kutsut oikeaan funktioon.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200

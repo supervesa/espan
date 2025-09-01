@@ -1,0 +1,136 @@
+{
+  "aihealueet": [
+    {
+      "otsikko": "Suunnitelman tyyppi",
+      "id": "suunnitelman_tyyppi",
+      "fraasit": [
+        { "teksti": "Laaditaan työllistymissuunnitelma.", "avainsana": "tyollisyyssuunnitelma" }
+      ]
+    },
+    {
+      "otsikko": "Suunnitelman perustiedot",
+      "id": "suunnitelman_perustiedot",
+      "fraasit": [
+        { 
+          "teksti": "Tämä suunnitelma laadittiin puhelinajalla [PÄIVÄMÄÄRÄ].", 
+          "avainsana": "puhelin",
+          "muuttujat": { "PÄIVÄMÄÄRÄ": { "tyyppi": "teksti", "oletus": "pp.kk.vvvv" } }
+        },
+        { 
+          "teksti": "Tämä suunnitelma laadittiin käyntiajalla [PÄIVÄMÄÄRÄ].", 
+          "avainsana": "kaynti",
+          "muuttujat": { "PÄIVÄMÄÄRÄ": { "tyyppi": "teksti", "oletus": "pp.kk.vvvv" } }
+        },
+        { "teksti": "Asiakas hyväksyi suunnitelman käynnillä.", "avainsana": "hyvaksynta_kaynnilla" },
+        { "teksti": "Asiakas hyväksyy suunnitelman Oma asiointi -palvelussa.", "avainsana": "hyvaksynta_oma" }
+      ]
+    },
+    {
+      "otsikko": "Työttömyysturva",
+      "id": "tyottomyysturva",
+      "fraasit": [
+        { "teksti": "Asiakas ei ole yrittäjä.", "avainsana": "ei_yrittaja" },
+        { "teksti": "Asiakkaalla ei ole opintoja.", "avainsana": "ei_opintoja" },
+        { "teksti": "Asiakkaalla ei ole merkittäviä sijoituksia.", "avainsana": "ei_sijoituksia" },
+        { "teksti": "Asiakas ei ole omaishoitaja.", "avainsana": "ei_omaishoitaja" }
+      ]
+    },
+    {
+      "otsikko": "Asiakkaan työtilanne",
+      "id": "tyotilanne",
+      "fraasit": [
+        { "teksti": "Asiakas on työtön työnhakija.", "avainsana": "tyoton" },
+        { 
+          "teksti": "Asiakas on irtisanottu (työnantajan toimesta) yrityksestä [YRITYS] [AMMATTI]-tehtävistä [PVM].", 
+          "avainsana": "irtisanottu",
+          "muuttujat": { "YRITYS": { "tyyppi": "teksti" }, "AMMATTI": { "tyyppi": "teksti" }, "PVM": { "tyyppi": "teksti" } }
+        },
+        { 
+          "teksti": "Asiakas irtisanoutui (oman päätöksen perusteella) yrityksestä [YRITYS] [AMMATTI]-tehtävistä [PVM].", 
+          "avainsana": "irtisanoutui",
+          "muuttujat": { "YRITYS": { "tyyppi": "teksti" }, "AMMATTI": { "tyyppi": "teksti" }, "PVM": { "tyyppi": "teksti" } }
+        },
+        { "teksti": "Työsuhde päättyi työnantajan toimesta koeajalla.", "avainsana": "koeaikapurku_tyonantaja" },
+        { "teksti": "Työsuhde päättyi asiakkaan toimesta koeajalla.", "avainsana": "koeaikapurku_asiakas" },
+        { "teksti": "Määräaikainen työsuhde päättyi.", "avainsana": "maaraaikainen_loppui" },
+        { "teksti": "Asiakas on lomautettu.", "avainsana": "lomautettu" },
+        { "teksti": "Asiakas on osa-aikatyössä.", "avainsana": "osa-aikainen" },
+        { "teksti": "Asiakas on palkkatuetussa työssä.", "avainsana": "palkkatuki" },
+        { "teksti": "Asiakas on työkokeilussa.", "avainsana": "tyokokeilu" },
+        { "teksti": "Asiakas on työvoimakoulutuksessa.", "avainsana": "koulutus" },
+        { "teksti": "Asiakas on kuntoutuksessa.", "avainsana": "kuntoutus" }
+      ]
+    },
+    {
+      "otsikko": "Koulutus ja yrittäjyys",
+      "id": "koulutus_yrittajyys",
+      "fraasit": [
+         { 
+          "teksti": "Asiakas on koulutukseltaan [KOULUTUS] (v. [VUOSI]).", 
+          "avainsana": "koulutus_tausta",
+          "muuttujat": { "KOULUTUS": { "tyyppi": "teksti" }, "VUOSI": { "tyyppi": "teksti" } }
+        },
+        { "teksti": "Asiakkaalla ei ole yrittäjyysajatuksia.", "avainsana": "ei_yrittajyysajatuksia" },
+        { 
+          "teksti": "Asiakkaalla on yrittäjyysajatuksia: [MILLAISIA].", 
+          "avainsana": "on_yrittajyysajatuksia",
+          "muuttujat": { "MILLAISIA": { "tyyppi": "teksti" } }
+        },
+        { "teksti": "Asiakas on kiinnostunut omaehtoisista opinnoista.", "avainsana": "kiinnostus_omaehtoinen" },
+        { "teksti": "Asiakas on kiinnostunut sivutoimisista opinnoista.", "avainsana": "kiinnostus_sivutoiminen" }
+      ]
+    },
+    {
+      "otsikko": "Työkyky",
+      "id": "tyokyky",
+      "fraasit": [
+        { "teksti": "Asiakkaan työkyvyssä ei ole muutoksia.", "avainsana": "tyokyky_normaali" },
+        { "teksti": "Asiakkaan työkykyä selvitetään ja hän on hakeutunut työkykyselvitykseen.", "avainsana": "tyokyky_selvityksessa" },
+        { 
+          "teksti": "Asiakkaalla on työkyvyn alentuma: [ALENTUMA].", 
+          "avainsana": "alentuma",
+          "muuttujat": { "ALENTUMA": { "tyyppi": "teksti" } }
+        },
+        { 
+          "teksti": "Asiakkaan oma arvio työkyvystään asteikolla 1-10 on [ARVIO].", 
+          "avainsana": "oma_arvio",
+          "muuttujat": { "ARVIO": { "tyyppi": "asteikko", "oletus": 7, "min": 1, "max": 10 } }
+        }
+      ]
+    },
+    {
+      "otsikko": "Työnhakuvelvollisuus",
+      "id": "tyonhakuvelvollisuus",
+      "fraasit": [
+        {
+          "teksti": "Pääsääntö: Asiakkaan tulee hakea [LKM] työmahdollisuutta [AIKAJAKSO].",
+          "ehdot": { "tyotilanne": ["tyoton", "irtisanottu", "irtisanoutui", "koeaikapurku_tyonantaja", "koeaikapurku_asiakas", "maaraaikainen_loppui"], "tyokyky": ["tyokyky_normaali"] },
+          "muuttujat": {
+            "LKM": { "tyyppi": "numero", "oletus": 4 },
+            "AIKAJAKSO": { "tyyppi": "valinta", "vaihtoehdot": ["kuukaudessa", "kolmen kuukauden aikana"] }
+          }
+        },
+        {
+          "teksti": "Alennettu velvollisuus (osa-aikatyö): Osa-aikatyössä olevana asiakkaan tulee hakea vähintään yhtä työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.",
+          "ehdot": { "tyotilanne": ["osa-aikainen"] }
+        },
+        {
+          "teksti": "Alennettu velvollisuus (palvelu): Asiakkaan osallistuessa työllistymistä edistävään palveluun, hänen työnhakuvelvollisuutensa on alennettu. Asiakkaan tulee hakea [LKM] työmahdollisuutta [AIKAJAKSO].",
+          "ehdot": { "tyotilanne": ["palkkatuki", "tyokokeilu", "koulutus", "kuntoutus"] },
+           "muuttujat": {
+            "LKM": { "tyyppi": "numero", "oletus": 1 },
+            "AIKAJAKSO": { "tyyppi": "valinta", "vaihtoehdot": ["kolmen kuukauden aikana", "kuukaudessa"] }
+          }
+        },
+        {
+          "teksti": "Ei velvollisuutta (työkyky): Työnhakuvelvollisuutta ei aseteta, koska asiakkaan työkykyä selvitetään tai työkyvyssä on alentuma.",
+          "ehdot": { "tyokyky": ["tyokyky_selvityksessa", "alentuma", "oma_arvio"] }
+        },
+        {
+          "teksti": "Ei velvollisuutta (lomautus): Työnhakuvelvollisuutta ei aseteta, koska asiakas on lomautettu.",
+          "ehdot": { "tyotilanne": ["lomautettu"] }
+        }
+      ]
+    }
+  ]
+}
