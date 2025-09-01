@@ -11,7 +11,6 @@ import PalkkatukiCalculator from './components/sections/PalkkatukiCalculator';
 import Palveluunohjaus from './components/sections/Palveluunohjaus';
 import Suunnitelma from './components/sections/Suunnitelma';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
-import AiAnalyysi from "./components/AiAnalyysi";
 import { planData } from './data/planData';
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
@@ -158,7 +157,6 @@ function App() {
                     <Palveluunohjaus state={state} actions={actions} />
                     <Suunnitelma state={state} actions={actions} />
                     <Tyonhakuvelvollisuus state={state} actions={actions} />
-                    <AiAnalyysi state={state} actions={actions} />
                 </main>
                 <Summary state={state} />
             </div>

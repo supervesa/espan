@@ -39,19 +39,13 @@ const Summary = ({ state }) => {
                  }
                 if (s.koonti) sectionTextParts.push(`Koonti työkykykeskustelusta:\n${s.koonti}`);
             } 
-            else if (section.id === 'tyottomyysturva' && state.tyottomyysturva?.koonti) {
-                sectionTextParts.push(state.tyottomyysturva.koonti);
-            }
-            else if (section.id === 'palkkatuki' && state.palkkatuki) {
-                 // Yksinkertainen tulostus, voitaisiin laajentaa myöhemmin
-                 if(state.palkkatuki.syntymavuosi) sectionTextParts.push(`Palkkatuen arviointi tehty (syntymävuosi: ${state.palkkatuki.syntymavuosi}).`);
-            }
             else if (selection) {
                 if (section.monivalinta) {
                     Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase)));
                 } else if (selection.teksti) {
                     let text = processPhrase(selection);
-                    if (section.id === 'tyonhakuvelvollisuus') {
+                    // Lisätään pitkä lopputeksti vain, jos se ei ole jo osa fraasia
+                    if (section.id === 'tyonhakuvelvollisuus' && !text.includes("Haetut paikat")) {
                         text += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI;
                     }
                     sectionTextParts.push(text);
