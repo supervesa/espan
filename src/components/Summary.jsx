@@ -8,66 +8,75 @@ const Summary = ({ state }) => {
     
     const summaryText = useMemo(() => {
         let textParts = [];
+
+        // Käydään läpi kaikki osiot ja formatoidaan niiden data sujuvaksi tekstiksi
         planData.aihealueet.forEach(section => {
             const selection = state[section.id];
             const customText = state[`custom-${section.id}`];
-            let sectionTextParts = [];
-            
-            const processPhrase = (phraseObject, sectionId) => {
-                let phraseState = section.monivalinta 
-                    ? state[sectionId]?.[phraseObject.avainsana] 
-                    : state[sectionId];
+            let contentParts = [];
 
-                // Yksittäisvalinnoissa ja erikoiskomponenteissa käytetään yleistä nimeä "Valinta"
-                let key = section.monivalinta ? `Valinta (${phraseObject.avainsana})` : 'Valinta';
-                let text = phraseState?.teksti || phraseObject.teksti;
-
-                if (phraseState?.muuttujat && Object.keys(phraseState.muuttujat).length > 0) {
-                    const variablesText = Object.entries(phraseState.muuttujat)
-                        .map(([k, v]) => `${k}: ${v}`)
-                        .join(', ');
-                    text = `${text} (${variablesText})`;
+            // Apufunktio muuttujien korvaamiseen fraasitekstissä
+            const processPhrase = (phraseObject) => {
+                let text = phraseObject.teksti;
+                const phraseState = section.monivalinta ? selection?.[phraseObject.avainsana] : selection;
+                if (phraseState?.muuttujat) {
+                    Object.entries(phraseState.muuttujat).forEach(([key, value]) => {
+                        // Korvataan placeholder vain, jos arvo on olemassa
+                        if (value) {
+                             text = text.replace(`[${key}]`, value);
+                        }
+                    });
                 }
-                // Poistetaan muuttujat, koska ne on jo lisätty sulkeisiin
-                return `${key}: ${text.replace(/\[.*?\]/g, '').trim()}`;
+                // Siistitään jäljelle jääneet placeholderit pois
+                return text.replace(/\s*\[.*?\]/g, '').replace(/\(\s*v\.\s*\)/, '').trim();
             };
 
-            if (section.id === 'tyokyky' && state.tyokyky) {
-                const s = state.tyokyky;
-                if (s.paavalinta) {
-                    if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) {
-                        sectionTextParts.push(`Valinta: ${s.paavalinta.teksti}`);
-                        sectionTextParts.push(`Kuvaus alentumasta: ${s.alentumaKuvaus}`);
-                    } else {
-                        sectionTextParts.push(`Valinta: ${s.paavalinta.teksti}`);
-                    }
-                }
-                if (s.omaArvio) sectionTextParts.push(`Oma arvio: ${s.omaArvio}/10`);
-                if (s.palveluohjaukset && Object.keys(s.palveluohjaukset).length > 0) {
-                     const ohjaukset = Object.values(s.palveluohjaukset).map(p => p.teksti).join(', ');
-                     sectionTextParts.push(`Palveluohjaus: ${ohjaukset}`);
-                 }
-                if (s.koonti) sectionTextParts.push(`Koonti keskustelusta: ${s.koonti}`);
-            } 
-            else if (selection) {
-                if (section.monivalinta) {
-                    Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase, section.id)));
+            // --- OSIOKOHTAINEN LOGIIKKA ---
+
+            if (selection) {
+                 if (section.monivalinta) {
+                    Object.values(selection).forEach(phrase => contentParts.push(processPhrase(phrase)));
                 } else if (selection.teksti) {
-                    let text = processPhrase(selection, section.id);
-                    // Lisätään pitkä lopputeksti työnhakuvelvollisuuteen
+                    let text = processPhrase(selection);
                     if (section.id === 'tyonhakuvelvollisuus') {
                         text += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI;
                     }
-                    sectionTextParts.push(text);
+                    contentParts.push(text);
                 }
             }
+            
+            // --- ERIKOISKÄSITTELYT ---
 
-            if (customText) {
-                sectionTextParts.push(`Lisätiedot: ${customText}`);
+            if (section.id === 'tyokyky' && state.tyokyky) {
+                const s = state.tyokyky;
+                contentParts = []; // Tyhjennetään perusvalinnat ja rakennetaan alusta
+                if (s.paavalinta) {
+                    if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) {
+                        contentParts.push(`Asiakkaalla on työkyvyn alentuma. ${s.alentumaKuvaus}`);
+                    } else {
+                        contentParts.push(s.paavalinta.teksti);
+                    }
+                }
+                if (s.omaArvio) contentParts.push(`Asiakkaan oma arvio työkyvystään on ${s.omaArvio}/10.`);
+                 if (s.koonti) contentParts.push(s.koonti);
             }
 
-            if (sectionTextParts.length > 0) {
-                textParts.push(`${section.otsikko}\n${sectionTextParts.join('\n')}`);
+            if (section.id === 'palkkatuki' && state.palkkatuki) {
+                 // Tulostetaan vain koonti, jos sellainen on
+                 const calculatorState = state.palkkatuki;
+                 if (calculatorState.koonti) {
+                     contentParts = [calculatorState.koonti];
+                 }
+            }
+
+            // Lisätään vapaa teksti loppuun, jos sitä on
+            if (customText) {
+                contentParts.push(customText);
+            }
+
+            // Jos osiolle kertyi sisältöä, lisätään se tulosteeseen
+            if (contentParts.length > 0) {
+                textParts.push(`${section.otsikko}\n${contentParts.join(' ')}`);
             }
         });
         

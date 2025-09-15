@@ -1,118 +1,136 @@
 #!/bin/bash
 
-# Espan-projektin korjausskripti: Vakaa Scraper
-# Tämä skripti korvaa scraperin logiikan yksinkertaisella ja
-# luotettavalla versiolla, joka keskittyy olennaisen poimimiseen
-# ja vapaan tekstin oikeaan sijoitteluun.
+# Espan-projektin päivitysskripti: Sujuvampi Yhteenveto
+# Tämä skripti päivittää Summary.jsx-komponentin tuottamaan
+# luonnollisempaa ja siistimpää tekstiä.
 
-echo "Yksinkertaistetaan ja korjataan scraperin logiikka..."
+echo "Päivitetään Summary.jsx-komponentti..."
 
-# --- 1. KORVATAAN scraper.js KOKONAAN UUDELLA LOGIIKALLA ---
-cat <<'EOF' > src/utils/scraper.js
-import { planData } from '../data/planData';
+# --- 1. KORVATAAN Summary.jsx UUDELLA LOGIIKALLA ---
+cat <<'EOF' > src/components/Summary.jsx
+import React, { useState, useMemo } from 'react';
+import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
 
-const createPhraseObject = (sectionId, avainsana, muuttujat = {}) => {
-    const section = planData.aihealueet.find(s => s.id === sectionId);
-    if (!section || !section.fraasit) return null;
-    const phraseTemplate = section.fraasit.find(f => f.avainsana === avainsana);
-    if (!phraseTemplate) return null;
+const FINGERPRINT = '\u200B\u200D\u200C'; // Näkymätön sormenjälki
 
-    const newPhrase = { avainsana, teksti: phraseTemplate.teksti, muuttujat: {} };
-    if (phraseTemplate.muuttujat) {
-        Object.entries(phraseTemplate.muuttujat).forEach(([key, config]) => {
-            newPhrase.muuttujat[key] = muuttujat[key] || config.oletus || '';
+const Summary = ({ state }) => {
+    const [feedback, setFeedback] = useState('');
+    
+    const summaryText = useMemo(() => {
+        let textParts = [];
+
+        // Käydään läpi kaikki osiot ja formatoidaan niiden data sujuvaksi tekstiksi
+        planData.aihealueet.forEach(section => {
+            const selection = state[section.id];
+            const customText = state[`custom-${section.id}`];
+            let contentParts = [];
+
+            // Apufunktio muuttujien korvaamiseen fraasitekstissä
+            const processPhrase = (phraseObject) => {
+                let text = phraseObject.teksti;
+                const phraseState = section.monivalinta ? selection?.[phraseObject.avainsana] : selection;
+                if (phraseState?.muuttujat) {
+                    Object.entries(phraseState.muuttujat).forEach(([key, value]) => {
+                        // Korvataan placeholder vain, jos arvo on olemassa
+                        if (value) {
+                             text = text.replace(`[${key}]`, value);
+                        }
+                    });
+                }
+                // Siistitään jäljelle jääneet placeholderit pois
+                return text.replace(/\s*\[.*?\]/g, '').replace(/\(\s*v\.\s*\)/, '').trim();
+            };
+
+            // --- OSIOKOHTAINEN LOGIIKKA ---
+
+            if (selection) {
+                 if (section.monivalinta) {
+                    Object.values(selection).forEach(phrase => contentParts.push(processPhrase(phrase)));
+                } else if (selection.teksti) {
+                    let text = processPhrase(selection);
+                    if (section.id === 'tyonhakuvelvollisuus') {
+                        text += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI;
+                    }
+                    contentParts.push(text);
+                }
+            }
+            
+            // --- ERIKOISKÄSITTELYT ---
+
+            if (section.id === 'tyokyky' && state.tyokyky) {
+                const s = state.tyokyky;
+                contentParts = []; // Tyhjennetään perusvalinnat ja rakennetaan alusta
+                if (s.paavalinta) {
+                    if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) {
+                        contentParts.push(`Asiakkaalla on työkyvyn alentuma. ${s.alentumaKuvaus}`);
+                    } else {
+                        contentParts.push(s.paavalinta.teksti);
+                    }
+                }
+                if (s.omaArvio) contentParts.push(`Asiakkaan oma arvio työkyvystään on ${s.omaArvio}/10.`);
+                 if (s.koonti) contentParts.push(s.koonti);
+            }
+
+            if (section.id === 'palkkatuki' && state.palkkatuki) {
+                 // Tulostetaan vain koonti, jos sellainen on
+                 const calculatorState = state.palkkatuki;
+                 if (calculatorState.koonti) {
+                     contentParts = [calculatorState.koonti];
+                 }
+            }
+
+            // Lisätään vapaa teksti loppuun, jos sitä on
+            if (customText) {
+                contentParts.push(customText);
+            }
+
+            // Jos osiolle kertyi sisältöä, lisätään se tulosteeseen
+            if (contentParts.length > 0) {
+                textParts.push(`${section.otsikko}\n${contentParts.join(' ')}`);
+            }
         });
-    }
-    return newPhrase;
-};
+        
+        if (textParts.length === 0) return '';
+        return FINGERPRINT + textParts.join('\n\n');
 
-// --- UUSI, YKSINKERTAINEN JA VAKAA SCRAPER ---
-export const parseTextToState = (text) => {
-    let state = {};
-    let workText = text;
+    }, [state]);
 
-    // Säännöt, jotka etsivät tarkkoja ja luotettavia tietoja
-    const rules = [
-        { // Työkyvyn oma arvio
-            regex: /pistemäärän\s+(\d+)\s+asteikolla/i,
-            action: (match, s) => {
-                s.tyokyky = { ...s.tyokyky, omaArvio: match[1] };
-            }
-        },
-        { // THV (numeroitu)
-            regex: /työnhakuvelvollisuus on (\d+)\s+kpl\/kk/i,
-            action: (match, s) => {
-                s.tyonhakuvelvollisuus = createPhraseObject('tyonhakuvelvollisuus', 'paasaanto', { LKM: match[1], AIKAJAKSO: 'kuukaudessa' });
-            }
-        },
-        { // THV (sanallinen)
-            regex: /hakea vähintään (neljää)\s+työmahdollisuutta (kuukaudessa)/i,
-            action: (match, s) => {
-                 s.tyonhakuvelvollisuus = createPhraseObject('tyonhakuvelvollisuus', 'paasaanto', { LKM: 4, AIKAJAKSO: 'kuukaudessa' });
-            }
-        },
-         { // Suunnitelman päivitystapa ja -aika
-            regex: /päivitetty\s+(puhelimitse)\s+([\d.]+)/i,
-            action: (match, s) => {
-                 s.suunnitelman_perustiedot = { ...s.suunnitelman_perustiedot, laadittu: createPhraseObject('suunnitelman_perustiedot', 'laadittu', { YHTEYDENOTTOTAPA: 'puhelinajalla', PÄIVÄMÄÄRÄ: match[2] }) };
-            }
-        },
-    ];
-
-    // 1. Aja tarkat säännöt ja poista osumat tekstistä
-    rules.forEach(rule => {
-        const match = workText.match(rule.regex);
-        if (match) {
-            rule.action(match, state);
-            workText = workText.replace(match[0], '');
-        }
-    });
-
-    // 2. Jaa jäljelle jäänyt teksti osiin otsikoiden perusteella
-    const sectionTriggers = {
-        'custom-tyotilanne': /NYKYTILANNE:|Asiakas on/i,
-        'custom-koulutus_yrittajyys': /OSAAMINEN:|koulutukseltaan/i,
-        'custom-suunnitelma': /TAVOITTEET JA SUUNNITELMA:|Työnhaun tavoite:/i,
-        'custom-tyokyky': /TYÖKYKYARVIO:|Asiakkaan työkyky|RAJOITTEET/i,
-        'custom-tyonhakuvelvollisuus': /TYÖNHAKUVELVOITE:|oikeudet ja velvollisuudet/i
+    const handleCopy = () => {
+        const plainText = summaryText.replace(FINGERPRINT, '');
+        navigator.clipboard.writeText(plainText).then(() => {
+            setFeedback('Kopioitu!');
+            setTimeout(() => setFeedback(''), 2000);
+        });
     };
-
-    const foundTriggers = Object.entries(sectionTriggers)
-        .map(([key, regex]) => ({ key, match: workText.match(regex) }))
-        .filter(item => item.match)
-        .sort((a, b) => a.match.index - b.match.index);
-
-    if (foundTriggers.length > 0) {
-        let lastIndex = 0;
-        foundTriggers.forEach((trigger, i) => {
-            const nextTrigger = foundTriggers[i + 1];
-            const endIndex = nextTrigger ? nextTrigger.match.index : workText.length;
-            const chunk = workText.substring(trigger.match.index, endIndex);
-            
-            // Poimitaan vielä avainsana, jos se on jäljellä
-            if(trigger.key === 'custom-tyotilanne') {
-                 if (/lomautettu/i.test(chunk)) {
-                    state.tyotilanne = { ...state.tyotilanne, lomautettu: createPhraseObject('tyotilanne', 'lomautettu') };
-                 }
-            }
-             if(trigger.key === 'custom-tyokyky') {
-                 if (/ei ole.*vaikeuttavat työllistymistäni/i.test(chunk)) {
-                    state.tyokyky = { ...state.tyokyky, paavalinta: { teksti: "Työkyky on normaali.", avainsana: "tyokyky_normaali"} };
-                 }
-             }
-            
-            const cleanChunk = chunk.replace(trigger.match[0], '').trim();
-            if (cleanChunk) {
-                state[trigger.key] = (state[trigger.key] || '') + cleanChunk + '\n';
-            }
-        });
-    }
-
-    return state;
+    
+    return (
+        <aside className="summary-sticky-container">
+            <div className="summary-box">
+                <h2>Koottu suunnitelma</h2>
+                <div className="summary-content">
+                    {summaryText ? (
+                        summaryText.replace(FINGERPRINT, '').split('\n\n').map((paragraph, pIndex) => (
+                            <p key={pIndex}>
+                                {paragraph.split('\n').map((line, lIndex) => {
+                                    if (lIndex === 0) {
+                                        return <strong key={lIndex}>{line}</strong>;
+                                    }
+                                    return <React.Fragment key={lIndex}><br />{line}</React.Fragment>;
+                                })}
+                            </p>
+                        ))
+                    ) : (
+                        <p>Valitse osioita aloittaaksesi...</p>
+                    )}
+                </div>
+                <button onClick={handleCopy} className="copy-button" disabled={!summaryText}>Kopioi leikepöydälle</button>
+                <p className="feedback-text">{feedback}</p>
+            </div>
+        </aside>
+    );
 };
+export default Summary;
 EOF
 
-
-echo "Korjaus valmis! Scraperin logiikka on nyt yksinkertaistettu ja vakautettu."
-echo "Sen pitäisi nyt luotettavasti poimia tarkat tiedot ja sijoittaa loput oikeisiin lisätietokenttiin."
+echo "Päivitys valmis! Yhteenvedon tulostusmuoto on nyt sujuvampi."
 echo "Voit käynnistää sovelluksen komennolla: npm run dev"
