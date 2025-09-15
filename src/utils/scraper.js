@@ -15,152 +15,87 @@ const createPhraseObject = (sectionId, avainsana, muuttujat = {}) => {
     return newPhrase;
 };
 
-// --- SÄÄNTÖMOOTTORI V6 ---
+// --- UUSI, YKSINKERTAINEN JA VAKAA SCRAPER ---
 export const parseTextToState = (text) => {
     let state = {};
-    
+    let workText = text;
+
+    // Säännöt, jotka etsivät tarkkoja ja luotettavia tietoja
+    const rules = [
+        { // Työkyvyn oma arvio
+            regex: /pistemäärän\s+(\d+)\s+asteikolla/i,
+            action: (match, s) => {
+                s.tyokyky = { ...s.tyokyky, omaArvio: match[1] };
+            }
+        },
+        { // THV (numeroitu)
+            regex: /työnhakuvelvollisuus on (\d+)\s+kpl\/kk/i,
+            action: (match, s) => {
+                s.tyonhakuvelvollisuus = createPhraseObject('tyonhakuvelvollisuus', 'paasaanto', { LKM: match[1], AIKAJAKSO: 'kuukaudessa' });
+            }
+        },
+        { // THV (sanallinen)
+            regex: /hakea vähintään (neljää)\s+työmahdollisuutta (kuukaudessa)/i,
+            action: (match, s) => {
+                 s.tyonhakuvelvollisuus = createPhraseObject('tyonhakuvelvollisuus', 'paasaanto', { LKM: 4, AIKAJAKSO: 'kuukaudessa' });
+            }
+        },
+         { // Suunnitelman päivitystapa ja -aika
+            regex: /päivitetty\s+(puhelimitse)\s+([\d.]+)/i,
+            action: (match, s) => {
+                 s.suunnitelman_perustiedot = { ...s.suunnitelman_perustiedot, laadittu: createPhraseObject('suunnitelman_perustiedot', 'laadittu', { YHTEYDENOTTOTAPA: 'puhelinajalla', PÄIVÄMÄÄRÄ: match[2] }) };
+            }
+        },
+    ];
+
+    // 1. Aja tarkat säännöt ja poista osumat tekstistä
+    rules.forEach(rule => {
+        const match = workText.match(rule.regex);
+        if (match) {
+            rule.action(match, state);
+            workText = workText.replace(match[0], '');
+        }
+    });
+
+    // 2. Jaa jäljelle jäänyt teksti osiin otsikoiden perusteella
     const sectionTriggers = {
-        suunnitelman_perustiedot: /Suunnitelma on päivitetty/i,
-        tyotilanne: /NYKYTILANNE:|Asiakas on (rakennusmies|työtön)/i,
-        koulutus_yrittajyys: /OSAAMINEN:|Asiakas on koulutukseltaan|Asiakkaalla peruskoulutus/i,
-        suunnitelma: /TAVOITTEET JA SUUNNITELMA:|Työnhaun tavoite:/i,
-        tyokyky: /TYÖKYKYARVIO:|Asiakkaan työkyky/i,
-        tyonhakuvelvollisuus: /TYÖNHAKUVELVOITE:|Työnhakuvelvollisuus on|Palvelumallin mukaisesti/i
+        'custom-tyotilanne': /NYKYTILANNE:|Asiakas on/i,
+        'custom-koulutus_yrittajyys': /OSAAMINEN:|koulutukseltaan/i,
+        'custom-suunnitelma': /TAVOITTEET JA SUUNNITELMA:|Työnhaun tavoite:/i,
+        'custom-tyokyky': /TYÖKYKYARVIO:|Asiakkaan työkyky|RAJOITTEET/i,
+        'custom-tyonhakuvelvollisuus': /TYÖNHAKUVELVOITE:|oikeudet ja velvollisuudet/i
     };
 
-    const rules = {
-        suunnitelman_perustiedot: [
-            {
-                regex: /päivitetty\s+(puhelimitse)\s+(\d{1,2}\.\d{1,2}\.\d{4})/i,
-                action: (match, s) => {
-                    s.laadittu = createPhraseObject('suunnitelman_perustiedot', 'laadittu', { YHTEYDENOTTOTAPA: 'puhelinajalla', PÄIVÄMÄÄRÄ: match[2] });
-                    return match[0];
-                }
-            }
-        ],
-        tyotilanne: [
-            {
-                regex: /työtön työhakija/i,
-                action: (match, s) => {
-                    s.tyoton = createPhraseObject('tyotilanne', 'tyoton');
-                    return match[0];
-                }
-            },
-            {
-                regex: /(lomautettu)/i,
-                action: (match, s) => {
-                    s.lomautettu = createPhraseObject('tyotilanne', 'lomautettu');
-                    return match[0];
-                }
-            }
-        ],
-        koulutus_yrittajyys: [
-            {
-                regex: /koulutukseltaan\s+([a-zA-ZåäöÅÄÖ-]+)/i,
-                action: (match, s) => {
-                    s.koulutus_tausta = createPhraseObject('koulutus_yrittajyys', 'koulutus_tausta', { KOULUTUS: match[1] });
-                    return match[0];
-                }
-            },
-            {
-                regex: /peruskoulutus/i,
-                action: (match, s) => {
-                    s.ei_tutkintoa = createPhraseObject('koulutus_yrittajyys', 'ei_tutkintoa');
-                    return match[0];
-                }
-            },
-            {
-                regex: /Ei yritystä tai yrittäjyysajatuksia/i,
-                action: (match, s) => {
-                     s.ei_yrittajyysajatuksia = createPhraseObject('koulutus_yrittajyys', 'ei_yrittajyysajatuksia');
-                     return match[0];
-                }
-            }
-        ],
-        tyokyky: [
-             {
-                regex: /pistemääräkseen\s+(\d+)/i,
-                action: (match, s) => {
-                    s.omaArvio = match[1];
-                    return match[0];
-                }
-            },
-            {
-                regex: /Elämässäni ei ole tällä hetkellä asioita, jotka vaikeuttavat työllistymistäni/i,
-                action: (match, s) => {
-                    s.paavalinta = { teksti: "Työkyky on normaali.", avainsana: "tyokyky_normaali" };
-                    return match[0];
-                }
-            }
-        ],
-        tyonhakuvelvollisuus: [
-            {
-                regex: /(\d+)\s+kpl\/kk/i,
-                action: (match, s) => {
-                    s.paasaanto = createPhraseObject('tyonhakuvelvollisuus', 'paasaanto', { LKM: match[1], AIKAJAKSO: 'kuukaudessa' });
-                    return match[0];
-                }
-            },
-            {
-                regex: /hakea vähintään (neljää)\s*\(?(\d+)?\)? työmahdollisuutta (kuukaudessa)/i,
-                action: (match, s) => {
-                    s.paasaanto = createPhraseObject('tyonhakuvelvollisuus', 'paasaanto', { LKM: 4, AIKAJAKSO: 'kuukaudessa' });
-                    return match[0];
-                }
-            }
-        ]
-    };
-    
-    // Etsitään kaikkien triggerien sijainnit tekstistä
     const foundTriggers = Object.entries(sectionTriggers)
-        .map(([id, regex]) => ({ id, match: text.match(regex) }))
+        .map(([key, regex]) => ({ key, match: workText.match(regex) }))
         .filter(item => item.match)
         .sort((a, b) => a.match.index - b.match.index);
 
-    if (foundTriggers.length === 0) {
-        // Jos triggereitä ei löydy, käytetään vanhaa yleistä logiikkaa
-        state['custom-suunnitelma'] = text;
-        return state;
+    if (foundTriggers.length > 0) {
+        let lastIndex = 0;
+        foundTriggers.forEach((trigger, i) => {
+            const nextTrigger = foundTriggers[i + 1];
+            const endIndex = nextTrigger ? nextTrigger.match.index : workText.length;
+            const chunk = workText.substring(trigger.match.index, endIndex);
+            
+            // Poimitaan vielä avainsana, jos se on jäljellä
+            if(trigger.key === 'custom-tyotilanne') {
+                 if (/lomautettu/i.test(chunk)) {
+                    state.tyotilanne = { ...state.tyotilanne, lomautettu: createPhraseObject('tyotilanne', 'lomautettu') };
+                 }
+            }
+             if(trigger.key === 'custom-tyokyky') {
+                 if (/ei ole.*vaikeuttavat työllistymistäni/i.test(chunk)) {
+                    state.tyokyky = { ...state.tyokyky, paavalinta: { teksti: "Työkyky on normaali.", avainsana: "tyokyky_normaali"} };
+                 }
+             }
+            
+            const cleanChunk = chunk.replace(trigger.match[0], '').trim();
+            if (cleanChunk) {
+                state[trigger.key] = (state[trigger.key] || '') + cleanChunk + '\n';
+            }
+        });
     }
-
-    // Pilkotaan teksti osiin triggerien perusteella
-    let lastIndex = 0;
-    const textChunks = {};
-    foundTriggers.forEach((trigger, i) => {
-        const nextTrigger = foundTriggers[i + 1];
-        const endIndex = nextTrigger ? nextTrigger.match.index : text.length;
-        textChunks[trigger.id] = text.substring(trigger.match.index, endIndex);
-    });
-
-    // Käydään läpi jokainen tekstikappale ja sovelletaan sääntöjä
-    Object.entries(textChunks).forEach(([sectionId, chunkText]) => {
-        let remainingText = chunkText;
-        const sectionState = {};
-        
-        if (rules[sectionId]) {
-            rules[sectionId].forEach(rule => {
-                const globalRegex = new RegExp(rule.regex.source, 'gi');
-                const matches = [...remainingText.matchAll(globalRegex)];
-                if (matches.length > 0) {
-                    matches.forEach(match => {
-                        const consumedText = rule.action(match, sectionState);
-                        if(consumedText) remainingText = remainingText.replace(consumedText, '');
-                    });
-                }
-            });
-        }
-
-        // Siivotaan jäljelle jäänyt teksti ja lisätään se lisätietoihin
-        const cleanRemainingText = remainingText.replace(sectionTriggers[sectionId], '').trim();
-        if (cleanRemainingText.length > 5) {
-            state[`custom-${sectionId}`] = cleanRemainingText;
-        }
-
-        // Yhdistetään osion tila pää-stateen
-        if (Object.keys(sectionState).length > 0) {
-            state[sectionId] = { ...(state[sectionId] || {}), ...sectionState };
-        }
-    });
 
     return state;
 };

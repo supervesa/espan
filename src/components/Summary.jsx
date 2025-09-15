@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
 
+const FINGERPRINT = '\u200B\u200D\u200C'; // Näkymätön sormenjälki
+
 const Summary = ({ state }) => {
     const [feedback, setFeedback] = useState('');
     
@@ -11,41 +13,49 @@ const Summary = ({ state }) => {
             const customText = state[`custom-${section.id}`];
             let sectionTextParts = [];
             
-            const processPhrase = (phraseObject) => {
-                let phraseText = phraseObject.teksti;
-                const phraseState = section.monivalinta ? state[section.id]?.[phraseObject.avainsana] : state[section.id];
-                if (phraseState?.muuttujat) {
-                    Object.entries(phraseState.muuttujat).forEach(([key, value]) => {
-                         phraseText = phraseText.replace(`[${key}]`, value || `[${key}]`);
-                    });
+            const processPhrase = (phraseObject, sectionId) => {
+                let phraseState = section.monivalinta 
+                    ? state[sectionId]?.[phraseObject.avainsana] 
+                    : state[sectionId];
+
+                // Yksittäisvalinnoissa ja erikoiskomponenteissa käytetään yleistä nimeä "Valinta"
+                let key = section.monivalinta ? `Valinta (${phraseObject.avainsana})` : 'Valinta';
+                let text = phraseState?.teksti || phraseObject.teksti;
+
+                if (phraseState?.muuttujat && Object.keys(phraseState.muuttujat).length > 0) {
+                    const variablesText = Object.entries(phraseState.muuttujat)
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join(', ');
+                    text = `${text} (${variablesText})`;
                 }
-                return phraseText;
+                // Poistetaan muuttujat, koska ne on jo lisätty sulkeisiin
+                return `${key}: ${text.replace(/\[.*?\]/g, '').trim()}`;
             };
 
-            // Erikoiskomponenttien käsittely
             if (section.id === 'tyokyky' && state.tyokyky) {
                 const s = state.tyokyky;
                 if (s.paavalinta) {
                     if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) {
-                        sectionTextParts.push(`Asiakkaalla on työkyvyn alentuma: ${s.alentumaKuvaus}`);
+                        sectionTextParts.push(`Valinta: ${s.paavalinta.teksti}`);
+                        sectionTextParts.push(`Kuvaus alentumasta: ${s.alentumaKuvaus}`);
                     } else {
-                        sectionTextParts.push(s.paavalinta.teksti);
+                        sectionTextParts.push(`Valinta: ${s.paavalinta.teksti}`);
                     }
                 }
-                if (s.omaArvio) sectionTextParts.push(`Asiakkaan oma arvio työkyvystään: ${s.omaArvio}/10.`);
+                if (s.omaArvio) sectionTextParts.push(`Oma arvio: ${s.omaArvio}/10`);
                 if (s.palveluohjaukset && Object.keys(s.palveluohjaukset).length > 0) {
-                     const ohjaukset = Object.values(s.palveluohjaukset).map(p => `- ${p.teksti}`).join('\n');
-                     sectionTextParts.push(`Palveluohjaus:\n${ohjaukset}`);
+                     const ohjaukset = Object.values(s.palveluohjaukset).map(p => p.teksti).join(', ');
+                     sectionTextParts.push(`Palveluohjaus: ${ohjaukset}`);
                  }
-                if (s.koonti) sectionTextParts.push(`Koonti työkykykeskustelusta:\n${s.koonti}`);
+                if (s.koonti) sectionTextParts.push(`Koonti keskustelusta: ${s.koonti}`);
             } 
             else if (selection) {
                 if (section.monivalinta) {
-                    Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase)));
+                    Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase, section.id)));
                 } else if (selection.teksti) {
-                    let text = processPhrase(selection);
-                    // Lisätään pitkä lopputeksti vain, jos se ei ole jo osa fraasia
-                    if (section.id === 'tyonhakuvelvollisuus' && !text.includes("Haetut paikat")) {
+                    let text = processPhrase(selection, section.id);
+                    // Lisätään pitkä lopputeksti työnhakuvelvollisuuteen
+                    if (section.id === 'tyonhakuvelvollisuus') {
                         text += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI;
                     }
                     sectionTextParts.push(text);
@@ -53,34 +63,38 @@ const Summary = ({ state }) => {
             }
 
             if (customText) {
-                sectionTextParts.push(customText);
+                sectionTextParts.push(`Lisätiedot: ${customText}`);
             }
 
             if (sectionTextParts.length > 0) {
-                textParts.push(`**${section.otsikko}**\n${sectionTextParts.join('\n')}`);
+                textParts.push(`${section.otsikko}\n${sectionTextParts.join('\n')}`);
             }
         });
-        return textParts.join('\n\n');
+        
+        if (textParts.length === 0) return '';
+        return FINGERPRINT + textParts.join('\n\n');
+
     }, [state]);
 
     const handleCopy = () => {
-        const plainText = summaryText.replace(/\*\*/g, '');
+        const plainText = summaryText.replace(FINGERPRINT, '');
         navigator.clipboard.writeText(plainText).then(() => {
             setFeedback('Kopioitu!');
             setTimeout(() => setFeedback(''), 2000);
         });
     };
+    
     return (
         <aside className="summary-sticky-container">
             <div className="summary-box">
                 <h2>Koottu suunnitelma</h2>
                 <div className="summary-content">
                     {summaryText ? (
-                        summaryText.split('\n\n').map((paragraph, pIndex) => (
+                        summaryText.replace(FINGERPRINT, '').split('\n\n').map((paragraph, pIndex) => (
                             <p key={pIndex}>
                                 {paragraph.split('\n').map((line, lIndex) => {
-                                    if (lIndex === 0 && line.startsWith('**') && line.endsWith('**')) {
-                                        return <strong key={lIndex}>{line.replace(/\*\*/g, '')}</strong>;
+                                    if (lIndex === 0) {
+                                        return <strong key={lIndex}>{line}</strong>;
                                     }
                                     return <React.Fragment key={lIndex}><br />{line}</React.Fragment>;
                                 })}
