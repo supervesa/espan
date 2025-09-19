@@ -617,3 +617,26 @@ input, select, textarea {
     display: block;
     margin-bottom: 0.25rem;
 }
+
+/* --- THV Alennustyökalu Actions --- */
+.alennus-tyokalu-actions button {
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+.alennus-tyokalu-actions .save-button {
+    background-color: var(--color-primary);
+    color: white;
+}
+.alennus-tyokalu-actions .save-button:hover {
+    background-color: var(--color-primary-hover);
+}
+.alennus-tyokalu-actions .cancel-button {
+    background-color: transparent;
+    border-color: #d1d5db;
+}
+.alennus-tyokalu-actions .cancel-button:hover {
+    background-color: #f3f4f6;
+}

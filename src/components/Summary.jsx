@@ -24,61 +24,22 @@ const Summary = ({ state }) => {
                 return text.replace(/\s*\[.*?\]/g, '').replace(/\(\s*v\.\s*\)/, '').trim();
             };
             
-            if (section.id === 'palkkatuki' && (state.suunnitelman_perustiedot?.syntymavuosi || Object.keys(state.palkkatuki || {}).length > 0)) {
-                // Kopioidaan analyysilogiikka tänne tulostusta varten
-                const palkkatukiState = state.palkkatuki || {};
-                const age = state.suunnitelman_perustiedot?.syntymavuosi ? new Date().getFullYear() - parseInt(state.suunnitelman_perustiedot.syntymavuosi.muuttujat.SYNTYMÄVUOSI, 10) : -1;
-                const tyonhakuAlkanut = state.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.PÄIVÄMÄÄRÄ;
-                let tyottomyysKuukausia = -1;
-                if (tyonhakuAlkanut) {
-                    const parts = tyonhakuAlkanut.split('.');
-                    if (parts.length > 2) {
-                        const startDate = new Date(parts[2], parts[1] - 1, parts[0]);
-                        tyottomyysKuukausia = Math.floor(((new Date() - startDate) / (1000 * 60 * 60 * 24)) / 30.44);
-                    }
-                }
-                const tyokykyStatus = state.tyokyky?.paavalinta?.avainsana?.includes('selvitys') || state.tyokyky?.paavalinta?.avainsana?.includes('alentunut') ? "Alentunut" : "Normaali";
-                const onkoTyoton = !!(state.tyotilanne?.tyoton || state.tyotilanne?.irtisanottu);
-                const eiAnsiotyossa6kk = !!state.tyotilanne?.alle_6kk_tyossa;
-                const onkoEiTutkintoa = !!state.koulutus_yrittajyys?.ei_tutkintoa;
-                const onkoOppisopimus = !!(state.koulutus_yrittajyys?.oppisopimus || palkkatukiState.onko_oppisopimus);
-                
-                let conditionsMet = [];
-                if (onkoTyoton && age >= 15 && age <= 24) conditionsMet.push("15-24-vuotias");
-                if (onkoTyoton && age >= 50) conditionsMet.push("50 vuotta täyttänyt");
-                if (onkoTyoton && onkoEiTutkintoa) conditionsMet.push("Ei toisen asteen tutkintoa");
-                if (onkoTyoton && eiAnsiotyossa6kk) conditionsMet.push("Ei ansiotyössä 6kk aikana");
-                if (tyokykyStatus === "Alentunut") conditionsMet.push("Alentunut työkyky");
-                if (onkoTyoton && age >= 60 && tyottomyysKuukausia >= 12) conditionsMet.push("60v täyttänyt pitkäaikaistyötön");
-                if (onkoOppisopimus) conditionsMet.push("Oppisopimuskoulutus");
-
-                let ehdotus = "Ei erityisiä palkkatukiehtoja täyty annettujen tietojen perusteella.";
-                if (onkoTyoton && tyottomyysKuukausia !== null && tyottomyysKuukausia >= 0) {
-                     if (tyottomyysKuukausia >= 12) ehdotus = "Ammatillisen osaamisen parantaminen (50%, max 10kk).";
-                     else ehdotus = "Ammatillisen osaamisen parantaminen (50%, max 5kk).";
-                }
-                if (conditionsMet.includes("Alentunut työkyky")) ehdotus = "Alentuneesti työkykyisen palkkatuki (70%, 10kk, jatkettavissa).";
-                else if (onkoTyoton && tyottomyysKuukausia >= 24 && palkkatukiState.tyonantaja_yhdistys) ehdotus = "100% palkkatuki yhdistykselle (100%, 10kk).";
-                else if (conditionsMet.includes("60v täyttänyt pitkäaikaistyötön")) ehdotus = "60v täyttänyt, pitkään työtön (50%, max 24kk).";
-                else if (conditionsMet.includes("Oppisopimuskoulutus")) ehdotus = "Palkkatuki oppisopimukseen (50%, koko koulutuksen ajan).";
-
-                sectionTextParts.push(`Palkkatuen arviointi: ${ehdotus}`);
-            }
-            else if (selection) {
+            // --- OSIOKOHTAINEN LOGIIKKA ---
+            if (selection) {
                 if (section.monivalinta) {
                     Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase)));
                 } else if (selection.teksti) {
                     let text = processPhrase(selection);
                     if (section.id === 'tyonhakuvelvollisuus') {
-                    const sel = state[section.id];
-                    if (sel?.alentamisenPerustelut || sel?.alentamisenVapaaTeksti) {
-                        const perustelut = Object.entries(sel.alentamisenPerustelut || {}).filter(([,v]) => v).map(([k]) => k).join(', ');
-                        let alennusTeksti = 'Työnhakuvelvollisuutta alennettu.';
-                        if (perustelut) alennusTeksti += ` Perusteet: ${perustelut}.`;
-                        if (sel.alentamisenVapaaTeksti) alennusTeksti += ` ${sel.alentamisenVapaaTeksti}`;
-                        text += 'n' + alennusTeksti;
-                    }
                         text += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI;
+                        // Lisätään myös mahdolliset alentamisen perustelut
+                        if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
+                             const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([,v]) => v).map(([k]) => k).join(', ');
+                             let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
+                             if (perustelut) alennusTeksti += ` Perusteet: ${perustelut}.`;
+                             if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
+                             text += alennusTeksti;
+                        }
                     }
                     sectionTextParts.push(text);
                 }
@@ -89,7 +50,7 @@ const Summary = ({ state }) => {
             }
 
             if (sectionTextParts.length > 0) {
-                textParts.push(`${section.otsikko}\n${sectionTextParts.join(' ')}`);
+                textParts.push(`${section.otsikko}\n${sectionTextParts.join('\n')}`);
             }
         });
         

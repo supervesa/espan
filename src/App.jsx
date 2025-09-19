@@ -20,9 +20,12 @@ const deepMerge = (target, source) => {
     const output = { ...target };
     if (target && typeof target === 'object' && source && typeof source === 'object') {
         Object.keys(source).forEach(key => {
-            if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && !source[key].teksti) {
-                if (!(key in target)) Object.assign(output, { [key]: source[key] });
-                else output[key] = deepMerge(target[key], source[key]);
+            if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+                if (!(key in target) || target[key] === null) {
+                    Object.assign(output, { [key]: source[key] });
+                } else {
+                    output[key] = deepMerge(target[key], source[key]);
+                }
             } else {
                 Object.assign(output, { [key]: source[key] });
             }
@@ -31,6 +34,7 @@ const deepMerge = (target, source) => {
     return output;
 };
 
+
 function App() {
     const [state, setState] = useState({});
 
@@ -38,11 +42,20 @@ function App() {
         setState(currentState => deepMerge(currentState, scrapedState));
     }, []);
 
-    const handleSelectPhrase = useCallback((sectionId, avainsana, isMultiSelect) => {
+    const handleSelectPhrase = useCallback((sectionId, avainsana, isMultiSelect, updatedSelection = null) => {
         setState(currentState => {
             const newState = { ...currentState };
             const section = planData.aihealueet.find(s => s.id === sectionId);
+            if (!section || !section.fraasit) return newState;
+            
             const phrase = section.fraasit.find(f => f.avainsana === avainsana);
+            if (!phrase) return newState; // Turvatarkistus
+
+            if (updatedSelection) {
+                newState[sectionId] = updatedSelection;
+                return newState;
+            }
+
             const newPhraseObject = {
                 avainsana: phrase.avainsana,
                 teksti: phrase.teksti,
@@ -53,34 +66,104 @@ function App() {
                     newPhraseObject.muuttujat[key] = config.oletus !== undefined ? config.oletus : (config.vaihtoehdot ? config.vaihtoehdot[0] : '');
                 });
             }
+
             if (isMultiSelect) {
                 const currentSelections = { ...(newState[sectionId] || {}) };
-                if (currentSelections[avainsana]) delete currentSelections[avainsana];
-                else currentSelections[avainsana] = newPhraseObject;
+                if (currentSelections[avainsana]) {
+                    delete currentSelections[avainsana];
+                } else {
+                    currentSelections[avainsana] = newPhraseObject;
+                }
                 newState[sectionId] = currentSelections;
             } else {
-                if (newState[sectionId]?.avainsana === avainsana) delete newState[sectionId];
-                else newState[sectionId] = newPhraseObject;
+                if (newState[sectionId]?.avainsana === avainsana) {
+                    delete newState[sectionId];
+                } else {
+                    newState[sectionId] = newPhraseObject;
+                }
+            }
+            return newState;
+        });
+    }, []);
+
+    const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => {
+        setState(currentState => {
+            const newState = JSON.parse(JSON.stringify(currentState));
+            const section = planData.aihealueet.find(s => s.id === sectionId);
+            if (!section) return currentState;
+            const target = section.monivalinta ? newState[sectionId]?.[avainsana] : newState[sectionId];
+            if (target) {
+                if (!target.muuttujat) target.muuttujat = {};
+                target.muuttujat[variableKey] = value;
             }
             return newState;
         });
     }, []);
     
-    // Muut handle-funktiot (ennallaan)
-    const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => { setState(currentState => { const newState = JSON.parse(JSON.stringify(currentState)); const section = planData.aihealueet.find(s => s.id === sectionId); const target = section.monivalinta ? newState[sectionId]?.[avainsana] : newState[sectionId]; if (target) { if (!target.muuttujat) target.muuttujat = {}; target.muuttujat[variableKey] = value; } return newState; }); }, []);
-    const handleUpdateCustomText = useCallback((sectionId, value) => { setState(currentState => ({ ...currentState, [`custom-${sectionId}`]: value })); }, []);
-    const handleUpdateTyokyky = useCallback((key, value) => { setState(prevState => { const newTyokykyState = { ...(prevState.tyokyky || {}) }; if (key === 'togglePalveluohjaus') { const currentOhjaukset = { ...(newTyokykyState.palveluohjaukset || {}) }; if (currentOhjaukset[value.avainsana]) delete currentOhjaukset[value.avainsana]; else currentOhjaukset[value.avainsana] = value; newTyokykyState.palveluohjaukset = currentOhjaukset; } else if (key === 'updateKeskustelutieto') { const currentTiedot = { ...(newTyokykyState.keskustelunTiedot || {}) }; currentTiedot[value.id] = value.value; newTyokykyState.keskustelunTiedot = currentTiedot; } else { newTyokykyState[key] = value; } return { ...prevState, tyokyky: newTyokykyState }; }); }, []);
-    const handleUpdatePalkkatuki = useCallback((key, value) => { setState(prevState => ({ ...prevState, palkkatuki: { ...(prevState.palkkatuki || {}), [key]: value } })); }, []);
-    const handleUpdateTyottomyysturva = useCallback((key, value) => { setState(prevState => { const newTtState = { ...(prevState.tyottomyysturva || {}) }; if (key === 'updateKysymys') { const currentAnswers = { ...(newTtState.answers || {}) }; currentAnswers[value.id] = value.value; newTtState.answers = currentAnswers; } else { newTtState[key] = value; } return { ...prevState, tyottomyysturva: newTtState }; }); }, []);
+    const handleUpdateCustomText = useCallback((sectionId, value) => {
+        setState(currentState => ({ ...currentState, [`custom-${sectionId}`]: value }));
+    }, []);
+
+    const handleUpdateTyokyky = useCallback((key, value) => {
+        setState(prevState => {
+            const newTyokykyState = { ...(prevState.tyokyky || {}) };
+            if (key === 'togglePalveluohjaus') {
+                const currentOhjaukset = { ...(newTyokykyState.palveluohjaukset || {}) };
+                if (currentOhjaukset[value.avainsana]) delete currentOhjaukset[value.avainsana];
+                else currentOhjaukset[value.avainsana] = value;
+                newTyokykyState.palveluohjaukset = currentOhjaukset;
+            } else if (key === 'updateKeskustelutieto') {
+                 const currentTiedot = { ...(newTyokykyState.keskustelunTiedot || {}) };
+                 currentTiedot[value.id] = value.value;
+                 newTyokykyState.keskustelunTiedot = currentTiedot;
+            } else {
+                newTyokykyState[key] = value;
+            }
+            return { ...prevState, tyokyky: newTyokykyState };
+        });
+    }, []);
+
+    const handleUpdatePalkkatuki = useCallback((key, value) => {
+        setState(prevState => ({
+            ...prevState,
+            palkkatuki: {
+                ...(prevState.palkkatuki || {}),
+                [key]: value
+            }
+        }));
+    }, []);
     
-    const actions = { onSelect: handleSelectPhrase, onUpdateVariable: handleUpdateVariable, onUpdateCustomText: handleUpdateCustomText, onUpdateTyokyky: handleUpdateTyokyky, onUpdatePalkkatuki: handleUpdatePalkkatuki, onUpdateTyottomyysturva: handleUpdateTyottomyysturva };
+    const handleUpdateTyottomyysturva = useCallback((key, value) => {
+        setState(prevState => {
+            const newTtState = { ...(prevState.tyottomyysturva || {}) };
+            if (key === 'updateKysymys') {
+                const currentAnswers = { ...(newTtState.answers || {}) };
+                currentAnswers[value.id] = value.value;
+                newTtState.answers = currentAnswers;
+            } else {
+                newTtState[key] = value;
+            }
+            return { ...prevState, tyottomyysturva: newTtState };
+        });
+    }, []);
+
+    const actions = { 
+        onSelect: handleSelectPhrase, 
+        onUpdateVariable: handleUpdateVariable, 
+        onUpdateCustomText: handleUpdateCustomText,
+        onUpdateTyokyky: handleUpdateTyokyky,
+        onUpdatePalkkatuki: handleUpdatePalkkatuki,
+        onUpdateTyottomyysturva: handleUpdateTyottomyysturva,
+    };
 
     return (
         <div className="app-container">
-            <header className="app-header"><h1>Työllisyyssuunnitelman rakennustyökalu</h1></header>
+            <header className="app-header">
+                <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
+            </header>
             <div className="main-grid">
-                <Scraper onScrape={handleScrape} />
                 <main className="sections-container">
+                    <Scraper onScrape={handleScrape} />
                     <SuunnitelmanTyyppi state={state} actions={actions} />
                     <Perustiedot state={state} actions={actions} />
                     <Tyottomyysturva state={state} actions={actions} />

@@ -252,3 +252,10 @@
     margin-top: 1rem;
     padding: 1rem;
 }
+
+/* --- THV Alennustyökalu Actions --- */
+.alennus-tyokalu-actions {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.5rem;
+}
