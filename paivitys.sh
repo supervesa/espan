@@ -1,265 +1,305 @@
 #!/bin/bash
 
-# Espan-projektin viimeistelyskripti Palkkatukilaskurille
-# Tämä skripti päivittää Palkkatuki-osion sen lopulliseen,
-# älykkääseen ja vakaaseen muotoon.
+# Espan-projektin päivitysskripti
+# Tämä skripti palauttaa Työnhakuvelvollisuus-osioon aiemmin
+# suunnitellut älykkäät ominaisuudet.
 
-echo "Viimeistellään Palkkatuki-osio..."
+echo "Palautetaan älykkäät ominaisuudet Työnhakuvelvollisuus-osioon..."
 
-# --- 1. KORVATAAN PalkkatukiCalculator.jsx LOPULLISELLA VERSIOLLA ---
-echo "Päivitetään src/components/sections/PalkkatukiCalculator.jsx..."
-cat <<'EOF' > src/components/sections/PalkkatukiCalculator.jsx
-import React, { useMemo } from 'react';
+# --- 1. PÄIVITETÄÄN SCRAPER LISÄÄMÄÄN EDELLISEN THV:N LUKU ---
+echo "Päivitetään src/utils/scraper.js..."
+cat <<'EOF' > src/utils/scraper.js
+import { planData } from '../data/planData';
 
-const PalkkatukiCalculator = ({ state, actions }) => {
-    const { onUpdatePalkkatuki } = actions;
-    const palkkatukiState = state.palkkatuki || {};
+const createPhraseObject = (sectionId, avainsana, muuttujat = {}) => {
+    const section = planData.aihealueet.find(s => s.id === sectionId);
+    if (!section || !section.fraasit) return null;
+    const phraseTemplate = section.fraasit.find(f => f.avainsana === avainsana);
+    if (!phraseTemplate) return null;
+    const newPhrase = { avainsana, teksti: phraseTemplate.teksti, muuttujat: {} };
+    if (phraseTemplate.muuttujat) {
+        Object.entries(phraseTemplate.muuttujat).forEach(([key, config]) => {
+            newPhrase.muuttujat[key] = muuttujat[key] || config.oletus || '';
+        });
+    }
+    return newPhrase;
+};
 
-    // --- Älykäs datanhaku muista osioista ---
-    const tyottomyysKuukausia = useMemo(() => {
-        const tyonhakuAlkanut = state.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.PÄIVÄMÄÄRÄ;
-        if (!tyonhakuAlkanut) return null;
-        const parts = tyonhakuAlkanut.split('.');
-        if (parts.length < 3) return null;
-        try {
-            const startDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-            if (isNaN(startDate.getTime())) return null;
-            const diffTime = new Date().getTime() - startDate.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            return Math.floor(diffDays / 30.44);
-        } catch(e) { return null; }
-    }, [state.suunnitelman_perustiedot]);
+export const parseTextToState = (text) => {
+    let state = {};
+    let workText = `\n${text}\n`;
 
-    const age = useMemo(() => {
-        const syntymavuosi = state.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.SYNTYMÄVUOSI;
-        if (!syntymavuosi) return -1;
-        return new Date().getFullYear() - parseInt(syntymavuosi, 10);
-    }, [state.suunnitelman_perustiedot]);
+    // Etsitään ensin edellinen THV-kirjaus
+    const thvMatch = workText.match(/(TYÖNHAKUVELVOITE:|TYÖNHAKUVELVOLLISUUS)[\s\S]*/i);
+    if (thvMatch) {
+        // Etsitään seuraava pääotsikko tai tekstin loppu
+        const subsequentText = thvMatch[0];
+        const endMatch = subsequentText.substring(1).match(/\n[A-ZÖÄÅ -]{5,}:/);
+        const thvBlock = endMatch ? subsequentText.substring(0, endMatch.index + 1) : subsequentText;
+        state.previousThvText = thvBlock.replace(/(TYÖNHAKUVELVOITE:|TYÖNHAKUVELVOLLISUUS)/i, '').trim();
+    }
 
-    const tyokykyStatus = useMemo(() => {
-        const tyokykyState = state.tyokyky || {};
-        return (tyokykyState.paavalinta?.avainsana === 'tyokyky_selvityksessa' || tyokykyState.paavalinta?.avainsana === 'tyokyky_alentunut') 
-            ? "Alentunut / Selvityksessä" 
-            : "Normaali";
-    }, [state.tyokyky]);
+    const rules = [
+        { r: /Työnhakijaksi\s+([\d.]+)/gi, a: (m,s) => { s.suunnitelman_perustiedot = {...s.suunnitelman_perustiedot, tyonhaku_alkanut: createPhraseObject('suunnitelman_perustiedot','tyonhaku_alkanut',{PÄIVÄMÄÄRÄ: m[1]})};}},
+        { r: /peruskoulutus\s+\((\d{4})\)/gi, a: (m,s) => { const year = parseInt(m[1], 10); s.suunnitelman_perustiedot = {...s.suunnitelman_perustiedot, syntymavuosi: createPhraseObject('suunnitelman_perustiedot','syntymavuosi',{SYNTYMÄVUOSI: year - 16})};}},
+        { r: /päivitetty\s+puhelimitse\s+([\d.]+)/gi, a: (m,s) => { s.suunnitelman_perustiedot = {...s.suunnitelman_perustiedot, laadittu: createPhraseObject('suunnitelman_perustiedot','laadittu',{YHTEYDENOTTOTAPA: 'puhelinajalla', PÄIVÄMÄÄRÄ: m[1]})};}},
+        { r: /lomautettu/gi, a: (m,s) => { s.tyotilanne = {...s.tyotilanne, lomautettu: createPhraseObject('tyotilanne','lomautettu')};}},
+        { r: /työtön työhakija/gi, a: (m,s) => { s.tyotilanne = {...s.tyotilanne, tyoton: createPhraseObject('tyotilanne','tyoton')};}},
+        { r: /koulutukseltaan\s+([a-zA-ZåäöÅÄÖ-]+)/gi, a: (m,s) => { s.koulutus_yrittajyys = {...s.koulutus_yrittajyys, koulutus_tausta: createPhraseObject('koulutus_yrittajyys','koulutus_tausta',{KOULUTUS: m[1]})};}},
+        { r: /pistemääräkseen\s+(\d+)/i, a: (m,s) => { s.tyokyky = {...s.tyokyky, omaArvio: m[1]};}},
+        { r: /Työnhakuvelvollisuus on (\d+)\s+kpl\/kk/gi, a: (m,s) => { s.tyonhakuvelvollisuus = createPhraseObject('tyonhakuvelvollisuus','paasaanto',{LKM: m[1], AIKAJAKSO: 'kuukaudessa'});}},
+        { r: /hakea vähintään (neljää|4)\s+työmahdollisuutta (kuukaudessa)/gi, a: (m,s) => { s.tyonhakuvelvollisuus = createPhraseObject('tyonhakuvelvollisuus','paasaanto',{LKM: 4, AIKAJAKSO: m[2]});}},
+        { r: /Työnhakuvelvoitetta ei asetettu/gi, a: (m,s) => { s.tyonhakuvelvollisuus = createPhraseObject('tyonhakuvelvollisuus','ei_velvoitetta_tyokyky');}},
+    ];
 
-    // UUDET AUTOMAATTISET TIEDOT
-    const onkoTyoton = useMemo(() => !!(state.tyotilanne?.tyoton || state.tyotilanne?.irtisanottu), [state.tyotilanne]);
-    const eiAnsiotyossa6kk = useMemo(() => !!state.tyotilanne?.alle_6kk_tyossa, [state.tyotilanne]);
-    const onkoEiTutkintoa = useMemo(() => !!state.koulutus_yrittajyys?.ei_tutkintoa, [state.koulutus_yrittajyys]);
-    const onkoOppisopimus = useMemo(() => !!state.koulutus_yrittajyys?.oppisopimus, [state.koulutus_yrittajyys]);
+    rules.forEach(rule => {
+        const matches = [...workText.matchAll(rule.r)];
+        matches.forEach(match => {
+            rule.a(match, state);
+        });
+    });
 
-    // --- UUSI SÄÄNTÖMOOTTORI JA PRIORISOINTI ---
-    const analysisResult = useMemo(() => {
-        let conditionsMet = [];
-        if (onkoTyoton && age >= 15 && age <= 24) conditionsMet.push("15-24-vuotias");
-        if (onkoTyoton && age >= 50) conditionsMet.push("50 vuotta täyttänyt");
-        if (onkoTyoton && onkoEiTutkintoa) conditionsMet.push("Ei toisen asteen tutkintoa");
-        if (onkoTyoton && eiAnsiotyossa6kk) conditionsMet.push("Ei ansiotyössä 6kk aikana");
-        if (tyokykyStatus.startsWith("Alentunut")) conditionsMet.push("Alentunut työkyky");
-        if (onkoTyoton && age >= 60 && tyottomyysKuukausia !== null && tyottomyysKuukausia >= 12) conditionsMet.push("60v täyttänyt pitkäaikaistyötön");
-        if (onkoOppisopimus || palkkatukiState.onko_oppisopimus) conditionsMet.push("Oppisopimuskoulutus");
+    return state;
+};
+EOF
+
+
+# --- 2. PÄIVITETÄÄN Tyonhakuvelvollisuus.jsx KOKONAAN ---
+echo "Päivitetään src/components/sections/Tyonhakuvelvollisuus.jsx..."
+cat <<'EOF' > src/components/sections/Tyonhakuvelvollisuus.jsx
+import React from 'react';
+import { useMemo } from 'react';
+import { planData } from '../../data/planData';
+import { PhraseOption } from '../PhraseOption';
+
+const Tyonhakuvelvollisuus = ({ state, actions }) => {
+    const sectionData = planData.aihealueet.find(s => s.id === 'tyonhakuvelvollisuus');
+    const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
+    
+    // VAIHE 1: Kontekstin kerääminen scraperin datasta
+    const previousThvText = state.previousThvText;
+
+    // VAIHE 2: Läpinäkyvä sääntömoottori
+    const analysis = useMemo(() => {
+        const tilanneAvainsanat = state.tyotilanne ? Object.keys(state.tyotilanne) : [];
+        const tyokykyAvainsana = state.tyokyky?.paavalinta?.avainsana;
+
+        let detectedConditions = [];
+        let ruleText = "Yleinen harkinta.";
+        let recommendation = null;
         
-        let ehdotus = "Ei erityisiä palkkatukiehtoja täyty annettujen tietojen perusteella.";
+        if (tilanneAvainsanat.includes('lomautettu')) detectedConditions.push("Asiakkaan työtilanne: Lomautettu");
+        else if (tilanneAvainsanat.includes('osa-aikainen')) detectedConditions.push("Asiakkaan työtilanne: Osa-aikatyössä");
+        else if (tilanneAvainsanat.includes('tyoton')) detectedConditions.push("Asiakkaan työtilanne: Työtön");
         
-        // Perusvaihtoehto, jos asiakas on työtön
-        if (onkoTyoton && tyottomyysKuukausia !== null) {
-             if (tyottomyysKuukausia >= 12) {
-                ehdotus = "Ehdotus: Ammatillisen osaamisen parantaminen (50%, max 10kk).";
-             } else {
-                ehdotus = "Ehdotus: Ammatillisen osaamisen parantaminen (50%, max 5kk).";
-             }
+        if (tyokykyAvainsana === 'tyokyky_selvityksessa' || tyokykyAvainsana === 'tyokyky_alentunut') detectedConditions.push("Työkyky: Alentunut / Selvityksessä");
+        else if (tyokykyAvainsana === 'tyokyky_normaali') detectedConditions.push("Työkyky: Normaali");
+
+        if (tilanneAvainsanat.length > 0 && tyokykyAvainsana) {
+            for (const phrase of sectionData.fraasit) {
+                if (!phrase.ehdot) continue;
+                const tyotilanneEhtoOk = phrase.ehdot.tyotilanne ? phrase.ehdot.tyotilanne.some(ehto => tilanneAvainsanat.includes(ehto)) : true;
+                const tyokykyEhtoOk = phrase.ehdot.tyokyky ? phrase.ehdot.tyokyky.includes(tyokykyAvainsana) : true;
+                if (tyotilanneEhtoOk && tyokykyEhtoOk) {
+                    recommendation = phrase;
+                    break;
+                }
+            }
         }
         
-        // Ylikirjoitetaan perusvaihtoehto, jos jokin parempi erityisehto täyttyy
-        if (conditionsMet.includes("Alentunut työkyky")) {
-            ehdotus = "Ehdotus: Alentuneesti työkykyisen palkkatuki (70%, 10kk, jatkettavissa).";
-        } else if (onkoTyoton && tyottomyysKuukausia >= 24 && palkkatukiState.tyonantaja_yhdistys) {
-            ehdotus = "Ehdotus: 100% palkkatuki yhdistykselle (100%, 10kk).";
-        } else if (conditionsMet.includes("60v täyttänyt pitkäaikaistyötön")) {
-            ehdotus = "Ehdotus: 60v täyttänyt, pitkään työtön (50%, max 24kk).";
-        } else if (conditionsMet.includes("Oppisopimuskoulutus")) {
-            ehdotus = "Ehdotus: Palkkatuki oppisopimukseen (50%, koko koulutuksen ajan).";
+        let ehdotusTeksti = "Ehdotus: Valitse manuaalinen asetus tai tarkista aiemmat valinnat.";
+        if (recommendation) {
+            if (recommendation.avainsana === 'paasaanto') {
+                ehdotusTeksti = "Ehdotus: Asetetaan palvelumallin mukainen pääsääntö.";
+                ruleText = "Asiakas on työtön ja työkyky on normaali.";
+            } else if (recommendation.avainsana === 'alennettu_osa_aikainen') {
+                 ehdotusTeksti = "Ehdotus: Asetetaan alennettu velvollisuus osa-aikatyön vuoksi.";
+                 ruleText = "Lain mukaan osa-aikatyössä olevalle voidaan asettaa alennettu velvoite.";
+            } else if (recommendation.avainsana === 'ei_velvoitetta_lomautus') {
+                ehdotusTeksti = "Ehdotus: Ei aseteta työnhakuvelvoitetta.";
+                ruleText = "Lain mukaan lomautetulle ei aseteta työnhakuvelvoitetta ensimmäisen kolmen kuukauden aikana.";
+            } else if (recommendation.avainsana === 'ei_velvoitetta_tyokyky') {
+                ehdotusTeksti = "Ehdotus: Ei aseteta työnhakuvelvoitetta.";
+                ruleText = "Työkyvyn selvittäminen on peruste jättää velvoite asettamatta.";
+            }
         }
-        
-        return { conditionsMet, ehdotus };
-    }, [palkkatukiState, tyokykyStatus, tyottomyysKuukausia, age, onkoTyoton, eiAnsiotyossa6kk, onkoEiTutkintoa, onkoOppisopimus]);
+
+        return {
+            conditions: detectedConditions,
+            ruleText,
+            proposalText: ehdotusTeksti,
+            recommendedKeyword: recommendation ? recommendation.avainsana : null
+        };
+
+    }, [state.tyotilanne, state.tyokyky, sectionData.fraasit]);
 
     return (
         <section className="section-container">
-            <h2 className="section-title">Palkkatuki</h2>
-            <div className="info-box">
-                <h3>Automaattisesti haetut tiedot:</h3>
-                <p><b>Asiakkaan ikä:</b> {age !== -1 ? `${age} v` : 'Ei määritetty'}</p>
-                <p><b>Työttömyyden kesto:</b> {tyottomyysKuukausia !== null ? `${tyottomyysKuukausia} kk` : 'Ei määritetty'}</p>
-                <p><b>Työkyky:</b> {tyokykyStatus}</p>
-                <p><b>Onko työtön työnhakija:</b> {onkoTyoton ? 'Kyllä' : 'Ei'}</p>
-                <p><b>Ei ansiotyössä 6kk aikana:</b> {eiAnsiotyossa6kk ? 'Kyllä' : 'Ei'}</p>
-                <p><b>Ei toisen asteen tutkintoa:</b> {onkoEiTutkintoa ? 'Kyllä' : 'Ei'}</p>
-                <p><b>On oppisopimuksessa:</b> {onkoOppisopimus ? 'Kyllä' : 'Ei'}</p>
-            </div>
-            <div className="questions-container">
-                <h3>Tarkentavat kysymykset:</h3>
-                 <div>
-                    <label>Onko työnantaja yhdistys/säätiö/uskonnollinen yhdyskunta?</label>
-                    <div className="boolean-buttons">
-                        <button onClick={() => onUpdatePalkkatuki('tyonantaja_yhdistys', true)} className={palkkatukiState.tyonantaja_yhdistys === true ? 'selected' : ''}>Kyllä</button>
-                        <button onClick={() => onUpdatePalkkatuki('tyonantaja_yhdistys', false)} className={palkkatukiState.tyonantaja_yhdistys === false ? 'selected' : ''}>Ei</button>
-                    </div>
+            <h2 className="section-title">{sectionData.otsikko}</h2>
+            
+            {previousThvText && (
+                <div className="context-box">
+                    <h3>Edellisessä suunnitelmassa asetettu:</h3>
+                    <p>{previousThvText}</p>
                 </div>
-                 {!onkoOppisopimus && (
-                    <div>
-                        <label>Onko kyseessä oppisopimus (jos ei valittu aiemmin)?</label>
-                        <div className="boolean-buttons">
-                            <button onClick={() => onUpdatePalkkatuki('onko_oppisopimus', true)} className={palkkatukiState.onko_oppisopimus === true ? 'selected' : ''}>Kyllä</button>
-                            <button onClick={() => onUpdatePalkkatuki('onko_oppisopimus', false)} className={palkkatukiState.onko_oppisopimus === false ? 'selected' : ''}>Ei</button>
-                        </div>
-                    </div>
-                 )}
+            )}
+
+            <div className="analysis-box">
+                <div className="analysis-header">Analyysi ja ehdotus</div>
+                <div className="analysis-content">
+                    {analysis.conditions.length > 0 && (
+                        <>
+                            <h4>Havaittu tila:</h4>
+                            <ul>{analysis.conditions.map((cond, i) => <li key={i}>{cond}</li>)}</ul>
+                        </>
+                    )}
+                    <h4>Sovellettu sääntö:</h4>
+                    <p><i>{analysis.ruleText}</i></p>
+                    <p className="ehdotus">{analysis.proposalText}</p>
+                </div>
             </div>
-             <div className="analysis-container">
-                <h3>Analyysin tulos:</h3>
-                {analysisResult.conditionsMet.length > 0 ? <ul>{analysisResult.conditionsMet.map(c => <li key={c}>{c}</li>)}</ul> : <p>Perustuu yleisiin ehtoihin.</p>}
-                <p className="ehdotus">{analysisResult.ehdotus}</p>
+
+            <div className="options-container">
+                {sectionData.fraasit.map(phrase => {
+                    const isSelected = state[sectionData.id]?.avainsana === phrase.avainsana;
+                    return <PhraseOption 
+                        key={phrase.avainsana}
+                        phrase={phrase} 
+                        section={sectionData} 
+                        isSelected={isSelected} 
+                        onSelect={onSelect} 
+                        onUpdateVariable={onUpdateVariable} 
+                        isRecommended={phrase.avainsana === analysis.recommendedKeyword}
+                    />;
+                })}
+            </div>
+
+            <div className="custom-text-container">
+                <label htmlFor={`custom-text-${sectionData.id}`}>Lisätiedot tai omat muotoilut:</label>
+                <textarea 
+                    id={`custom-text-${sectionData.id}`} 
+                    rows="3" 
+                    placeholder="Kirjoita tähän vapaata tekstiä..." 
+                    value={state[`custom-${sectionData.id}`] || ''} 
+                    onChange={(e) => onUpdateCustomText(sectionData.id, e.target.value)} 
+                />
             </div>
         </section>
     );
 };
-export default PalkkatukiCalculator;
+
+export default Tyonhakuvelvollisuus;
 EOF
 
-# --- 2. PÄIVITETÄÄN Summary.jsx VASTAAMAAN UUTTA LOGIIKKAA ---
-echo "Päivitetään src/components/Summary.jsx..."
-rm -f src/components/Summary.jsx
-cat <<'EOF' > src/components/Summary.jsx
-import React, { useState, useMemo } from 'react';
-import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
 
-const FINGERPRINT = '\u200B\u200D\u200C'; // Näkymätön sormenjälki
+# --- 3. PÄIVITETÄÄN App.jsx ---
+echo "Päivitetään src/App.jsx käsittelemään scraperin uutta dataa..."
+# Poistetaan vanha handleScrape ja lisätään uusi, joka osaa käsitellä `previousThvText`-tietoa.
+# Tämä on turvallisin tapa varmistaa, että funktio on oikeassa muodossa.
+rm -f src/App.jsx
+cat <<'EOF' > src/App.jsx
+import React, { useState, useCallback } from 'react';
+import Summary from './components/Summary';
+import Scraper from './components/Scraper';
+import SuunnitelmanTyyppi from './components/sections/SuunnitelmanTyyppi';
+import Perustiedot from './components/sections/Perustiedot';
+import Tyottomyysturva from './components/sections/Tyottomyysturva';
+import Tyotilanne from './components/sections/Tyotilanne';
+import KoulutusJaYrittajyys from './components/sections/KoulutusJaYrittajyys';
+import Tyokyky from './components/sections/Tyokyky';
+import PalkkatukiCalculator from './components/sections/PalkkatukiCalculator';
+import Palveluunohjaus from './components/sections/Palveluunohjaus';
+import Suunnitelma from './components/sections/Suunnitelma';
+import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
+import AiAnalyysi from './components/AiAnalyysi';
+import { planData } from './data/planData';
+import './styles/rakenteet.css';
+import './styles/tyylit.css';
 
-const Summary = ({ state }) => {
-    const [feedback, setFeedback] = useState('');
-    
-    const summaryText = useMemo(() => {
-        let textParts = [];
-        planData.aihealueet.forEach(section => {
-            const selection = state[section.id];
-            const customText = state[`custom-${section.id}`];
-            let sectionTextParts = [];
-            
-            const processPhrase = (phraseObject) => {
-                let text = phraseObject.teksti;
-                const phraseState = section.monivalinta ? selection?.[phraseObject.avainsana] : selection;
-                if (phraseState?.muuttujat) {
-                    Object.entries(phraseState.muuttujat).forEach(([key, value]) => {
-                        text = text.replace(`[${key}]`, value || '');
-                    });
-                }
-                return text.replace(/\s*\[.*?\]/g, '').replace(/\(\s*v\.\s*\)/, '').trim();
-            };
-            
-            if (section.id === 'palkkatuki' && (state.suunnitelman_perustiedot?.syntymavuosi || Object.keys(state.palkkatuki || {}).length > 0)) {
-                // Kopioidaan analyysilogiikka tänne tulostusta varten
-                const palkkatukiState = state.palkkatuki || {};
-                const age = state.suunnitelman_perustiedot?.syntymavuosi ? new Date().getFullYear() - parseInt(state.suunnitelman_perustiedot.syntymavuosi.muuttujat.SYNTYMÄVUOSI, 10) : -1;
-                const tyonhakuAlkanut = state.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.PÄIVÄMÄÄRÄ;
-                let tyottomyysKuukausia = -1;
-                if (tyonhakuAlkanut) {
-                    const parts = tyonhakuAlkanut.split('.');
-                    if (parts.length > 2) {
-                        const startDate = new Date(parts[2], parts[1] - 1, parts[0]);
-                        tyottomyysKuukausia = Math.floor(((new Date() - startDate) / (1000 * 60 * 60 * 24)) / 30.44);
-                    }
-                }
-                const tyokykyStatus = state.tyokyky?.paavalinta?.avainsana?.includes('selvitys') || state.tyokyky?.paavalinta?.avainsana?.includes('alentunut') ? "Alentunut" : "Normaali";
-                const onkoTyoton = !!(state.tyotilanne?.tyoton || state.tyotilanne?.irtisanottu);
-                const eiAnsiotyossa6kk = !!state.tyotilanne?.alle_6kk_tyossa;
-                const onkoEiTutkintoa = !!state.koulutus_yrittajyys?.ei_tutkintoa;
-                const onkoOppisopimus = !!(state.koulutus_yrittajyys?.oppisopimus || palkkatukiState.onko_oppisopimus);
-                
-                let conditionsMet = [];
-                if (onkoTyoton && age >= 15 && age <= 24) conditionsMet.push("15-24-vuotias");
-                if (onkoTyoton && age >= 50) conditionsMet.push("50 vuotta täyttänyt");
-                if (onkoTyoton && onkoEiTutkintoa) conditionsMet.push("Ei toisen asteen tutkintoa");
-                if (onkoTyoton && eiAnsiotyossa6kk) conditionsMet.push("Ei ansiotyössä 6kk aikana");
-                if (tyokykyStatus === "Alentunut") conditionsMet.push("Alentunut työkyky");
-                if (onkoTyoton && age >= 60 && tyottomyysKuukausia >= 12) conditionsMet.push("60v täyttänyt pitkäaikaistyötön");
-                if (onkoOppisopimus) conditionsMet.push("Oppisopimuskoulutus");
-
-                let ehdotus = "Ei erityisiä palkkatukiehtoja täyty annettujen tietojen perusteella.";
-                if (onkoTyoton && tyottomyysKuukausia !== null && tyottomyysKuukausia >= 0) {
-                     if (tyottomyysKuukausia >= 12) ehdotus = "Ammatillisen osaamisen parantaminen (50%, max 10kk).";
-                     else ehdotus = "Ammatillisen osaamisen parantaminen (50%, max 5kk).";
-                }
-                if (conditionsMet.includes("Alentunut työkyky")) ehdotus = "Alentuneesti työkykyisen palkkatuki (70%, 10kk, jatkettavissa).";
-                else if (onkoTyoton && tyottomyysKuukausia >= 24 && palkkatukiState.tyonantaja_yhdistys) ehdotus = "100% palkkatuki yhdistykselle (100%, 10kk).";
-                else if (conditionsMet.includes("60v täyttänyt pitkäaikaistyötön")) ehdotus = "60v täyttänyt, pitkään työtön (50%, max 24kk).";
-                else if (conditionsMet.includes("Oppisopimuskoulutus")) ehdotus = "Palkkatuki oppisopimukseen (50%, koko koulutuksen ajan).";
-
-                sectionTextParts.push(`Palkkatuen arviointi: ${ehdotus}`);
-            }
-            else if (selection) {
-                if (section.monivalinta) {
-                    Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase)));
-                } else if (selection.teksti) {
-                    let text = processPhrase(selection);
-                    if (section.id === 'tyonhakuvelvollisuus') {
-                        text += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI;
-                    }
-                    sectionTextParts.push(text);
-                }
-            }
-
-            if (customText) {
-                sectionTextParts.push(customText);
-            }
-
-            if (sectionTextParts.length > 0) {
-                textParts.push(`${section.otsikko}\n${sectionTextParts.join(' ')}`);
+const deepMerge = (target, source) => {
+    const output = { ...target };
+    if (target && typeof target === 'object' && source && typeof source === 'object') {
+        Object.keys(source).forEach(key => {
+            if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && !source[key].teksti) {
+                if (!(key in target)) Object.assign(output, { [key]: source[key] });
+                else output[key] = deepMerge(target[key], source[key]);
+            } else {
+                Object.assign(output, { [key]: source[key] });
             }
         });
-        
-        if (textParts.length === 0) return '';
-        return FINGERPRINT + textParts.join('\n\n');
-
-    }, [state]);
-
-    const handleCopy = () => {
-        const plainText = summaryText.replace(FINGERPRINT, '');
-        navigator.clipboard.writeText(plainText).then(() => {
-            setFeedback('Kopioitu!');
-            setTimeout(() => setFeedback(''), 2000);
-        });
-    };
-    
-    return (
-        <aside className="summary-sticky-container">
-            <div className="summary-box">
-                <h2>Koottu suunnitelma</h2>
-                <div className="summary-content">
-                    {summaryText ? (
-                        summaryText.replace(FINGERPRINT, '').split('\n\n').map((paragraph, pIndex) => (
-                            <p key={pIndex}>
-                                {paragraph.split('\n').map((line, lIndex) => {
-                                    if (lIndex === 0) {
-                                        return <strong key={lIndex}>{line}</strong>;
-                                    }
-                                    return <React.Fragment key={lIndex}><br />{line}</React.Fragment>;
-                                })}
-                            </p>
-                        ))
-                    ) : (
-                        <p>Valitse osioita aloittaaksesi...</p>
-                    )}
-                </div>
-                <button onClick={handleCopy} className="copy-button" disabled={!summaryText}>Kopioi leikepöydälle</button>
-                <p className="feedback-text">{feedback}</p>
-            </div>
-        </aside>
-    );
+    }
+    return output;
 };
-export default Summary;
+
+function App() {
+    const [state, setState] = useState({});
+
+    const handleScrape = useCallback((scrapedState) => {
+        setState(currentState => deepMerge(currentState, scrapedState));
+    }, []);
+
+    const handleSelectPhrase = useCallback((sectionId, avainsana, isMultiSelect) => {
+        setState(currentState => {
+            const newState = { ...currentState };
+            const section = planData.aihealueet.find(s => s.id === sectionId);
+            const phrase = section.fraasit.find(f => f.avainsana === avainsana);
+            const newPhraseObject = {
+                avainsana: phrase.avainsana,
+                teksti: phrase.teksti,
+                muuttujat: {},
+            };
+            if (phrase.muuttujat) {
+                Object.entries(phrase.muuttujat).forEach(([key, config]) => {
+                    newPhraseObject.muuttujat[key] = config.oletus !== undefined ? config.oletus : (config.vaihtoehdot ? config.vaihtoehdot[0] : '');
+                });
+            }
+            if (isMultiSelect) {
+                const currentSelections = { ...(newState[sectionId] || {}) };
+                if (currentSelections[avainsana]) delete currentSelections[avainsana];
+                else currentSelections[avainsana] = newPhraseObject;
+                newState[sectionId] = currentSelections;
+            } else {
+                if (newState[sectionId]?.avainsana === avainsana) delete newState[sectionId];
+                else newState[sectionId] = newPhraseObject;
+            }
+            return newState;
+        });
+    }, []);
+    
+    // Muut handle-funktiot (ennallaan)
+    const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => { setState(currentState => { const newState = JSON.parse(JSON.stringify(currentState)); const section = planData.aihealueet.find(s => s.id === sectionId); const target = section.monivalinta ? newState[sectionId]?.[avainsana] : newState[sectionId]; if (target) { if (!target.muuttujat) target.muuttujat = {}; target.muuttujat[variableKey] = value; } return newState; }); }, []);
+    const handleUpdateCustomText = useCallback((sectionId, value) => { setState(currentState => ({ ...currentState, [`custom-${sectionId}`]: value })); }, []);
+    const handleUpdateTyokyky = useCallback((key, value) => { setState(prevState => { const newTyokykyState = { ...(prevState.tyokyky || {}) }; if (key === 'togglePalveluohjaus') { const currentOhjaukset = { ...(newTyokykyState.palveluohjaukset || {}) }; if (currentOhjaukset[value.avainsana]) delete currentOhjaukset[value.avainsana]; else currentOhjaukset[value.avainsana] = value; newTyokykyState.palveluohjaukset = currentOhjaukset; } else if (key === 'updateKeskustelutieto') { const currentTiedot = { ...(newTyokykyState.keskustelunTiedot || {}) }; currentTiedot[value.id] = value.value; newTyokykyState.keskustelunTiedot = currentTiedot; } else { newTyokykyState[key] = value; } return { ...prevState, tyokyky: newTyokykyState }; }); }, []);
+    const handleUpdatePalkkatuki = useCallback((key, value) => { setState(prevState => ({ ...prevState, palkkatuki: { ...(prevState.palkkatuki || {}), [key]: value } })); }, []);
+    const handleUpdateTyottomyysturva = useCallback((key, value) => { setState(prevState => { const newTtState = { ...(prevState.tyottomyysturva || {}) }; if (key === 'updateKysymys') { const currentAnswers = { ...(newTtState.answers || {}) }; currentAnswers[value.id] = value.value; newTtState.answers = currentAnswers; } else { newTtState[key] = value; } return { ...prevState, tyottomyysturva: newTtState }; }); }, []);
+    
+    const actions = { onSelect: handleSelectPhrase, onUpdateVariable: handleUpdateVariable, onUpdateCustomText: handleUpdateCustomText, onUpdateTyokyky: handleUpdateTyokyky, onUpdatePalkkatuki: handleUpdatePalkkatuki, onUpdateTyottomyysturva: handleUpdateTyottomyysturva };
+
+    return (
+        <div className="app-container">
+            <header className="app-header"><h1>Työllisyyssuunnitelman rakennustyökalu</h1></header>
+            <div className="main-grid">
+                <Scraper onScrape={handleScrape} />
+                <main className="sections-container">
+                    <SuunnitelmanTyyppi state={state} actions={actions} />
+                    <Perustiedot state={state} actions={actions} />
+                    <Tyottomyysturva state={state} actions={actions} />
+                    <Tyotilanne state={state} actions={actions} />
+                    <KoulutusJaYrittajyys state={state} actions={actions} />
+                    <Tyokyky state={state} actions={actions} />
+                    <PalkkatukiCalculator state={state} actions={actions} />
+                    <Palveluunohjaus state={state} actions={actions} />
+                    <Suunnitelma state={state} actions={actions} />
+                    <Tyonhakuvelvollisuus state={state} actions={actions} />
+                    <AiAnalyysi state={state} actions={actions} />
+                </main>
+                <Summary state={state} />
+            </div>
+        </div>
+    );
+}
+export default App;
 EOF
 
-echo "Korjaus valmis! Palkkatuki-laskuri on päivitetty vastaamaan yksityiskohtaisia sääntöjä."
+echo "Päivitys valmis! Työnhakuvelvollisuus-osio on nyt päivitetty."
 echo "Voit käynnistää sovelluksen komennolla: npm run dev"

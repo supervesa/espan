@@ -70,6 +70,14 @@ const Summary = ({ state }) => {
                 } else if (selection.teksti) {
                     let text = processPhrase(selection);
                     if (section.id === 'tyonhakuvelvollisuus') {
+                    const sel = state[section.id];
+                    if (sel?.alentamisenPerustelut || sel?.alentamisenVapaaTeksti) {
+                        const perustelut = Object.entries(sel.alentamisenPerustelut || {}).filter(([,v]) => v).map(([k]) => k).join(', ');
+                        let alennusTeksti = 'Työnhakuvelvollisuutta alennettu.';
+                        if (perustelut) alennusTeksti += ` Perusteet: ${perustelut}.`;
+                        if (sel.alentamisenVapaaTeksti) alennusTeksti += ` ${sel.alentamisenVapaaTeksti}`;
+                        text += 'n' + alennusTeksti;
+                    }
                         text += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI;
                     }
                     sectionTextParts.push(text);

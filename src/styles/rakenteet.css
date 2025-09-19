@@ -209,3 +209,46 @@
 .suggestions-container li button {
     padding: 0.125rem 0.5rem;
 }
+
+/* --- THV-osion lisäykset --- */
+.context-box, .discretion-box, .next-steps-box {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    border-radius: 0.5rem;
+}
+
+.analysis-content h4, .discretion-box h4, .next-steps-box h4 {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.discretion-box p {
+    margin-bottom: 0.75rem;
+}
+
+.next-steps-box ul {
+    list-style-position: inside;
+    list-style-type: disc;
+    padding-left: 0.5rem;
+}
+
+/* --- THV Alennustyökalu --- */
+.alennus-nappi-container {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+}
+.alennus-tyokalu {
+    margin-top: 1rem;
+    padding: 1.5rem;
+}
+.perustelut-valinnat {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+.esikatselu-laatikko {
+    margin-top: 1rem;
+    padding: 1rem;
+}

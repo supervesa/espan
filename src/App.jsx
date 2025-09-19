@@ -11,20 +11,18 @@ import PalkkatukiCalculator from './components/sections/PalkkatukiCalculator';
 import Palveluunohjaus from './components/sections/Palveluunohjaus';
 import Suunnitelma from './components/sections/Suunnitelma';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
+import AiAnalyysi from './components/AiAnalyysi';
 import { planData } from './data/planData';
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
 
-// Apufunktio tilojen syväyhdistämiseen
 const deepMerge = (target, source) => {
     const output = { ...target };
     if (target && typeof target === 'object' && source && typeof source === 'object') {
         Object.keys(source).forEach(key => {
             if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && !source[key].teksti) {
-                if (!(key in target))
-                    Object.assign(output, { [key]: source[key] });
-                else
-                    output[key] = deepMerge(target[key], source[key]);
+                if (!(key in target)) Object.assign(output, { [key]: source[key] });
+                else output[key] = deepMerge(target[key], source[key]);
             } else {
                 Object.assign(output, { [key]: source[key] });
             }
@@ -32,7 +30,6 @@ const deepMerge = (target, source) => {
     }
     return output;
 };
-
 
 function App() {
     const [state, setState] = useState({});
@@ -68,82 +65,19 @@ function App() {
             return newState;
         });
     }, []);
-
-    const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => {
-        setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            const section = planData.aihealueet.find(s => s.id === sectionId);
-            const target = section.monivalinta ? newState[sectionId]?.[avainsana] : newState[sectionId];
-            if (target) {
-                if (!target.muuttujat) target.muuttujat = {};
-                target.muuttujat[variableKey] = value;
-            }
-            return newState;
-        });
-    }, []);
     
-    const handleUpdateCustomText = useCallback((sectionId, value) => {
-        setState(currentState => ({ ...currentState, [`custom-${sectionId}`]: value }));
-    }, []);
-
-    const handleUpdateTyokyky = useCallback((key, value) => {
-        setState(prevState => {
-            const newTyokykyState = { ...(prevState.tyokyky || {}) };
-            if (key === 'togglePalveluohjaus') {
-                const currentOhjaukset = { ...(newTyokykyState.palveluohjaukset || {}) };
-                if (currentOhjaukset[value.avainsana]) delete currentOhjaukset[value.avainsana];
-                else currentOhjaukset[value.avainsana] = value;
-                newTyokykyState.palveluohjaukset = currentOhjaukset;
-            } else if (key === 'updateKeskustelutieto') {
-                 const currentTiedot = { ...(newTyokykyState.keskustelunTiedot || {}) };
-                 currentTiedot[value.id] = value.value;
-                 newTyokykyState.keskustelunTiedot = currentTiedot;
-            } else {
-                newTyokykyState[key] = value;
-            }
-            return { ...prevState, tyokyky: newTyokykyState };
-        });
-    }, []);
-
-    const handleUpdatePalkkatuki = useCallback((key, value) => {
-        setState(prevState => ({
-            ...prevState,
-            palkkatuki: {
-                ...(prevState.palkkatuki || {}),
-                [key]: value
-            }
-        }));
-    }, []);
+    // Muut handle-funktiot (ennallaan)
+    const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => { setState(currentState => { const newState = JSON.parse(JSON.stringify(currentState)); const section = planData.aihealueet.find(s => s.id === sectionId); const target = section.monivalinta ? newState[sectionId]?.[avainsana] : newState[sectionId]; if (target) { if (!target.muuttujat) target.muuttujat = {}; target.muuttujat[variableKey] = value; } return newState; }); }, []);
+    const handleUpdateCustomText = useCallback((sectionId, value) => { setState(currentState => ({ ...currentState, [`custom-${sectionId}`]: value })); }, []);
+    const handleUpdateTyokyky = useCallback((key, value) => { setState(prevState => { const newTyokykyState = { ...(prevState.tyokyky || {}) }; if (key === 'togglePalveluohjaus') { const currentOhjaukset = { ...(newTyokykyState.palveluohjaukset || {}) }; if (currentOhjaukset[value.avainsana]) delete currentOhjaukset[value.avainsana]; else currentOhjaukset[value.avainsana] = value; newTyokykyState.palveluohjaukset = currentOhjaukset; } else if (key === 'updateKeskustelutieto') { const currentTiedot = { ...(newTyokykyState.keskustelunTiedot || {}) }; currentTiedot[value.id] = value.value; newTyokykyState.keskustelunTiedot = currentTiedot; } else { newTyokykyState[key] = value; } return { ...prevState, tyokyky: newTyokykyState }; }); }, []);
+    const handleUpdatePalkkatuki = useCallback((key, value) => { setState(prevState => ({ ...prevState, palkkatuki: { ...(prevState.palkkatuki || {}), [key]: value } })); }, []);
+    const handleUpdateTyottomyysturva = useCallback((key, value) => { setState(prevState => { const newTtState = { ...(prevState.tyottomyysturva || {}) }; if (key === 'updateKysymys') { const currentAnswers = { ...(newTtState.answers || {}) }; currentAnswers[value.id] = value.value; newTtState.answers = currentAnswers; } else { newTtState[key] = value; } return { ...prevState, tyottomyysturva: newTtState }; }); }, []);
     
-    const handleUpdateTyottomyysturva = useCallback((key, value) => {
-        setState(prevState => {
-            const newTtState = { ...(prevState.tyottomyysturva || {}) };
-            if (key === 'updateKysymys') {
-                const currentAnswers = { ...(newTtState.answers || {}) };
-                currentAnswers[value.id] = value.value;
-                newTtState.answers = currentAnswers;
-            } else {
-                newTtState[key] = value;
-            }
-            return { ...prevState, tyottomyysturva: newTtState };
-        });
-    }, []);
-
-    const actions = { 
-        onSelect: handleSelectPhrase, 
-        onUpdateVariable: handleUpdateVariable, 
-        onUpdateCustomText: handleUpdateCustomText,
-        onUpdateTyokyky: handleUpdateTyokyky,
-        onUpdatePalkkatuki: handleUpdatePalkkatuki,
-        onUpdateTyottomyysturva: handleUpdateTyottomyysturva,
-    };
+    const actions = { onSelect: handleSelectPhrase, onUpdateVariable: handleUpdateVariable, onUpdateCustomText: handleUpdateCustomText, onUpdateTyokyky: handleUpdateTyokyky, onUpdatePalkkatuki: handleUpdatePalkkatuki, onUpdateTyottomyysturva: handleUpdateTyottomyysturva };
 
     return (
         <div className="app-container">
-            <header className="app-header">
-                <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
-                <p>Valitse sopivat vaihtoehdot ja lisää omaa tekstiä rakentaaksesi suunnitelman.</p>
-            </header>
+            <header className="app-header"><h1>Työllisyyssuunnitelman rakennustyökalu</h1></header>
             <div className="main-grid">
                 <Scraper onScrape={handleScrape} />
                 <main className="sections-container">
@@ -157,6 +91,7 @@ function App() {
                     <Palveluunohjaus state={state} actions={actions} />
                     <Suunnitelma state={state} actions={actions} />
                     <Tyonhakuvelvollisuus state={state} actions={actions} />
+                    <AiAnalyysi state={state} actions={actions} />
                 </main>
                 <Summary state={state} />
             </div>
