@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { planData } from '../../data/planData';
 import { PhraseOption } from '../PhraseOption';
 
@@ -27,6 +27,7 @@ const Alennustyokalu = ({ sectionData, selection, onUpdate, onCancel }) => {
         const valitut = Object.entries(perustelut).filter(([, valittu]) => valittu).map(([key]) => key);
         let teksti = '';
         if (valitut.length > 0) {
+            // Muotoilu: "Perusteet: [perustelu1], [perustelu2]."
             teksti += `Perusteet: ${valitut.join(', ')}.`;
         }
         if (vapaaTeksti) {
@@ -68,63 +69,82 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
     const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
     const [alennusToolVisible, setAlennusToolVisible] = useState(false);
     
-    // VAIHE 1: Kontekstin kerääminen scraperin datasta
     const previousThvText = state.previousThvText;
     const selection = state[sectionData.id];
 
-    // VAIHE 2: Läpinäkyvä sääntömoottori
+    // UUSI SÄÄNTÖMOOTTORI PRIORITEETILLA JA DATAVEToisilla selitteillä
     const analysis = useMemo(() => {
-        const tilanneAvainsanat = state.tyotilanne ? Object.keys(state.tyotilanne) : [];
+        const tilanneAvainsanat = state.tyotilanne ? Object.keys(state.tyotilanne).filter(key => state.tyotilanne[key]) : [];
         const tyokykyAvainsana = state.tyokyky?.paavalinta?.avainsana;
 
-        let detectedConditions = [];
-        let ruleText = "Yleinen harkinta.";
-        let recommendation = null;
-        
-        if (tilanneAvainsanat.includes('lomautettu')) detectedConditions.push("Asiakkaan työtilanne: Lomautettu");
-        else if (tilanneAvainsanat.includes('osa-aikainen')) detectedConditions.push("Asiakkaan työtilanne: Osa-aikatyössä");
-        else if (tilanneAvainsanat.includes('tyoton')) detectedConditions.push("Asiakkaan työtilanne: Työtön");
-        
-        if (tyokykyAvainsana === 'tyokyky_selvityksessa' || tyokykyAvainsana === 'tyokyky_alentunut') detectedConditions.push("Työkyky: Alentunut / Selvityksessä");
-        else if (tyokykyAvainsana === 'tyokyky_normaali') detectedConditions.push("Työkyky: Normaali");
+        const findRecommendation = () => {
+            if (tilanneAvainsanat.length === 0 && !tyokykyAvainsana) return null;
 
-        if (tilanneAvainsanat.length > 0 && tyokykyAvainsana) {
-            for (const phrase of sectionData.fraasit) {
+            // Prioriteettijärjestys: vahvin sääntö ensin
+            const priorityOrder = [
+                "ei_velvoitetta_lomautus", 
+                "ei_velvoitetta_palvelu",
+                "alennettu_osa_aikainen",
+                "ei_velvoitetta_tyokyky",
+                "paasaanto"
+            ];
+            
+            const sortedPhrases = [...sectionData.fraasit].sort((a, b) => {
+                const aIndex = priorityOrder.indexOf(a.avainsana);
+                const bIndex = priorityOrder.indexOf(b.avainsana);
+                // Jos ei löydy, pidetään lopussa
+                if (aIndex === -1) return 1;
+                if (bIndex === -1) return -1;
+                return aIndex - bIndex;
+            });
+
+            for (const phrase of sortedPhrases) {
                 if (!phrase.ehdot) continue;
-                const tyotilanneEhtoOk = phrase.ehdot.tyotilanne ? phrase.ehdot.tyotilanne.some(ehto => tilanneAvainsanat.includes(ehto)) : true;
-                const tyokykyEhtoOk = phrase.ehdot.tyokyky ? phrase.ehdot.tyokyky.includes(tyokykyAvainsana) : true;
+
+                const tyotilanneEhtoOk = phrase.ehdot.tyotilanne 
+                    ? phrase.ehdot.tyotilanne.some(ehto => tilanneAvainsanat.includes(ehto)) 
+                    : true;
+
+                const tyokykyEhtoOk = phrase.ehdot.tyokyky 
+                    ? phrase.ehdot.tyokyky.includes(tyokykyAvainsana) 
+                    : true;
+
                 if (tyotilanneEhtoOk && tyokykyEhtoOk) {
-                    recommendation = phrase;
-                    break;
+                    return phrase;
                 }
             }
-        }
+            return null;
+        };
+
+        const recommendation = findRecommendation();
         
-        let ehdotusTeksti = "Ehdotus: Valitse manuaalinen asetus tai tarkista aiemmat valinnat.";
-        if (recommendation) {
-            if (recommendation.avainsana === 'paasaanto') {
-                ehdotusTeksti = "Ehdotus: Asetetaan palvelumallin mukainen pääsääntö.";
-                ruleText = "Asiakas on työtön ja työkyky on normaali.";
-            } else if (recommendation.avainsana === 'alennettu_osa_aikainen') {
-                 ehdotusTeksti = "Ehdotus: Asetetaan alennettu velvollisuus osa-aikatyön vuoksi.";
-                 ruleText = "Lain mukaan osa-aikatyössä olevalle voidaan asettaa alennettu velvoite.";
-            } else if (recommendation.avainsana === 'ei_velvoitetta_lomautus') {
-                ehdotusTeksti = "Ehdotus: Ei aseteta työnhakuvelvoitetta.";
-                ruleText = "Lain mukaan lomautetulle ei aseteta työnhakuvelvoitetta ensimmäisen kolmen kuukauden aikana.";
-            } else if (recommendation.avainsana === 'ei_velvoitetta_tyokyky') {
-                ehdotusTeksti = "Ehdotus: Ei aseteta työnhakuvelvoitetta.";
-                ruleText = "Työkyvyn selvittäminen on peruste jättää velvoite asettamatta.";
-            }
-        }
+        const detectedConditions = [];
+        if (tilanneAvainsanat.length > 0) detectedConditions.push(`Asiakkaan työtilanne: ${tilanneAvainsanat.join(', ')}`);
+        if (tyokykyAvainsana) detectedConditions.push(`Työkyky: ${tyokykyAvainsana.replace('tyokyky_', '')}`);
 
         return {
             conditions: detectedConditions,
-            ruleText,
-            proposalText: ehdotusTeksti,
-            recommendedKeyword: recommendation ? recommendation.avainsana : null
+            ruleText: recommendation?.selite || "Ei automaattista sääntöä. Valitse manuaalisesti.",
+            proposalText: recommendation ? `Ehdotus: ${recommendation.lyhenne}` : "Tarkista aiemmat valinnat tai valitse manuaalisesti.",
+            recommendedKeyword: recommendation?.avainsana || null
         };
 
     }, [state.tyotilanne, state.tyokyky, sectionData.fraasit]);
+
+    // ALENNUSTYÖKALUN AUTOMAATTINEN AVAAMINEN
+    const handleVariableUpdate = (sectionId, phraseKeyword, variableName, newValue) => {
+        // 1. Päivitä globaali state
+        onUpdateVariable(sectionId, phraseKeyword, variableName, newValue);
+
+        // 2. Tarkista, pitäisikö alennustyökalu avata
+        const phrase = sectionData.fraasit.find(p => p.avainsana === phraseKeyword);
+        if (phrase && variableName === 'LKM') {
+            const defaultValue = phrase.muuttujat?.LKM?.oletus;
+            if (typeof defaultValue === 'number' && newValue < defaultValue) {
+                setAlennusToolVisible(true);
+            }
+        }
+    };
 
     return (
         <section className="section-container">
@@ -160,7 +180,8 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
                         section={sectionData} 
                         isSelected={selection?.avainsana === phrase.avainsana} 
                         onSelect={onSelect} 
-                        onUpdateVariable={onUpdateVariable} 
+                        // Käytetään uutta, älykkäämpää käsittelijää
+                        onUpdateVariable={handleVariableUpdate} 
                         isRecommended={phrase.avainsana === analysis.recommendedKeyword}
                     />
                 ))}
@@ -179,8 +200,9 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
                     sectionData={sectionData} 
                     selection={selection}
                     onUpdate={(updatedSelection) => {
+                        // Käytetään onSelect-funktiota päivittämään koko valinta kerralla
                         onSelect(sectionData.id, updatedSelection.avainsana, false, updatedSelection);
-                        setAlennusToolVisible(false); // Suljetaan työkalu tallennuksen jälkeen
+                        setAlennusToolVisible(false);
                     }}
                     onCancel={() => setAlennusToolVisible(false)}
                 />

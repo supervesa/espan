@@ -96,6 +96,7 @@ export const planData = {
           avainsana: "paasaanto",
           lyhenne: "Pääsääntö (esim. 4 hakua/kk)",
           teksti: `Palvelumallin mukaisesti asiakkaan suunnitelmaan on kirjattu työnhakuvelvollisuus. Asiakkaan tulee hakea vähintään [LKM] työmahdollisuutta [AIKAJAKSO].${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          selite: "Asiakas on työtön ja työkyky on normaali, joten sovelletaan palvelumallin mukaista pääsääntöä.",
           ehdot: { tyokyky: ["tyokyky_normaali"], tyotilanne: ["tyoton", "irtisanottu", "alle_6kk_tyossa"] },
           muuttujat: { LKM: { tyyppi: "numero", oletus: 4 }, AIKAJAKSO: { tyyppi: "valinta", vaihtoehdot: ["kuukaudessa", "kolmen kuukauden aikana"], oletus: "kuukaudessa" } }
         },
@@ -103,41 +104,48 @@ export const planData = {
           avainsana: "alennettu_osa_aikainen",
           lyhenne: "Alennettu (Osa-aikatyö)",
           teksti: `Asiakkaalle asetettu työnhakuvelvollisuus osa-aikatyöntekijän mukaisesti. Koska hakija on osa-aikaisessa työssä, hänen tulee hakea vähintään yhtä työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          selite: "Lain mukaan osa-aikatyössä olevalle voidaan asettaa alennettu työnhakuvelvollisuus.",
           ehdot: { tyotilanne: ["osa-aikainen"] }
         },
         {
           avainsana: "alennettu_opiskelija",
           lyhenne: "Alennettu (Omaehtoinen opiskelu)",
-          teksti: `Koska asiakas opiskelee omaehtoisia opintoja työttömyysetuudella tuettuna, hänen tulee hakea vähintään kolmea työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`
+          teksti: `Koska asiakas opiskelee omaehtoisia opintoja työttömyysetuudella tuettuna, hänen tulee hakea vähintään kolmea työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          selite: "Omaehtoisia opintoja työttömyysetuudella suorittavalle koulutusta vailla olevalle voidaan asettaa alennettu velvollisuus."
         },
         {
           avainsana: "ei_velvoitetta_palvelu",
           lyhenne: "Ei velvoitetta (Palvelun aikana)",
           teksti: `Asiakkaalle ei aseteta työnhakuvelvollisuutta palvelun aikana. Työnhakuvelvollisuus tarkastellaan seuraavassa työnhakukeskustelussa.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          selite: "Työnhakuvelvollisuutta ei aseteta työkokeilun tai palkkatukityön kaltaisen palvelun aikana.",
           ehdot: { tyotilanne: ["palkkatuki", "tyokokeilu"] }
         },
         {
           avainsana: "ei_velvoitetta_tyokyky",
           lyhenne: "Ei velvoitetta (Työkyky)",
           teksti: `Lukumäärällistä työnhakuvelvoitetta ei asetettu. Lain 48 §:n mukaisesti edellytyksenä on luotettava lääketieteellinen selvitys työkyvyttömyydestä sekä se, että asiakas noudattaa suunnitelmaa esimerkiksi työkyvyttömyysetuuden hakemiseksi tai kuntoutukseen hakeutumiseksi.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          selite: "Työkyvyn selvittäminen tai todettu alentuma on peruste jättää velvoite asettamatta, kun asiakas noudattaa suunnitelmaa.",
           ehdot: { tyokyky: ["tyokyky_selvityksessa"] }
         },
         {
           avainsana: "ei_velvoitetta_lomautus",
           lyhenne: "Ei velvoitetta (Lomautus)",
           teksti: `Asiakkaalle ei aseteta työnhakuvelvollisuutta, koska asiakas on lomautettu. Työnhakuvelvollisuus alkaa, kun lomautuksen alkamisesta on kulunut kolme kuukautta ja asiakkaalle on järjestetty työnhakukeskustelu.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          selite: "Lain mukaan lomautetulle ei aseteta työnhakuvelvoitetta ensimmäisen kolmen kuukauden aikana.",
           ehdot: { tyotilanne: ["lomautettu"] }
         },
         {
             avainsana: "ei_velvoitetta_lyhytaikainen",
             lyhenne: "Ei velvoitetta (Lyhyt työttömyys ennen poissaoloa)",
             teksti: `Työnhakuvelvollisuutta ei asetettu, koska asiakkaan työttömyyden arvioidaan päättyvän alle kolmen kuukauden kuluessa alkavaan, yli kolme kuukautta kestävään [SYY (esim. perhevapaa, varusmiespalvelus)].${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+            selite: "Velvollisuutta ei tarvitse asettaa, jos työttömyys on lyhytaikainen ja tiedossa on pidempi poissaolo työmarkkinoilta.",
             muuttujat: { SYY: { tyyppi: "teksti" } }
         },
         {
           avainsana: "manuaalinen",
           lyhenne: "Manuaalinen asetus",
           teksti: `Manuaalinen asetus: Asiakkaan tulee hakea vähintään [LKM] työmahdollisuutta [AIKAJAKSO].${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          selite: "Sääntöehdotus ei vastaa tilannetta. Asiantuntija asettaa velvollisuuden manuaalisesti.",
           muuttujat: { LKM: { tyyppi: "numero", oletus: 0 }, AIKAJAKSO: { tyyppi: "valinta", vaihtoehdot: ["kuukaudessa", "kolmen kuukauden aikana"], oletus: "kuukaudessa" } }
         }
       ]
