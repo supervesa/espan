@@ -96,7 +96,7 @@ export const planData = {
           avainsana: "paasaanto",
           lyhenne: "Pääsääntö (esim. 4 hakua/kk)",
           teksti: `Palvelumallin mukaisesti asiakkaan suunnitelmaan on kirjattu työnhakuvelvollisuus. Asiakkaan tulee hakea vähintään [LKM] työmahdollisuutta [AIKAJAKSO].${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
-          ehdot: { tyokyky: ["tyokyky_normaali"], tyotilanne: ["tyoton"] },
+          ehdot: { tyokyky: ["tyokyky_normaali"], tyotilanne: ["tyoton", "irtisanottu", "alle_6kk_tyossa"] },
           muuttujat: { LKM: { tyyppi: "numero", oletus: 4 }, AIKAJAKSO: { tyyppi: "valinta", vaihtoehdot: ["kuukaudessa", "kolmen kuukauden aikana"], oletus: "kuukaudessa" } }
         },
         {
@@ -109,6 +109,12 @@ export const planData = {
           avainsana: "alennettu_opiskelija",
           lyhenne: "Alennettu (Omaehtoinen opiskelu)",
           teksti: `Koska asiakas opiskelee omaehtoisia opintoja työttömyysetuudella tuettuna, hänen tulee hakea vähintään kolmea työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`
+        },
+        {
+          avainsana: "ei_velvoitetta_palvelu",
+          lyhenne: "Ei velvoitetta (Palvelun aikana)",
+          teksti: `Asiakkaalle ei aseteta työnhakuvelvollisuutta palvelun aikana. Työnhakuvelvollisuus tarkastellaan seuraavassa työnhakukeskustelussa.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          ehdot: { tyotilanne: ["palkkatuki", "tyokokeilu"] }
         },
         {
           avainsana: "ei_velvoitetta_tyokyky",
