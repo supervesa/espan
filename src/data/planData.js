@@ -1,5 +1,3 @@
-// Tiedosto: src/data/planData.js
-
 export const TYONHAKUVELVOLLISUUS_LOPPUTEKSTI = `\nHaetut paikat ja suunnitelman tehtävät tulee merkata toteutuneeksi kuukausittain. Ilmoita, mitä työtä olet hakenut, mistä ja milloin. Suunnitelman voi kuitata toteutuneeksi Työmarkkinatorin asiointipalvelussa tai soittamalla Helsingin työllisyyspalveluiden neuvontanumeroon 09 310 36107. Työnhakija voi toteuttaa työnhakuvelvollisuutta esimerkiksi hakemalla itse valitsemaansa avointa työpaikkaa, piilotyöpaikkaa tai tarjottua työpaikkaa, tehdä ja julkaista yhden kerran työnhakuprofiilin Työmarkkinatorilla tai hakea muuta vastaavaa työmahdollisuutta, johon hakijalla on realistiset mahdollisuudet työllistyä.\nAsiakkaalle on kerrottu hänelle asetetusta työnhakuvelvollisuudesta ja sen ehdoista. Pyydettäessä asiakkaan tulee todentaa hänelle soveltuvien työmahdollisuuksien hakeminen (kopiot, valokuvat tai muut dokumentit). Tarvittaessa selvitystä voidaan pyytää myös työnantajalta. Asiakas suorittaa ja kuittaa suunnitelmassa sovitut tehtävät määräaikoihin mennessä ja ilmoittaa työnhaun muutoksista Työmarkkinatorin asiointipalvelussa. Asiakas on tietoinen, että suunnitelman noudattamatta jättäminen voi vaikuttaa työttömyysetuuden saamiseen.\nAsiakas tietää ilmoittaa mahdolliset muutokset työnhakutilanteessa Helsingin työllisyyspalveluihin.`;
 
 export const planData = {
@@ -100,7 +98,7 @@ export const planData = {
           avainsana: "ei_velvoitetta_tyokyky",
           lyhenne: "Ei velvoitetta (Työkyky)",
           teksti: `Lukumäärällistä työnhakuvelvoitetta ei asetettu, koska asiakkaan työkykyä selvitetään.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
-          ehdot: { tyokyky: ["tyokyky_selvityksessa"] }
+          ehdot: { tyokyky: ["tyokyky_selvityksessa", "tyokyky_alentunut"] }
         },
         {
           avainsana: "ei_velvoitetta_lomautus",
