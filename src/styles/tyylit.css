@@ -643,3 +643,43 @@ input, select, textarea {
 .next-meeting-container { background-color: var(--color-surface); padding: 1rem; border-radius: var(--border-radius); box-shadow: var(--shadow); }
 .modal-overlay { background-color: rgba(0,0,0,0.5); }
 .modal-content { background-color: white; border-radius: var(--border-radius); }
+/* --- Aikatauluehdotus & Modaali --- */
+.next-meeting-container {
+    margin-top: 1.5rem;
+}
+.next-meeting-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.next-meeting-result {
+    margin-top: 1rem;
+    padding: 1rem;
+}
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 50; /* Varmistaa, että on muiden päällä */
+}
+.modal-content {
+    position: relative;
+    padding: 2rem;
+    max-width: 800px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+.modal-close-button {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+}
+.rule-section {
+    margin-bottom: 1.5rem;
+}

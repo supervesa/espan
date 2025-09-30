@@ -85,6 +85,10 @@ export const planData = {
       alentamisenPerustelut: [
         "Työnhakuvelvollisuutta alennettu huomioiden työmarkkinatilanne.",
         "Työnhakuvelvollisuutta alennettu huomioiden asiakkaan työkyky ja vallitseva työmarkkinatilanne.",
+        "Asiakkaan koulutus ja/tai työkokemus rajaa merkittävästi soveltuvia työmahdollisuuksia alueella.",
+        "Asiakkaan puutteellinen kielitaito rajaa merkittävästi soveltuvia työmahdollisuuksia.",
+        "Ammattitaitosuojan aikana asiakkaan ammattia vastaavia työmahdollisuuksia on vähän tarjolla.",
+        "Asiakkaan osaamisessa (esim. digitaitojen tai lupakorttien puute) on puutteita, jotka rajaavat työmahdollisuuksia.",
         "Muu syy (tarkennetaan alla)"
       ],
       fraasit: [
@@ -102,9 +106,14 @@ export const planData = {
           ehdot: { tyotilanne: ["osa-aikainen"] }
         },
         {
+          avainsana: "alennettu_opiskelija",
+          lyhenne: "Alennettu (Omaehtoinen opiskelu)",
+          teksti: `Koska asiakas opiskelee omaehtoisia opintoja työttömyysetuudella tuettuna, hänen tulee hakea vähintään kolmea työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`
+        },
+        {
           avainsana: "ei_velvoitetta_tyokyky",
           lyhenne: "Ei velvoitetta (Työkyky)",
-          teksti: `Lukumäärällistä työnhakuvelvoitetta ei asetettu, koska asiakkaan työkykyä selvitetään.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+          teksti: `Lukumäärällistä työnhakuvelvoitetta ei asetettu. Lain 48 §:n mukaisesti edellytyksenä on luotettava lääketieteellinen selvitys työkyvyttömyydestä sekä se, että asiakas noudattaa suunnitelmaa esimerkiksi työkyvyttömyysetuuden hakemiseksi tai kuntoutukseen hakeutumiseksi.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
           ehdot: { tyokyky: ["tyokyky_selvityksessa"] }
         },
         {
@@ -112,6 +121,12 @@ export const planData = {
           lyhenne: "Ei velvoitetta (Lomautus)",
           teksti: `Asiakkaalle ei aseteta työnhakuvelvollisuutta, koska asiakas on lomautettu. Työnhakuvelvollisuus alkaa, kun lomautuksen alkamisesta on kulunut kolme kuukautta ja asiakkaalle on järjestetty työnhakukeskustelu.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
           ehdot: { tyotilanne: ["lomautettu"] }
+        },
+        {
+            avainsana: "ei_velvoitetta_lyhytaikainen",
+            lyhenne: "Ei velvoitetta (Lyhyt työttömyys ennen poissaoloa)",
+            teksti: `Työnhakuvelvollisuutta ei asetettu, koska asiakkaan työttömyyden arvioidaan päättyvän alle kolmen kuukauden kuluessa alkavaan, yli kolme kuukautta kestävään [SYY (esim. perhevapaa, varusmiespalvelus)].${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
+            muuttujat: { SYY: { tyyppi: "teksti" } }
         },
         {
           avainsana: "manuaalinen",
@@ -123,4 +138,3 @@ export const planData = {
     }
   ]
 };
-
