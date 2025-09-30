@@ -15,7 +15,8 @@ export const planData = {
       fraasit: [
         { lyhenne: "Syntymävuosi", teksti: "Asiakkaan syntymävuosi: [SYNTYMÄVUOSI]", avainsana: "syntymavuosi", muuttujat: { "SYNTYMÄVUOSI": { "tyyppi": "numero", "oletus": 1980 } } },
         { lyhenne: "Työnhaun alku", teksti: "Asiakkaan työnhaku on alkanut [PÄIVÄMÄÄRÄ].", avainsana: "tyonhaku_alkanut", muuttujat: { "PÄIVÄMÄÄRÄ": { "tyyppi": "teksti", "oletus": new Date().toLocaleDateString('fi-FI') } } },
-        { lyhenne: "Laatimistapa", teksti: "Tämä suunnitelma laadittiin [YHTEYDENOTTOTAPA] [PÄIVÄMÄÄRÄ].", avainsana: "laadittu", muuttujat: { YHTEYDENOTTOTAPA: { tyyppi: "valinta", vaihtoehdot: ["puhelinajalla", "käyntiajalla"], oletus: "puhelinajalla" }, PÄIVÄMÄÄRÄ: { tyyppi: "teksti", oletus: new Date().toLocaleDateString('fi-FI') } } },
+        { lyhenne: "Laatimistapa", teksti: "Tämä suunnitelma laadittiin [YHTEYDENOTTOTAPA] [PÄIVÄMÄÄRÄ].", avainsana: "laadittu", muuttujat: { YHTEYDENOTTOTAPA: { tyyppi: "valinta", "vaihtoehdot": ["puhelinajalla", "käyntiajalla"], oletus: "puhelinajalla" }, PÄIVÄMÄÄRÄ: { tyyppi: "teksti", oletus: new Date().toLocaleDateString('fi-FI') } } },
+        { lyhenne: "Tapaamisen tyyppi", teksti: "Tapaamisen tyyppi: [TAPAAMISTYYPPI]", avainsana: "tapaamisen_tyyppi", muuttujat: { "TAPAAMISTYYPPI": { "tyyppi": "valinta", "vaihtoehdot": ["Alkuhaastattelu", "3kk Työnhakukeskustelu", "6kk Täydentävä keskustelu"], oletus: "Alkuhaastattelu" } } },
         { lyhenne: "Hyväksyntä (käynti)", teksti: "Asiakas hyväksyi suunnitelman käynnillä.", "avainsana": "hyvaksynta_kaynnilla" },
         { lyhenne: "Hyväksyntä (puhelin)", teksti: "Asiakas hyväksyi suunnitelman luettuna puhelimitse.", "avainsana": "hyvaksynta_puhelimitse" },
         { lyhenne: "Hyväksyntä (Oma asiointi)", teksti: "Asiakas hyväksyy suunnitelman Oma asiointi -palvelussa.", "avainsana": "hyvaksynta_oma" }
@@ -35,7 +36,9 @@ export const planData = {
         { lyhenne: "Ei ansiotyössä 6kk", teksti: "Asiakas ei ole ollut ansiotyössä kuuden edellisen kuukauden aikana.", "avainsana": "alle_6kk_tyossa"},
         { lyhenne: "Irtisanottu", teksti: "Asiakas on irtisanottu (työnantajan toimesta) yrityksestä [YRITYS] [AMMATTI]-tehtävistä [PVM].", avainsana: "irtisanottu", muuttujat: { YRITYS: { tyyppi: "teksti" }, AMMATTI: { tyyppi: "teksti" }, PVM: { tyyppi: "teksti" } } },
         { lyhenne: "Lomautettu", teksti: "Asiakas on lomautettu.", avainsana: "lomautettu" },
-        { lyhenne: "Osa-aikatyössä", teksti: "Asiakas on osa-aikatyössä.", "avainsana": "osa-aikainen" }
+        { lyhenne: "Osa-aikatyössä", teksti: "Asiakas on osa-aikatyössä.", "avainsana": "osa-aikainen" },
+        { lyhenne: "Palkkatuella", teksti: "Asiakas on palkkatuetussa työssä.", "avainsana": "palkkatuki" },
+        { lyhenne: "Työkokeilussa", teksti: "Asiakas on työkokeilussa.", "avainsana": "tyokokeilu" }
       ]
     },
     {
@@ -69,7 +72,11 @@ export const planData = {
       otsikko: "Suunnitelma",
       id: "suunnitelma",
       monivalinta: true,
-      fraasit: [{ lyhenne: "CV:n päivitys", teksti: "Tarvittavat toimenpiteet: CV:n päivittäminen.", "avainsana": "toimenpide_cv" }, { lyhenne: "Työhakemus", teksti: "Tarvittavat toimenpiteet: Työhakemuksen laatiminen.", "avainsana": "toimenpide_hakemus" }]
+      fraasit: [
+          { lyhenne: "Tuleva poissaolo", teksti: "Tiedossa on yli 3kk kestävä poissaolo (työ/palvelus/perhevapaa) seuraavan 3kk aikana.", "avainsana": "tuleva_poissaolo" },
+          { lyhenne: "CV:n päivitys", teksti: "Tarvittavat toimenpiteet: CV:n päivittäminen.", "avainsana": "toimenpide_cv" },
+          { lyhenne: "Työhakemus", teksti: "Tarvittavat toimenpiteet: Työhakemuksen laatiminen.", "avainsana": "toimenpide_hakemus" }
+      ]
     },
     {
       otsikko: "Työnhakuvelvollisuus",
@@ -98,7 +105,7 @@ export const planData = {
           avainsana: "ei_velvoitetta_tyokyky",
           lyhenne: "Ei velvoitetta (Työkyky)",
           teksti: `Lukumäärällistä työnhakuvelvoitetta ei asetettu, koska asiakkaan työkykyä selvitetään.${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI}`,
-          ehdot: { tyokyky: ["tyokyky_selvityksessa", "tyokyky_alentunut"] }
+          ehdot: { tyokyky: ["tyokyky_selvityksessa"] }
         },
         {
           avainsana: "ei_velvoitetta_lomautus",
@@ -116,3 +123,4 @@ export const planData = {
     }
   ]
 };
+

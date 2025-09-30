@@ -1,9 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
-import AikatauluEhdotus from './AikatauluEhdotus.jsx';
+import AikatauluEhdotus from './AikatauluEhdotus';
 
-// --- NÄKYMÄTÖN SORMENJÄLKI ---
-const FINGERPRINT = '\u200B\u200D\u200C'; // Uniikki yhdistelmä näkymättömiä merkkejä
+const FINGERPRINT = '\u200B\u200D\u200C'; // Näkymätön sormenjälki
 
 const Summary = ({ state }) => {
     const [feedback, setFeedback] = useState('');
@@ -28,7 +27,7 @@ const Summary = ({ state }) => {
                 return text.replace(/\s*\[.*?\]/g, '').replace(/\(\s*v\.\s*\)/, '').trim();
             };
 
-            // --- OSIOKOHTAINEN LOGIIKKA ---
+            // --- OSIOKOHTAINEN TULOSTUSLOGIIKKA ---
 
             if (section.id === 'tyokyky' && state.tyokyky) {
                 const s = state.tyokyky;
@@ -46,7 +45,7 @@ const Summary = ({ state }) => {
                      combinedText += ` Tilanteen selvittämiseksi asiakas on ohjattu seuraaviin palveluihin: ${ohjaukset}.`;
                  }
                 if (s.koonti) combinedText += `\nKoonti keskustelusta: ${s.koonti}`;
-                if (combinedText) sectionTextParts.push(combinedText);
+                if (combinedText) sectionTextParts.push(combinedText.trim());
             } 
             else if (section.id === 'palkkatuki' && state.palkkatuki?.analyysi) {
                 const { conditionsMet, ehdotus } = state.palkkatuki.analyysi;
@@ -72,8 +71,7 @@ const Summary = ({ state }) => {
                 
                 // Lisätään lopputeksti vain, jos se ei ole jo osa fraasia
                 if (!baseText.includes("Haetut paikat")) {
-                    // Tämä tarkistus on nyt tarpeeton, koska lopputeksti on osa fraasia
-                    // baseText += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI; 
+                    baseText += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI; 
                 }
                 sectionTextParts.push(baseText);
             }
@@ -90,7 +88,7 @@ const Summary = ({ state }) => {
             }
 
             if (sectionTextParts.length > 0) {
-                textParts.push(`${section.otsikko}\n${sectionTextParts.join('\n')}`);
+                textParts.push(`**${section.otsikko}**\n${sectionTextParts.join('\n')}`);
             }
         });
         
@@ -116,8 +114,8 @@ const Summary = ({ state }) => {
                         summaryText.replace(FINGERPRINT, '').split('\n\n').map((paragraph, pIndex) => (
                             <p key={pIndex}>
                                 {paragraph.split('\n').map((line, lIndex) => {
-                                    if (lIndex === 0) {
-                                        return <strong key={lIndex}>{line}</strong>;
+                                    if (lIndex === 0 && line.startsWith('**') && line.endsWith('**')) {
+                                        return <strong key={lIndex}>{line.replace(/\*\*/g, '')}</strong>;
                                     }
                                     return <React.Fragment key={lIndex}><br />{line}</React.Fragment>;
                                 })}

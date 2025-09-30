@@ -640,3 +640,6 @@ input, select, textarea {
 .alennus-tyokalu-actions .cancel-button:hover {
     background-color: #f3f4f6;
 }
+.next-meeting-container { background-color: var(--color-surface); padding: 1rem; border-radius: var(--border-radius); box-shadow: var(--shadow); }
+.modal-overlay { background-color: rgba(0,0,0,0.5); }
+.modal-content { background-color: white; border-radius: var(--border-radius); }

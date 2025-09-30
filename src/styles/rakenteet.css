@@ -259,3 +259,6 @@
     display: flex;
     gap: 0.5rem;
 }
+.next-meeting-container { margin-top: 1.5rem; }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; }
+.modal-content { position: relative; padding: 2rem; max-width: 800px; width: 90%; }

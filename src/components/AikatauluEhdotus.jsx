@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import RulesModal from './RulesModal';
 
 const AikatauluEhdotus = ({ state }) => {
     const [result, setResult] = useState(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     const calculateNextMeeting = () => {
         const lastMeetingDateStr = state.suunnitelman_perustiedot?.laadittu?.muuttujat?.PÄIVÄMÄÄRÄ;
         if (!lastMeetingDateStr) {
-            setResult("Edellisen tapaamisen päivämäärä puuttuu perustiedoista.");
+            setResult("Laskenta vaatii 'Laatimistapa'-valinnan ja päivämäärän perustiedoista.");
             return;
         }
 
@@ -15,39 +17,39 @@ const AikatauluEhdotus = ({ state }) => {
              setResult("Päivämäärä on virheellisessä muodossa.");
              return;
         }
-        const lastMeetingDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        const lastMeetingDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
         if (isNaN(lastMeetingDate.getTime())) {
             setResult("Päivämäärä on virheellinen.");
             return;
         }
-        
-        const nextMeetingDate = new Date(lastMeetingDate);
-        nextMeetingDate.setMonth(nextMeetingDate.getMonth() + 3);
 
-        let recommendationText = `Edellinen tapaaminen oli ${lastMeetingDate.toLocaleDateString('fi-FI')}. Seuraava lakisääteinen työnhakukeskustelu tulee järjestää viimeistään ${nextMeetingDate.toLocaleDateString('fi-FI')}.`;
-
-        const aiempiTyonhaku = state.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.PÄIVÄMÄÄRÄ;
-        if (aiempiTyonhaku) {
-            const hakuParts = aiempiTyonhaku.split('.');
-             if (hakuParts.length > 2) {
-                const hakuStartDate = new Date(parseInt(hakuParts[2]), parseInt(hakuParts[1]) - 1, parseInt(hakuParts[0]));
-                if (!isNaN(hakuStartDate.getTime())) {
-                    const sixMonthsAgo = new Date();
-                    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-                    if (hakuStartDate > sixMonthsAgo) {
-                        recommendationText += " Koska työnhaku on alkanut alle 6kk sitten, asiakkaalle tulee järjestää myös kaksi täydentävää keskustelua.";
-                    }
-                }
-             }
+        if (state.suunnitelma?.tuleva_poissaolo) {
+            setResult("Asiakkaalle on kirjattu tuleva poissaolo. Keskustelua ei tarvitse järjestää, ellei asiakas sitä pyydä.");
+            return;
         }
-        setResult(recommendationText);
+        
+        const sixMonthsLater = new Date(lastMeetingDate);
+        sixMonthsLater.setMonth(sixMonthsLater.getMonth() + 6);
+        if (new Date() >= sixMonthsLater && state.tyotilanne?.tyoton && !state.tyotilanne?.palkkatuki && !state.tyotilanne?.tyokokeilu) {
+             setResult(`Edellisestä tapaamisesta on kulunut 6kk. Asiakkaalle tulee järjestää kaksi täydentävää työnhakukeskustelua. Seuraava viimeistään ${sixMonthsLater.toLocaleDateString('fi-FI')}.`);
+             return;
+        }
+
+        const threeMonthsLater = new Date(lastMeetingDate);
+        threeMonthsLater.setMonth(threeMonthsLater.getMonth() + 3);
+        if (new Date() >= threeMonthsLater) {
+            setResult(`Edellisestä tapaamisesta on kulunut 3kk. Asiakkaalle tulee järjestää työnhakukeskustelu. Seuraava viimeistään ${threeMonthsLater.toLocaleDateString('fi-FI')}.`);
+            return;
+        }
+        
+        setResult(`Ei vielä ajankohtainen. Seuraava lakisääteinen 3kk keskustelu tulee ajankohtaiseksi noin ${threeMonthsLater.toLocaleDateString('fi-FI')}.`);
     };
 
     return (
         <div className="next-meeting-container">
             <div className="next-meeting-controls">
                 <button onClick={calculateNextMeeting}>Ehdota seuraavaa tapaamista</button>
-                <a href="#" className="rules-link" onClick={(e) => { e.preventDefault(); alert("Yksityiskohtaiset säännöt (modaali) toteutetaan myöhemmin."); }}>
+                <a href="#" className="rules-link" onClick={(e) => { e.preventDefault(); setIsModalOpen(true); }}>
                     Näytä yksityiskohtaiset säännöt
                 </a>
             </div>
@@ -56,9 +58,9 @@ const AikatauluEhdotus = ({ state }) => {
                     <p>{result}</p>
                 </div>
             )}
+            {isModalOpen && <RulesModal onClose={() => setIsModalOpen(false)} />}
         </div>
     );
 };
 
 export default AikatauluEhdotus;
-
