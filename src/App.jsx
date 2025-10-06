@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import Summary from './components/Summary';
 import Scraper from './components/Scraper';
+import MessageGenerator from './components/MessageGenerator';
 import SuunnitelmanTyyppi from './components/sections/SuunnitelmanTyyppi';
 import Perustiedot from './components/sections/Perustiedot';
 import Tyottomyysturva from './components/sections/Tyottomyysturva';
@@ -37,6 +38,8 @@ const deepMerge = (target, source) => {
 
 function App() {
     const [state, setState] = useState({});
+    // LISÄTTY: Tila aktiivisen välilehden hallintaan
+    const [activeTab, setActiveTab] = useState('suunnitelma'); 
 
     const handleScrape = useCallback((scrapedState) => {
         setState(currentState => deepMerge(currentState, scrapedState));
@@ -49,7 +52,7 @@ function App() {
             if (!section || !section.fraasit) return newState;
             
             const phrase = section.fraasit.find(f => f.avainsana === avainsana);
-            if (!phrase) return newState; // Turvatarkistus
+            if (!phrase) return newState;
 
             if (updatedSelection) {
                 newState[sectionId] = updatedSelection;
@@ -161,24 +164,53 @@ function App() {
             <header className="app-header">
                 <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
             </header>
-            <div className="main-grid">
-                <main className="sections-container">
-                    <Scraper onScrape={handleScrape} />
-                    <SuunnitelmanTyyppi state={state} actions={actions} />
-                    <Perustiedot state={state} actions={actions} />
-                    <Tyottomyysturva state={state} actions={actions} />
-                    <Tyotilanne state={state} actions={actions} />
-                    <KoulutusJaYrittajyys state={state} actions={actions} />
-                    <Tyokyky state={state} actions={actions} />
-                    <PalkkatukiCalculator state={state} actions={actions} />
-                    <Palveluunohjaus state={state} actions={actions} />
-                    <Suunnitelma state={state} actions={actions} />
-                    <Tyonhakuvelvollisuus state={state} actions={actions} />
-                    <AiAnalyysi state={state} actions={actions} />
-                </main>
-                <Summary state={state} />
+
+            {/* LISÄTTY: Välilehtinavigaatio */}
+            <div className="tab-navigation">
+                <button 
+                    className={`tab-button ${activeTab === 'suunnitelma' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('suunnitelma')}
+                >
+                    Suunnitelman rakennus
+                </button>
+                <button 
+                    className={`tab-button ${activeTab === 'viestit' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('viestit')}
+                >
+                    Viestigeneraattori
+                </button>
             </div>
+
+            {/* MUOKATTU: Sisältö renderöidään ehdollisesti */}
+            {activeTab === 'suunnitelma' && (
+                <div className="main-grid">
+                    <main className="sections-container">
+                        <Scraper onScrape={handleScrape} />
+                        <SuunnitelmanTyyppi state={state} actions={actions} />
+                        <Perustiedot state={state} actions={actions} />
+                        <Tyottomyysturva state={state} actions={actions} />
+                        <Tyotilanne state={state} actions={actions} />
+                        <KoulutusJaYrittajyys state={state} actions={actions} />
+                        <Tyokyky state={state} actions={actions} />
+                        <PalkkatukiCalculator state={state} actions={actions} />
+                        <Palveluunohjaus state={state} actions={actions} />
+                        <Suunnitelma state={state} actions={actions} />
+                        <Tyonhakuvelvollisuus state={state} actions={actions} />
+                        <AiAnalyysi state={state} actions={actions} />
+                    </main>
+                    <Summary state={state} />
+                </div>
+            )}
+
+            {activeTab === 'viestit' && (
+                <div className="main-grid-single">
+                    <main className="sections-container">
+                        <MessageGenerator />
+                    </main>
+                </div>
+            )}
         </div>
     );
 }
+
 export default App;
