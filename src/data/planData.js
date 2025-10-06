@@ -1,4 +1,12 @@
-export const TYONHAKUVELVOLLISUUS_LOPPUTEKSTI = `\nHaetut paikat ja suunnitelman tehtävät tulee merkata toteutuneeksi kuukausittain. Ilmoita, mitä työtä olet hakenut, mistä ja milloin. Suunnitelman voi kuitata toteutuneeksi Työmarkkinatorin asiointipalvelussa tai soittamalla Helsingin työllisyyspalveluiden neuvontanumeroon 09 310 36107. Työnhakija voi toteuttaa työnhakuvelvollisuutta esimerkiksi hakemalla itse valitsemaansa avointa työpaikkaa, piilotyöpaikkaa tai tarjottua työpaikkaa, tehdä ja julkaista yhden kerran työnhakuprofiilin Työmarkkinatorilla tai hakea muuta vastaavaa työmahdollisuutta, johon hakijalla on realistiset mahdollisuudet työllistyä.\nAsiakkaalle on kerrottu hänelle asetetusta työnhakuvelvollisuudesta ja sen ehdoista. Pyydettäessä asiakkaan tulee todentaa hänelle soveltuvien työmahdollisuuksien hakeminen (kopiot, valokuvat tai muut dokumentit). Tarvittaessa selvitystä voidaan pyytää myös työnantajalta. Asiakas suorittaa ja kuittaa suunnitelmassa sovitut tehtävät määräaikoihin mennessä ja ilmoittaa työnhaun muutoksista Työmarkkinatorin asiointipalvelussa. Asiakas on tietoinen, että suunnitelman noudattamatta jättäminen voi vaikuttaa työttömyysetuuden saamiseen.\nAsiakas tietää ilmoittaa mahdolliset muutokset työnhakutilanteessa Helsingin työllisyyspalveluihin.`;
+export const TYONHAKUVELVOLLISUUS_LOPPUTEKSTI = `
+OIKEUDET JA VELVOLLISUUDET
+Asiakkaalle on kerrottu julkisesta työvoima- ja yrityspalvelusta annetun lain (2 luku 13 §) mukaisista työnhakijan yleisistä oikeuksista ja velvollisuuksista. Asiakas on valmis ottamaan vastaan työtä ja koulutusta.
+
+TYÖNHAKUVELVOLLISUUDEN TOTEUTTAMINEN JA SEURANTA
+Asiakkaan tulee toteuttaa suunnitelmassa sovittua työnhakua ja merkitä haetut työpaikat sekä muut tehtävät kuukausittain toteutuneiksi Työmarkkinatorin asiointipalvelussa tai puhelimitse (Helsingin työllisyyspalvelut, p. 09 310 36107). Työnhakuvelvollisuutta voi täyttää hakemalla avoimia tai tarjottuja työpaikkoja, piilotyöpaikkoja tai julkaisemalla työnhakuprofiilin Työmarkkinatorilla.
+
+Pyydettäessä asiakkaan on todennettava työnhakunsa, ja selvitys voidaan tarvittaessa pyytää myös työnantajalta. Asiakkaan vastuulla on ilmoittaa työnhaun tilanteessa tapahtuvista muutoksista ja noudattaa sovittuja määräaikoja. Asiakas on tietoinen, että suunnitelman noudattamatta jättämisellä voi olla vaikutusta oikeuteen saada työttömyysetuutta.
+`;
 
 export const planData = {
   aihealueet: [

@@ -30,9 +30,7 @@ const Summary = ({ state }) => {
                     Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase)));
                 } else if (selection.teksti) {
                     let text = processPhrase(selection);
-                    if (section.id === 'tyonhakuvelvollisuus') {
-                        text += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI;
-                    }
+                  
                     sectionTextParts.push(text);
                 }
             }
