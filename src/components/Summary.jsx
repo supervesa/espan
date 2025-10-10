@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
 import AikatauluEhdotus from './AikatauluEhdotus';
 
+const FINGERPRINT = '\u200B\u200D\u200C';
+
 const Summary = ({ state }) => {
     const [feedback, setFeedback] = useState('');
     
@@ -25,13 +27,60 @@ const Summary = ({ state }) => {
                 return text.replace(/\s*\[.*?\]/g, '').replace(/\(\s*v\.\s*\)/, '').trim();
             };
 
-            if (selection) {
+            // --- OSIOKOHTAINEN TULOSTUSLOGIIKKA ---
+
+            if (section.id === 'tyokyky' && state.tyokyky) {
+                const s = state.tyokyky;
+                let combinedText = '';
+                if (s.paavalinta) {
+                    if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) {
+                        combinedText += `Asiakkaalla on työkyvyn alentuma: ${s.alentumaKuvaus}.`;
+                    } else {
+                        combinedText += s.paavalinta.teksti;
+                    }
+                }
+                if (s.omaArvio) {
+                    combinedText += (combinedText ? ' ' : '') + `Hän arvioi oman työkykynsä pistemääräksi ${s.omaArvio}/10.`;
+                }
+                if (s.palveluohjaukset && Object.keys(s.palveluohjaukset).length > 0) {
+                     const ohjaukset = Object.values(s.palveluohjaukset).map(p => p.teksti.toLowerCase()).join(', ');
+                     combinedText += (combinedText ? ' ' : '') + `Tilanteen selvittämiseksi asiakas on ohjattu seuraaviin palveluihin: ${ohjaukset}.`;
+                 }
+                if (s.koonti) {
+                    combinedText += `\n\nKoonti keskustelusta:\n${s.koonti}`;
+                }
+                if (combinedText) sectionTextParts.push(combinedText.trim());
+            } 
+            else if (section.id === 'palkkatuki' && state.palkkatuki?.analyysi) {
+                const { conditionsMet, ehdotus } = state.palkkatuki.analyysi;
+                let text = `Asiakas täyttää useita palkkatuen kriteerejä`;
+                if(conditionsMet.length > 0) {
+                    text += `, kuten ${conditionsMet.join(', ')}.`;
+                } else {
+                    text += '.';
+                }
+                text += ` Näiden perusteella suositellaan seuraavaa: ${ehdotus}`;
+                sectionTextParts.push(`Palkkatuen arviointi: ${text}`);
+            }
+            else if (section.id === 'tyonhakuvelvollisuus' && selection) {
+                let baseText = processPhrase(selection);
+                if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
+                    const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([,v]) => v).map(([k]) => k);
+                    let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
+                    if (perustelut.length > 0) alennusTeksti += ` Perusteet: ${perustelut.join(', ')}.`;
+                    if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
+                    baseText += alennusTeksti;
+                }
+                if (!baseText.includes("Haetut paikat")) {
+                    baseText += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI; 
+                }
+                sectionTextParts.push(baseText);
+            }
+            else if (selection) {
                 if (section.monivalinta) {
                     Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase)));
                 } else if (selection.teksti) {
-                    let text = processPhrase(selection);
-                  
-                    sectionTextParts.push(text);
+                    sectionTextParts.push(processPhrase(selection));
                 }
             }
 
@@ -40,18 +89,18 @@ const Summary = ({ state }) => {
             }
 
             if (sectionTextParts.length > 0) {
-                // TÄRKEÄ MUUTOS: Lisätään lihavointi-merkit otsikon ympärille
                 textParts.push(`**${section.otsikko}**\n${sectionTextParts.join('\n')}`);
             }
         });
         
         if (textParts.length === 0) return '';
-        return textParts.join('\n\n');
+        return FINGERPRINT + textParts.join('\n\n');
 
     }, [state]);
 
     const handleCopy = () => {
-        navigator.clipboard.writeText(summaryText).then(() => {
+        const plainText = summaryText.replace(FINGERPRINT, '').replace(/\*\*/g, '');
+        navigator.clipboard.writeText(plainText).then(() => {
             setFeedback('Kopioitu!');
             setTimeout(() => setFeedback(''), 2000);
         });
@@ -63,7 +112,7 @@ const Summary = ({ state }) => {
                 <h2>Koottu suunnitelma</h2>
                 <div className="summary-content">
                     {summaryText ? (
-                        summaryText.split('\n\n').map((paragraph, pIndex) => (
+                        summaryText.replace(FINGERPRINT, '').split('\n\n').map((paragraph, pIndex) => (
                             <p key={pIndex}>
                                 {paragraph.split('\n').map((line, lIndex) => {
                                     if (lIndex === 0 && line.startsWith('**') && line.endsWith('**')) {

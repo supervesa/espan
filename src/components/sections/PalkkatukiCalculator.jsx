@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 
 const PalkkatukiCalculator = ({ state, actions }) => {
     const { onUpdatePalkkatuki } = actions;
@@ -32,13 +32,12 @@ const PalkkatukiCalculator = ({ state, actions }) => {
             : "Normaali";
     }, [state.tyokyky]);
 
-    // UUDET AUTOMAATTISET TIEDOT
-    const onkoTyoton = useMemo(() => !!(state.tyotilanne?.tyoton || state.tyotilanne?.irtisanottu), [state.tyotilanne]);
-    const eiAnsiotyossa6kk = useMemo(() => !!state.tyotilanne?.alle_6kk_tyossa, [state.tyotilanne]);
     const onkoEiTutkintoa = useMemo(() => !!state.koulutus_yrittajyys?.ei_tutkintoa, [state.koulutus_yrittajyys]);
     const onkoOppisopimus = useMemo(() => !!state.koulutus_yrittajyys?.oppisopimus, [state.koulutus_yrittajyys]);
+    const onkoTyoton = useMemo(() => !!(state.tyotilanne?.tyoton || state.tyotilanne?.irtisanottu), [state.tyotilanne]);
+    const eiAnsiotyossa6kk = useMemo(() => !!state.tyotilanne?.alle_6kk_tyossa, [state.tyotilanne]);
 
-    // --- UUSI SÄÄNTÖMOOTTORI JA PRIORISOINTI ---
+    // --- SÄÄNTÖMOOTTORI ---
     const analysisResult = useMemo(() => {
         let conditionsMet = [];
         if (onkoTyoton && age >= 15 && age <= 24) conditionsMet.push("15-24-vuotias");
@@ -50,29 +49,22 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         if (onkoOppisopimus || palkkatukiState.onko_oppisopimus) conditionsMet.push("Oppisopimuskoulutus");
         
         let ehdotus = "Ei erityisiä palkkatukiehtoja täyty annettujen tietojen perusteella.";
-        
-        // Perusvaihtoehto, jos asiakas on työtön
         if (onkoTyoton && tyottomyysKuukausia !== null) {
-             if (tyottomyysKuukausia >= 12) {
-                ehdotus = "Ehdotus: Ammatillisen osaamisen parantaminen (50%, max 10kk).";
-             } else {
-                ehdotus = "Ehdotus: Ammatillisen osaamisen parantaminen (50%, max 5kk).";
-             }
+             if (tyottomyysKuukausia >= 12) ehdotus = "Ammatillisen osaamisen parantaminen (50%, max 10kk).";
+             else ehdotus = "Ammatillisen osaamisen parantaminen (50%, max 5kk).";
         }
-        
-        // Ylikirjoitetaan perusvaihtoehto, jos jokin parempi erityisehto täyttyy
-        if (conditionsMet.includes("Alentunut työkyky")) {
-            ehdotus = "Ehdotus: Alentuneesti työkykyisen palkkatuki (70%, 10kk, jatkettavissa).";
-        } else if (onkoTyoton && tyottomyysKuukausia >= 24 && palkkatukiState.tyonantaja_yhdistys) {
-            ehdotus = "Ehdotus: 100% palkkatuki yhdistykselle (100%, 10kk).";
-        } else if (conditionsMet.includes("60v täyttänyt pitkäaikaistyötön")) {
-            ehdotus = "Ehdotus: 60v täyttänyt, pitkään työtön (50%, max 24kk).";
-        } else if (conditionsMet.includes("Oppisopimuskoulutus")) {
-            ehdotus = "Ehdotus: Palkkatuki oppisopimukseen (50%, koko koulutuksen ajan).";
-        }
+        if (conditionsMet.includes("Alentunut työkyky")) ehdotus = "Alentuneesti työkykyisen palkkatuki (70%, 10kk, jatkettavissa).";
+        else if (onkoTyoton && tyottomyysKuukausia >= 24 && palkkatukiState.tyonantaja_yhdistys) ehdotus = "100% palkkatuki yhdistykselle (100%, 10kk).";
+        else if (conditionsMet.includes("60v täyttänyt pitkäaikaistyötön")) ehdotus = "60v täyttänyt, pitkään työtön (50%, max 24kk).";
+        else if (conditionsMet.includes("Oppisopimuskoulutus")) ehdotus = "Ehdotus: Palkkatuki oppisopimukseen (50%, koko koulutuksen ajan).";
         
         return { conditionsMet, ehdotus };
-    }, [palkkatukiState, tyokykyStatus, tyottomyysKuukausia, age, onkoTyoton, eiAnsiotyossa6kk, onkoEiTutkintoa, onkoOppisopimus]);
+    }, [palkkatukiState.tyonantaja_yhdistys, palkkatukiState.onko_oppisopimus, onkoTyoton, age, onkoEiTutkintoa, eiAnsiotyossa6kk, tyokykyStatus, tyottomyysKuukausia, onkoOppisopimus]);
+    
+    // TÄRKEIN KORJAUS: Tämä useEffect raportoi analyysin tuloksen ylös App-komponentille
+    useEffect(() => {
+        onUpdatePalkkatuki('analyysi', analysisResult);
+    }, [analysisResult, onUpdatePalkkatuki]);
 
     return (
         <section className="section-container">
