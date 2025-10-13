@@ -38,7 +38,6 @@ const deepMerge = (target, source) => {
 
 function App() {
     const [state, setState] = useState({});
-    // LISÄTTY: Tila aktiivisen välilehden hallintaan
     const [activeTab, setActiveTab] = useState('suunnitelma'); 
 
     const handleScrape = useCallback((scrapedState) => {
@@ -136,16 +135,27 @@ function App() {
         }));
     }, []);
     
+    // --- TÄMÄ FUNKTIO ON NYT KORJATTU ---
     const handleUpdateTyottomyysturva = useCallback((key, value) => {
         setState(prevState => {
             const newTtState = { ...(prevState.tyottomyysturva || {}) };
+            
             if (key === 'updateKysymys') {
                 const currentAnswers = { ...(newTtState.answers || {}) };
                 currentAnswers[value.id] = value.value;
                 newTtState.answers = currentAnswers;
+            } else if (key === 'updateSummaries') {
+                // Käsittelee sekä koontitekstin että yhteenvetofraasin päivityksen kerralla
+                newTtState.koonti = value.koonti;
+                newTtState.yhteenvetoFraasi = value.yhteenvetoFraasi;
+            } else if (key === 'updateYhteenveto') {
+                // Käsittelee VAIN yhteenvetofraasin päivityksen
+                newTtState.yhteenvetoFraasi = value;
             } else {
+                // Yleinen käsittelijä muille, esim. 'koonti'-kentän suora muokkaus
                 newTtState[key] = value;
             }
+
             return { ...prevState, tyottomyysturva: newTtState };
         });
     }, []);
@@ -164,8 +174,6 @@ function App() {
             <header className="app-header">
                 <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
             </header>
-
-            {/* LISÄTTY: Välilehtinavigaatio */}
             <div className="tab-navigation">
                 <button 
                     className={`tab-button ${activeTab === 'suunnitelma' ? 'active' : ''}`}
@@ -180,8 +188,6 @@ function App() {
                     Viestigeneraattori
                 </button>
             </div>
-
-            {/* MUOKATTU: Sisältö renderöidään ehdollisesti */}
             {activeTab === 'suunnitelma' && (
                 <div className="main-grid">
                     <main className="sections-container">

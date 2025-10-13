@@ -36,7 +36,8 @@ const Summary = ({ state }) => {
                     if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) {
                         combinedText += `Asiakkaalla on työkyvyn alentuma: ${s.alentumaKuvaus}.`;
                     } else {
-                        combinedText += s.paavalinta.teksti;
+                        // TÄRKEÄ KORJAUS: Varmistetaan, että paavalinta.teksti on olemassa
+                        combinedText += s.paavalinta.teksti || '';
                     }
                 }
                 if (s.omaArvio) {
@@ -62,6 +63,9 @@ const Summary = ({ state }) => {
                 text += ` Näiden perusteella suositellaan seuraavaa: ${ehdotus}`;
                 sectionTextParts.push(`Palkkatuen arviointi: ${text}`);
             }
+               else if (section.id === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
+                sectionTextParts.push(state.tyottomyysturva.yhteenvetoFraasi);
+            }
  else if (section.id === 'tyonhakuvelvollisuus' && selection) {
     // 1. Otetaan pääfraasi pohjaksi.
     let koottuTeksti = processPhrase(selection);
@@ -77,14 +81,10 @@ const Summary = ({ state }) => {
     }
 
     // 3. Lisätään loppuun vakioteksti.
-    // TÄMÄ ON TÄRKEIN MUUTOS: Lisätään "\n\n" ja käytetään .trim().
     if (!koottuTeksti.includes("Haetut paikat") && !koottuTeksti.includes("TYÖNHAKUVELVOLLISUUDEN TOTEUTTAMINEN JA SEURANTA")) {
-        // Lisätään tyhjä rivi ennen lopputekstiä, jotta siitä tulee oma kappaleensa.
-        // .trim() poistaa lopputekstin alusta ja lopusta ylimääräiset rivinvaihdot.
         koottuTeksti += `\n\n${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI.trim()}`; 
     }
 
-    // Lisätään siististi muotoiltu kokonaisuus tulosteeseen.
     sectionTextParts.push(koottuTeksti);
 }
             else if (selection) {
@@ -103,6 +103,21 @@ const Summary = ({ state }) => {
                 textParts.push(`**${section.otsikko}**\n${sectionTextParts.join('\n')}`);
             }
         });
+
+        // --- PYTÄMÄSI MUUTOS: SIIRRETÄÄN TYÖTTÖMYYSTURVA-FRAASI PERUSTIETOJEN ALLE ---
+        const ttIndex = textParts.findIndex(p => p.startsWith('**Työttömyysturva**'));
+        const perustiedotIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
+
+        if (ttIndex > -1 && perustiedotIndex > -1) {
+            // Otetaan talteen työttömyysturvan sisältö (lause) ilman otsikkoa.
+            const ttContent = textParts[ttIndex].replace('**Työttömyysturva**\n', '');
+            
+            // Lisätään lause perustietojen loppuun omaksi rivikseen.
+            textParts[perustiedotIndex] += `\n${ttContent}`;
+
+            // Poistetaan alkuperäinen työttömyysturva-osio listalta, jotta se ei tulostu kahdesti.
+            textParts.splice(ttIndex, 1);
+        }
         
         if (textParts.length === 0) return '';
         return FINGERPRINT + textParts.join('\n\n');

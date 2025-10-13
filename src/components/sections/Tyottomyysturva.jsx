@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 
 // Kysymykset ja rakenne pidetään komponentin sisällä
 const sectionData = {
@@ -24,13 +24,16 @@ const Tyottomyysturva = ({ state, actions }) => {
     const { onUpdateTyottomyysturva } = actions;
     const ttState = state.tyottomyysturva || {};
 
+    // --- UUDET TILAMUUTTUJAT FRAASIEN HALLINTAAN ---
+    const [ehdotetutFraasit, setEhdotetutFraasit] = useState([]);
+    const [valittuFraasi, setValittuFraasi] = useState('');
+
     const tyotilanneInfo = useMemo(() => {
         const tilanteet = state.tyotilanne ? Object.values(state.tyotilanne).map(s => s.teksti.replace(/\[.*?\]/g, '').trim()) : [];
         return tilanteet.length > 0 ? tilanteet.join(', ') : "Ei vielä määritetty.";
     }, [state.tyotilanne]);
 
     const asiakasAlle25 = useMemo(() => {
-        // Hakee iän nyt Perustiedot-osiosta
         const syntymavuosi = state.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.SYNTYMÄVUOSI;
         if (!syntymavuosi) return false;
         const age = new Date().getFullYear() - parseInt(syntymavuosi, 10);
@@ -41,15 +44,71 @@ const Tyottomyysturva = ({ state, actions }) => {
         onUpdateTyottomyysturva('updateKysymys', { id, value });
     };
 
-    const handleKoontiUpdate = () => {
+    // --- UUSI ÄLYKÄS FUNKTIO, JOKA LUO LISTAN FRAASIEHDOTUKSIA ---
+    const generateSummaryPhrases = (answers) => {
+        const phrases = [];
+        const huomiot = [];
+
+        if (answers.opiskelija === true) huomiot.push("opintoja");
+        if (answers.yritystoiminta === true) huomiot.push("yritystoimintaa");
+        if (answers.oma_tyo) huomiot.push("omaa työtä");
+        if (answers.estava_lausunto === true) huomiot.push("estävän lausunnon");
+        if (answers.tyosuhde_paattyminen_45pv === true) huomiot.push("työsuhteen päättymisen, joka vaatii selvitystä");
+
+        if (huomiot.length === 0) {
+            // Lisätään kaikki "negatiiviset" ehdotukset
+            phrases.push("Työttömyysturvan kannalta ei ilmennyt huomioitavia seikkoja: ei opintoja, ei yritystoimintaa, ei muuta työnhakuun vaikuttavaa.");
+            phrases.push("Ei opintoja, ei yrittäjyyttä, ei muuta työnhakuun tai työttömyysturvaan vaikuttavaa.");
+            phrases.push("Asiakkaan tilanteessa ei ole työttömyysturvalain mukaisia rajoitteita tai odotusaikoja.");
+        } else {
+            // Lisätään "positiiviset" ehdotukset
+            phrases.push(`Työttömyysturvaan vaikuttavat tekijät: ${huomiot.join(', ')}.`);
+            // Lisätään myös toimenpidettä vaativia ehdotuksia tarvittaessa
+            if (answers.yritystoiminta === true) {
+                phrases.push("Työttömyysturvan selvitys edellyttää yritystoiminnan laajuuden arviointia.");
+            }
+            if (answers.tyosuhde_paattyminen_45pv === true) {
+                phrases.push("Asiakkaalle on mahdollisesti asetettava työssäolovelvoite työsuhteen päättymisen vuoksi.");
+            }
+        }
+        return phrases;
+    };
+
+    // --- PÄIVITETTY FUNKTIO, JOKA PÄIVITTÄÄ KOONNIN JA LUO EHDOTUKSET ---
+    const handleGenerateSuggestions = () => {
+        const answers = ttState.answers || {};
+        
+        // 1. Luo ja päivitä yksityiskohtainen koonti
         let koontiText = '';
         sectionData.questions.forEach(q => {
-            if (ttState.answers?.[q.id]) {
-                const vastaus = ttState.answers[q.id];
+            if (answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== '') {
+                const vastaus = answers[q.id];
                 koontiText += `- ${q.teksti}: ${vastaus === true ? 'Kyllä' : vastaus === false ? 'Ei' : vastaus}\n`;
             }
         });
         onUpdateTyottomyysturva('koonti', koontiText.trim());
+
+        // 2. Luo lista fraasiehdotuksista
+        const suggestions = generateSummaryPhrases(answers);
+        setEhdotetutFraasit(suggestions);
+
+        // 3. Tyhjennetään aiempi valinta
+        setValittuFraasi('');
+    };
+
+    // --- UUSI FUNKTIO, JOLLA KÄYTTÄJÄ VALITSEE FRAASIN ---
+    const handleSelectPhrase = (phraseText) => {
+        setValittuFraasi(phraseText);
+    };
+
+    // --- UUSI FUNKTIO, JOLLA VALITTU FRAASI SIIRRETÄÄN YHTEENVETOON ---
+    const handleMoveToSummary = () => {
+        if (!valittuFraasi) return;
+        onUpdateTyottomyysturva('updateYhteenveto', valittuFraasi);
+        // Annetaan pieni visuaalinen palaute ja tyhjennetään ehdotukset
+        alert(`Fraasi "${valittuFraasi}" siirretty yhteenvetoon!`);
+        setEhdotetutFraasit([]);
+        setValittuFraasi('');
     };
 
     return (
@@ -86,10 +145,31 @@ const Tyottomyysturva = ({ state, actions }) => {
             </details>
 
              <div className="koonti-container">
-                <label htmlFor="tt-koonti-textarea">Koonti työttömyysturvaselvityksestä</label>
+                <label htmlFor="tt-koonti-textarea">Koonti työttömyysturvaselvityksestä (yksityiskohtainen)</label>
                 <textarea id="tt-koonti-textarea" rows="5" placeholder="Tähän kerätään muistiinpanot keskustelusta..." value={ttState.koonti || ''} onChange={(e) => onUpdateTyottomyysturva('koonti', e.target.value)} />
-                <button onClick={handleKoontiUpdate}>Päivitä koonti vastauksista</button>
+                <button onClick={handleGenerateSuggestions}>Luo yhteenvetofraasit</button>
             </div>
+
+            {/* --- UUSI OSA: FRAASIEHDOTUKSET JA VALINTA --- */}
+            {ehdotetutFraasit.length > 0 && (
+                <div className="suggestions-container">
+                    <h4>Ehdotetut fraasit yhteenvetoon:</h4>
+                    {ehdotetutFraasit.map((phrase, index) => (
+                        <div 
+                            key={index}
+                            className={`suggestion-item ${valittuFraasi === phrase ? 'selected' : ''}`}
+                            onClick={() => handleSelectPhrase(phrase)}
+                        >
+                            {phrase}
+                        </div>
+                    ))}
+                    {valittuFraasi && (
+                        <button className="move-to-summary-button" onClick={handleMoveToSummary}>
+                            Siirrä valittu yhteenvetoon
+                        </button>
+                    )}
+                </div>
+            )}
         </section>
     );
 };

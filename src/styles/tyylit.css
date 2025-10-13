@@ -814,3 +814,67 @@ input, select, textarea {
 .summary-section p {
     margin-top: 0.25rem;
 }
+
+/* --- Työttömyysturvan fraasiehdotusten muotoilut --- */
+
+/* Koko ehdotusalueen kehys */
+.suggestions-container {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+}
+
+/* Ehdotusten otsikko */
+.suggestions-container h4 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #333;
+  font-weight: 600;
+}
+
+/* Yksittäinen fraasiehdotus */
+.suggestion-item {
+  padding: 12px 15px;
+  margin-bottom: 8px;
+  border: 2px solid #ccc;
+  border-radius: 6px;
+  background-color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  line-height: 1.4;
+}
+
+/* Visuaalinen tehoste, kun hiiri on ehdotuksen päällä */
+.suggestion-item:hover {
+  border-color: #007bff;
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.15);
+}
+
+/* Valitun fraasiehdotuksen korostus */
+.suggestion-item.selected {
+  border-color: #007bff;
+  background-color: #e7f3ff;
+  color: #004085;
+  font-weight: 500;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.3);
+}
+
+/* "Siirrä yhteenvetoon" -napin muotoilu */
+.move-to-summary-button {
+  margin-top: 1rem;
+  padding: 10px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background-color: #28a745; /* Vihreä väri korostamaan toimintoa */
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.move-to-summary-button:hover {
+  background-color: #218838;
+}
