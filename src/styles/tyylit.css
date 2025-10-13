@@ -780,3 +780,37 @@ input, select, textarea {
   margin-left: 0.5rem;
   font-size: 0.875rem;
 }
+
+/* --- Palkkatuen lisätiedot --- */
+.analysis-container .lisatiedot {
+    font-size: 0.8rem;
+    font-style: italic;
+    color: var(--color-text-secondary);
+    background-color: #f3f4f6;
+    border-radius: 0.375rem;
+    border-left: 3px solid #6b7280;
+}
+.general-notice-box {
+    background-color: #fffbeb;
+    border: 1px solid #fef3c7;
+    border-radius: 0.5rem;
+}
+.general-notice-box h4 {
+    font-weight: 600;
+    color: #a16207;
+}
+.general-notice-box p {
+    font-size: 0.8rem;
+    color: #a16207;
+}
+
+/* --- Summaryn osioiden väli --- */
+.summary-section {
+    margin-bottom: 1rem;
+}
+.summary-section:last-child {
+    margin-bottom: 0;
+}
+.summary-section p {
+    margin-top: 0.25rem;
+}

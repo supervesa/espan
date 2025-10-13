@@ -15,7 +15,7 @@ const Summary = ({ state }) => {
             let sectionTextParts = [];
             
             const processPhrase = (phraseObject) => {
-                let text = phraseObject.teksti;
+                let text = phraseObject?.teksti || '';
                 const phraseState = section.monivalinta ? selection?.[phraseObject.avainsana] : selection;
                 if (phraseState?.muuttujat) {
                     Object.entries(phraseState.muuttujat).forEach(([key, value]) => {
@@ -62,20 +62,31 @@ const Summary = ({ state }) => {
                 text += ` Näiden perusteella suositellaan seuraavaa: ${ehdotus}`;
                 sectionTextParts.push(`Palkkatuen arviointi: ${text}`);
             }
-            else if (section.id === 'tyonhakuvelvollisuus' && selection) {
-                let baseText = processPhrase(selection);
-                if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
-                    const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([,v]) => v).map(([k]) => k);
-                    let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
-                    if (perustelut.length > 0) alennusTeksti += ` Perusteet: ${perustelut.join(', ')}.`;
-                    if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
-                    baseText += alennusTeksti;
-                }
-                if (!baseText.includes("Haetut paikat")) {
-                    baseText += TYONHAKUVELVOLLISUUS_LOPPUTEKSTI; 
-                }
-                sectionTextParts.push(baseText);
-            }
+ else if (section.id === 'tyonhakuvelvollisuus' && selection) {
+    // 1. Otetaan pääfraasi pohjaksi.
+    let koottuTeksti = processPhrase(selection);
+
+    // 2. Lisätään perustelut alentamiselle, JOS niitä on.
+    // 'alennusTeksti' alkaa jo valmiiksi rivinvaihdolla ('\n\n').
+    if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
+        const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([,v]) => v).map(([k]) => k);
+        let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
+        if (perustelut.length > 0) alennusTeksti += ` Perusteet: ${perustelut.join(', ')}.`;
+        if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
+        koottuTeksti += alennusTeksti;
+    }
+
+    // 3. Lisätään loppuun vakioteksti.
+    // TÄMÄ ON TÄRKEIN MUUTOS: Lisätään "\n\n" ja käytetään .trim().
+    if (!koottuTeksti.includes("Haetut paikat") && !koottuTeksti.includes("TYÖNHAKUVELVOLLISUUDEN TOTEUTTAMINEN JA SEURANTA")) {
+        // Lisätään tyhjä rivi ennen lopputekstiä, jotta siitä tulee oma kappaleensa.
+        // .trim() poistaa lopputekstin alusta ja lopusta ylimääräiset rivinvaihdot.
+        koottuTeksti += `\n\n${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI.trim()}`; 
+    }
+
+    // Lisätään siististi muotoiltu kokonaisuus tulosteeseen.
+    sectionTextParts.push(koottuTeksti);
+}
             else if (selection) {
                 if (section.monivalinta) {
                     Object.values(selection).forEach(phrase => sectionTextParts.push(processPhrase(phrase)));
