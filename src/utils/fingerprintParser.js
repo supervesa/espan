@@ -164,7 +164,7 @@ const parseWithBoldHeadings = (text) => {
 };
 
 
-// --- PÄÄFUNKTIO (Ainoa exportattu funktio) ---
+// --- PÄÄFUNKTIO (PÄIVITETTY VIRHEENKÄSITTELY) ---
 /**
  * Jäsentää annetun syötteen, joka voi olla joko tekstimuotoinen suunnitelma
  * tai tekoälyn tuottama JSON-objekti/merkkijono.
@@ -185,18 +185,19 @@ export const parsePlanInput = (input) => {
     
     const trimmedInput = input.trim();
 
-    // 3. Yritetään jäsentää merkkijono JSON-muodossa.
+    // 3. Jos syöte näyttää JSON-datalta, yritetään jäsentää se.
     if (trimmedInput.startsWith('{') && trimmedInput.endsWith('}')) {
         try {
             const jsonData = JSON.parse(trimmedInput);
             // Onnistui, käytetään AI JSON -parseria.
             return parseAiJson(jsonData);
-        } catch (error) {
-            // Epäonnistui, oletetaan että kyseessä on normaali teksti.
-            // Jatkuu alla olevaan perinteiseen parseriin.
+        } catch (jsonError) {
+            // **PÄIVITYS**: Jos jäsennys epäonnistuu, annetaan selkeä virheilmoitus.
+            console.error("Alkuperäinen JSON-jäsennysvirhe:", jsonError);
+            throw new Error(`Virhe: Tekoälyn vastaus näyttää JSON-datalta, mutta sen muoto on virheellinen. Kopioi vastaus uudelleen tai tarkista sen syntaksi.`);
         }
     }
 
-    // 4. Jos mikään yllä olevista ei täsmännyt, käytetään perinteistä tekstiparseria.
+    // 4. Jos syöte ei näytä JSON-datalta, käytetään perinteistä tekstiparseria.
     return parseWithBoldHeadings(input);
 };

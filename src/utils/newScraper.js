@@ -2,44 +2,54 @@
 
 /**
  * VAIHE 1: Älykäs Tiedonlouhija
- * Yrittää jäsentää tekstin osioihin. Jos epäonnistuu, palauttaa koko tekstin yhtenä lohkona.
+ * Jäsentää tekstin osioihin ja yrittää tunnistaa yleisimmät vakiolauseet.
+ * Käsittelee tekstin vain kerran alusta loppuun.
  */
 function scrapeStructuredData(text) {
     const scrapedData = {};
     const fullText = `\n${text}\n`;
 
     const sectionMapping = {
+        'SUUNNITELMAN PERUSTIEDOT': 'suunnitelman_perustiedot',
         'ASIAKKAAN TYÖTILANNE': 'tyotilanne',
         'KOULUTUS JA YRITTÄJYYS': 'koulutus_yrittajyys',
         'TYÖKYKY': 'tyokyky',
         'SUUNNITELMA': 'suunnitelma',
     };
-
+    
     const headers = Object.keys(sectionMapping);
-    let sectionsFound = 0;
+    // Luodaan yksi iso regex, joka osaa tunnistaa kaikki mahdolliset otsikot.
+    const splitRegex = new RegExp(`(\\*\\*(${headers.join('|')})\\*\\*|(${headers.join('|')}))`, 'gi');
+    
+    // Pilkotaan koko teksti osiin otsikoiden perusteella.
+    const parts = fullText.split(splitRegex).filter(p => p && p.trim() !== '');
 
-    headers.forEach(header => {
-        // Päivitetty Regex, joka etsii sekä **lihavoituja** että ISOILLA KIRJAIMILLA kirjoitettuja otsikoita.
-        const sectionRegex = new RegExp(`(?:\\n${header}\\n|\\*\\*${header}\\*\\*)\\n?([\\s\\S]*?)(?=\\n(?:${headers.join('|')}|\\*\\*(?:${headers.join('|')})\\*\\*)\\n|$)`, 'gi');
-        const sectionMatch = fullText.match(sectionRegex);
+    let currentSectionKey = null;
 
-        if (sectionMatch) {
-            sectionsFound++;
-            const sectionKey = sectionMapping[header];
-            // Otetaan talteen vain vapaa teksti yksinkertaisuuden vuoksi
-            scrapedData[sectionKey] = { vapaa_teksti: sectionMatch[0].replace(new RegExp(`(?:\\n${header}\\n|\\*\\*${header}\\*\\*)\\n?`), '').trim() };
+    for (const part of parts) {
+        const trimmedPart = part.trim();
+        const headerMatch = headers.find(h => h === trimmedPart.replace(/\*/g, ''));
+
+        if (headerMatch) {
+            // Löydettiin uusi otsikko, asetetaan se nykyiseksi osioksi.
+            currentSectionKey = sectionMapping[headerMatch];
+            if (!scrapedData[currentSectionKey]) {
+                scrapedData[currentSectionKey] = { strukturoitu: [], vapaa_teksti: '' };
+            }
+        } else if (currentSectionKey) {
+            // Tämä osa on sisältöä, joka kuuluu edelliseen otsikkoon.
+            scrapedData[currentSectionKey].vapaa_teksti += (scrapedData[currentSectionKey].vapaa_teksti ? '\n' : '') + trimmedPart;
         }
-    });
+    }
 
-    // FALLBACK: Jos yhtään osiota ei löytynyt, palauta koko teksti yhtenä kenttänä.
-    if (sectionsFound === 0) {
-        return {
-            koko_teksti: text.trim()
-        };
+    // FALLBACK: Jos mitään osioita ei löytynyt, palauta koko teksti.
+    if (Object.keys(scrapedData).length === 0) {
+        return { koko_teksti: text.trim() };
     }
 
     return scrapedData;
 }
+
 
 /**
  * VAIHE 2: Automaattinen Anonymisoija
@@ -47,11 +57,11 @@ function scrapeStructuredData(text) {
  */
 function anonymizeData(data) {
     const anonymizedData = JSON.parse(JSON.stringify(data));
-
     const piiRules = [
         { name: 'HETU', regex: /\b\d{6}[-A+]\d{3}[\w\d]\b/g, replacement: '[HETU]' },
         { name: 'PUHELIN', regex: /(\+358|0)\s?(\d{1,3})\s?(\d{5,8})\b/g, replacement: '[PUHELINNUMERO]' },
         { name: 'EMAIL', regex: /[\w.-]+@[\w.-]+\.\w{2,}/g, replacement: '[SÄHKÖPOSTI]' },
+        // [PÄIVÄMÄÄRÄ] poistettu anonymisoinnista, koska se on hyödyllinen tekoälylle.
     ];
 
     function traverseAndAnonymize(obj) {
@@ -71,34 +81,20 @@ function anonymizeData(data) {
 
 /**
  * VAIHE 3: Tekoäly-promptin generointi
- * Rakentaa dynaamisesti oikeanlaiset ohjeet datan rakenteen perusteella.
+ * Rakentaa dynaamisesti oikeanlaiset ja tarkemmat ohjeet.
  */
 function generateAIPrompt(anonymizedData) {
     let syotetiedotOsuus;
 
-    // Tarkistetaan, onko data jäsennelty vai yhtenäinen tekstilohko.
     if (anonymizedData.koko_teksti) {
-        syotetiedotOsuus = `## Syötetiedot (Anonymisoitu vapaa teksti)
-
-Analysoi seuraava anonymisoitu tekstikokonaisuus:
-
-\`\`\`text
-${anonymizedData.koko_teksti}
-\`\`\``;
+        syotetiedotOsuus = `## Syötetiedot (Anonymisoitu vapaa teksti)\n\nAnalysoi seuraava anonymisoitu tekstikokonaisuus:\n\n\`\`\`text\n${anonymizedData.koko_teksti}\n\`\`\``;
     } else {
-        syotetiedotOsuus = `## Syötetiedot (Anonymisoitu JSON)
-
-Analysoi seuraava JSON-objekti, joka on louhittu alkuperäisestä tekstistä:
-
-\`\`\`json
-${JSON.stringify(anonymizedData, null, 2)}
-\`\`\``;
+        syotetiedotOsuus = `## Syötetiedot (Anonymisoitu JSON)\n\nAnalysoi seuraava JSON-objekti, joka on louhittu alkuperäisestä tekstistä:\n\n\`\`\`json\n${JSON.stringify(anonymizedData, null, 2)}\n\`\`\``;
     }
 
-    // Palautetaan koko prompt-rakenne, jossa syötetiedot on dynaamisesti luotu.
     return `## Rooli ja Tavoite
 
-Olet asiantuntija-avustaja, jonka tehtävä on muuntaa asiakassuunnitelman teksti täysin koneluettavaksi ja rakenteelliseksi JSON-objektiksi. Tavoitteesi on analysoida alla oleva anonymisoitu data ja tuottaa lopputulos tarkasti määritellyssä muodossa.
+Olet asiantuntija-avustaja, jonka tehtävä on muuntaa asiakassuunnitelman teksti täysin koneluettavaksi ja rakenteelliseksi JSON-objektiksi. Tavoitteesi on luokitella, jaotella ja yhtenäistää alla oleva anonymisoitu data, ja tuottaa lopputulos tarkasti määritellyssä muodossa.
 
 ---
 
@@ -109,9 +105,10 @@ ${syotetiedotOsuus}
 ## Tehtävänanto
 
 1.  **Analysoi syötetiedot:** Käy läpi yllä annettu data huolellisesti.
-2.  **Päättele ja luokittele:** Tee tekstin perusteella loogisia johtopäätöksiä ja tunnista eri osioihin (kuten työkyky, koulutus) liittyvät tiedot.
-3.  **Muokkaa kieliasia:** Muokkaa kieliasua yhtenäiseksi, ja käytä asiakas-passiivia.
-4.  **Täytä tulosformaatti:** Rakenna lopputulos noudattaen TÄSMÄLLEEN alla annettua \`## Tulosformaatti\` -rakennetta.
+2.  **Päättele ja luokittele:** Tee tekstin perusteella loogisia johtopäätöksiä.
+3.  **Louhi muuttujat:** Tunnista tekstistä tarkat tiedot, kuten päivämäärät ja syntymävuodet, ja sijoita ne oikeisiin muuttujiin tulosformaatissa.
+4.  **Siirrä ja muokkaa kieliasu:** Siirrä kaikki vapaan tekstin osat oikeisiin kenttiin (\`lisatiedot\`, \`alentumaKuvaus\`, \`koonti\`). Samalla kun siirrät tekstin, muokkaa sen kieliasu neutraaliksi ja ammattimaiseksi käyttäen asiakas-passiivia.
+5.  **Täytä tulosformaatti:** Rakenna lopputulos noudattaen TÄSMÄLLEEN alla annettua \`## Tulosformaatti\` -rakennetta.
 
 ---
 
@@ -122,12 +119,19 @@ Vastauksesi TÄYTYY olla VAIN ja AINOASTAAN alla kuvatun muotoinen JSON-objekti.
 \`\`\`json
 {
   "suunnitelman_perustiedot": {
-    "valinnat": {},
-    "lisatiedot": null
+    "valinnat": {
+      "syntymavuosi": {
+        "SYNTYMÄVUOSI": 1980
+      },
+      "tyonhaku_alkanut": {
+        "PÄIVÄMÄÄRÄ": "1.1.2025"
+      }
+    },
+    "lisatiedot": "Kaikki muu perustietoihin liittyvä vapaa teksti."
   },
   "tyotilanne": {
     "valinnat": ["avainsana1"],
-    "lisatiedot": "Kaikki vapaa teksti, joka ei sovi mihinkään valintaan."
+    "lisatiedot": "Kaikki työtilanteeseen liittyvä vapaa teksti."
   },
   "koulutus_yrittajyys": {
     "valinnat": {
@@ -140,9 +144,9 @@ Vastauksesi TÄYTYY olla VAIN ja AINOASTAAN alla kuvatun muotoinen JSON-objekti.
   },
   "tyokyky": {
     "paavalinta": "tyokyky_selvityksessa",
-    "alentumaKuvaus": "Tiivistelmä alentuman syistä, jos relevanttia.",
-    "koonti": "Yleinen koonti keskustelusta ja muista havainnoista.",
-    "omaArvio": "Minkä numeerisen arvon asiakas antanut asteikolla 1-10. Jos useampi numero, anna aina yksi numero ja valitse korkeampi arvoinen"
+    "alentumaKuvaus": "Lauseet, jotka kuvailevat työkykyä alentavia tekijöitä.",
+    "koonti": "Muut työkykyyn liittyvät havainnot.",
+    "omaArvio": 8
   }
 }
 \`\`\`
@@ -152,6 +156,7 @@ Vastauksesi TÄYTYY olla VAIN ja AINOASTAAN alla kuvatun muotoinen JSON-objekti.
 ## Rajoitteet ja Säännöt
 
 * **VAIN JSON:** Älä tuota mitään muuta kuin pyydetyn JSON-objektin.
+* **SÄILYTÄ TIEDON SISÄLTÖ:** Voit muokata lauserakenteita, mutta älä muuta tekstin alkuperäistä tietosisältöä.
 * **NULL ARVOT:** Jos jollekin kentälle ei löydy tietoa, aseta sen arvoksi \`null\`.
 * **SÄILYTÄ KIELI:** Pidä kaikki tekstit suomen kielellä.`;
 }
