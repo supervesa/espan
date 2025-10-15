@@ -77,3 +77,78 @@ export const OHJEET = {
         }
     ]
 };
+
+/**
+ * Sanakirja, joka muuntaa sääntökoneen pitkät ehdotustekstit
+ * lyhyiksi, selkokielisiksi syiksi lauseenmuodostusta varten.
+ * Avaimien tulee vastata PALKKATUKI_EHDOTUKSET-objektin arvoja.
+ */
+export const EHDOTUS_MUUNNOKSET = {
+    [PALKKATUKI_EHDOTUKSET.ALENTUNUT_TYOKYKY]: "alentuneesti työkykyisen työllistämiseksi",
+    [PALKKATUKI_EHDOTUKSET.YHDISTYS_100]: "pitkäaikaistyöttömän työllistämiseksi yhdistykseen",
+    [PALKKATUKI_EHDOTUKSET.IAKAS_60_PITKAAIKAINEN]: "60-vuotiaan pitkäaikaistyöttömän työllistämiseksi",
+    [PALKKATUKI_EHDOTUKSET.IAKAS_55_TUKI]: "55 vuotta täyttäneen pitkäaikaistyöttömän työllistämiseksi",
+    [PALKKATUKI_EHDOTUKSET.OPPISOPIMUS]: "oppisopimuskoulutukseen",
+    [PALKKATUKI_EHDOTUKSET.OSAAMISEN_PARANTAMINEN_5KK]: "ammatillisen osaamisen parantamiseksi",
+    [PALKKATUKI_EHDOTUKSET.OSAAMISEN_PARANTAMINEN_10KK]: "ammatillisen osaamisen parantamiseksi",
+};
+
+/**
+ * Sanakirja, joka muuntaa sääntökoneen tunnistamat tekniset kriteerit
+ * selkokielisiksi perusteluiksi.
+ * Avaimien tulee vastata TAYTTYVAT_EHODOT-objektin arvoja.
+ */
+export const KRITEERI_MUUNNOKSET = {
+    [TAYTTYVAT_EHODOT.NUORI]: "asiakkaan ikä (alle 25-vuotias)",
+    [TAYTTYVAT_EHODOT.IAKAS_50]: "asiakkaan ikä (yli 50-vuotias)",
+    [TAYTTYVAT_EHODOT.IAKAS_55_PITKAAIKAINEN]: "asiakkaan ikä (yli 55-vuotias) ja pitkä työttömyyden kesto",
+    [TAYTTYVAT_EHODOT.IAKAS_60_PITKAAIKAINEN]: "asiakkaan ikä (yli 60-vuotias) ja pitkä työttömyyden kesto",
+    [TAYTTYVAT_EHODOT.EI_TUTKINTOA]: "puuttuva toisen asteen tutkinto",
+    [TAYTTYVAT_EHODOT.EI_ANSIOTYOSSA_6KK]: "viimeaikainen poissaolo työmarkkinoilta",
+    [TAYTTYVAT_EHODOT.ALENTUNUT_TYOKYKY]: "alentunut työkyky",
+};
+/**
+ * Palkkatukilaskuriin liittyvät valinnaiset lisähuomiot ja ehdot.
+ * Näitä voidaan lisätä dynaamisen puoltolauseen perään.
+ */
+export const PALKKATUKI_LISAHUOMIOT = {
+    VASTUUVAPAUS: {
+        id: 'vastuuvapaus',
+        label: 'Lisää vastuuvapauslauseke päätöksenteosta',
+        teksti: 'Lopullisen päätöksen palkkatuen myöntämisestä, määrästä ja kestosta tekee erillinen palkkatukiyksikkö hakemuksen perusteella. Työsuhde ei voi alkaa ennen myönteistä päätöstä.'
+    },
+    B_LAUSUNTO: {
+        id: 'b_lausunto',
+        label: 'Lisää B-lausuntoehto (alentunut työkyky)',
+        teksti: 'Palkkatuen myöntäminen alentuneen työkyvyn perusteella edellyttää ajantasaista B-lääkärinlausuntoa.'
+    },
+    JATKO_OHJE: {
+        id: 'jatko_ohje',
+        label: 'Lisää ohje tuen jatkamisesta (alentunut työkyky)',
+        teksti: 'Palkkatuen jatkaminen 10 kuukauden jälkeen edellyttää erillistä arviota ja hakemusta, jossa arvioidaan mm. työn tuottavuuden pysyväisluonteinen aleneminen.'
+    },
+    KARENSSI: {
+        id: 'karenssi',
+        label: 'Lisää huomautus 3v karenssista',
+        teksti: 'Huomioitavaa: Palkkatukea ei voida myöntää samalle työnantajalle saman henkilön palkkaamiseen, jos edellisestä tukijaksosta on kulunut alle kolme vuotta.'
+    }
+};
+
+/**
+ * Yleiset, muihin osioihin (kuten Suunnitelma tai Palveluunohjaus)
+ * sopivat fraasit.
+ */
+export const YLEISET_SUUNNITELMA_FRAASIT = {
+    PALVELUIDEN_LISTAUS: {
+        id: 'palveluiden_listaus',
+        teksti: 'Asiakkaan työllistymistä voidaan edistää työkokeilulla, työvoimakoulutuksella ja palkkatuella.'
+    },
+    PALVELUIDEN_PERUSTELU: {
+        id: 'palveluiden_perustelu',
+        teksti: 'Nämä ovat perusteltuja toimenpiteitä työkokemuksen hankkimiseksi ja työttömyyden pitkittymisen ehkäisemiseksi.'
+    },
+    ASIAKKAAN_TOIMINTA: {
+        id: 'asiakkaan_toiminta',
+        teksti: 'Asiakkaan kanssa on sovittu, että hän hakee aktiivisesti työmahdollisuuksia ottaen huomioon hänen työkykynsä.'
+    }
+};
