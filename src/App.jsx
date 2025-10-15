@@ -38,7 +38,7 @@ const deepMerge = (target, source) => {
 
 function App() {
     const [state, setState] = useState({});
-    const [activeTab, setActiveTab] = useState('suunnitelma'); 
+    const [activeTab, setActiveTab] = useState('suunnitelma');
 
     const handleScrape = useCallback((scrapedState) => {
         setState(currentState => deepMerge(currentState, scrapedState));
@@ -160,6 +160,16 @@ function App() {
         });
     }, []);
 
+    // LISÄYS: UUSI FUNKTIO SUUNNITELMA-OSION PÄIVITYKSEEN
+    const handleUpdateSuunnitelma = useCallback((phraseId, isChecked) => {
+        setState(prevState => {
+            const newSuunnitelmaState = { ...(prevState.suunnitelma || {}) };
+            // Asetetaan fraasin tila (true/false) sen id:n perusteella
+            newSuunnitelmaState[phraseId] = isChecked;
+            return { ...prevState, suunnitelma: newSuunnitelmaState };
+        });
+    }, []);
+
     const actions = { 
         onSelect: handleSelectPhrase, 
         onUpdateVariable: handleUpdateVariable, 
@@ -167,6 +177,8 @@ function App() {
         onUpdateTyokyky: handleUpdateTyokyky,
         onUpdatePalkkatuki: handleUpdatePalkkatuki,
         onUpdateTyottomyysturva: handleUpdateTyottomyysturva,
+        // LISÄYS: UUSI ACTION VÄLITETÄÄN ETTEENPÄIN
+        onUpdateSuunnitelma: handleUpdateSuunnitelma,
     };
 
     return (

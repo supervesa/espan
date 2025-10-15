@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
+// LISÄYS: Tuodaan YLEISET_SUUNNITELMA_FRAASIT, jotta voimme tulostaa niitä
+import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI} from '../data/planData.js';
+import { YLEISET_SUUNNITELMA_FRAASIT } from '../data/constants.js'; 
 import AikatauluEhdotus from './AikatauluEhdotus';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
@@ -53,6 +55,15 @@ const Summary = ({ state }) => {
                 // Otetaan suoraan valmis, PalkkatukiCalculatorissa rakennettu lause.
                 sectionTextParts.push(state.palkkatuki.puoltoKappale);
             }
+            // LISÄYS: UUSI LOGIIKKA SUUNNITELMA-OSIOLLE
+            else if (section.id === 'suunnitelma' && state.suunnitelma) {
+                // Käydään läpi yleiset fraasit ja katsotaan, mitkä niistä on valittu.
+                Object.values(YLEISET_SUUNNITELMA_FRAASIT).forEach(phrase => {
+                    if (state.suunnitelma[phrase.id]) {
+                        sectionTextParts.push(phrase.teksti);
+                    }
+                });
+            }
             else if (section.id === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
                 sectionTextParts.push(state.tyottomyysturva.yhteenvetoFraasi);
             }
@@ -86,7 +97,7 @@ const Summary = ({ state }) => {
 
             if (sectionTextParts.length > 0) {
                 // Yhdistetään osion sisäiset tekstit välilyönnillä, paitsi tietyissä erikoistapauksissa.
-                const joiner = (section.id === 'tyonhakuvelvollisuus' || section.id === 'tyokyky') ? '\n' : '. ';
+                const joiner = (['tyonhakuvelvollisuus', 'tyokyky', 'suunnitelma'].includes(section.id)) ? '\n' : '. ';
                 let content = sectionTextParts.join(joiner);
                 if(joiner === '. ' && !content.endsWith('.') && !content.endsWith('!')) {
                     content += '.';
