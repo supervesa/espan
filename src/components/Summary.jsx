@@ -38,6 +38,8 @@ const generateSectionContent = (section, selection, state) => {
     if (section.id === 'tyokyky' && state.tyokyky) {
         const s = state.tyokyky;
         let tyokykyParts = [];
+
+        // Käsittele kaikki valinnat ja arviot ensin
         if (s.paavalinta) {
             if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) {
                 tyokykyParts.push(`Asiakkaalla on työkyvyn alentuma: ${s.alentumaKuvaus}`);
@@ -47,16 +49,30 @@ const generateSectionContent = (section, selection, state) => {
                 tyokykyParts.push("Työkyky on normaali");
             }
         }
-        if (s.omaArvio) tyokykyParts.push(`Hän arvioi oman työkykynsä pistemääräksi ${s.omaArvio}/10`);
+        if (s.omaArvio) {
+            tyokykyParts.push(`Hän arvioi oman työkykynsä pistemääräksi ${s.omaArvio}/10`);
+        }
         if (s.palveluohjaukset && Object.keys(s.palveluohjaukset).length > 0) {
             const ohjaukset = Object.values(s.palveluohjaukset).map(p => p.teksti.toLowerCase().replace(/\.$/, '')).join(', ');
             tyokykyParts.push(`Tilanteen selvittämiseksi asiakas on ohjattu seuraaviin palveluihin: ${ohjaukset}`);
         }
-        let combinedText = tyokykyParts.join('. ').trim();
+
+        // Yhdistä kaikki valinnat yhdeksi kappaleeksi
+        let combinedSelectionsText = tyokykyParts.join('. ').trim();
+        
+        // Lisää koonti keskustelusta erillisenä kappaleena, jos sitä on
         if (s.koonti && s.koonti.trim()) {
-            combinedText += (combinedText ? '\n\n' : '') + `Koonti keskustelusta:\n${s.koonti.trim()}`;
+            const koontiFormatted = `Koonti keskustelusta:\n${s.koonti.trim()}`;
+            if (combinedSelectionsText) {
+                // Lisätään rivinvaihto vain jos edellistä tekstiä on
+                generated = combinedSelectionsText + '\n\n' + koontiFormatted;
+            } else {
+                generated = koontiFormatted;
+            }
+        } else {
+            generated = combinedSelectionsText;
         }
-        generated = combinedText;
+
     }
     else if (section.id === 'palkkatuki' && state.palkkatuki?.puoltoKappale) {
         generated = state.palkkatuki.puoltoKappale.replace(/\.$/, '').trim();
@@ -142,6 +158,8 @@ const Summary = ({ state }) => {
             }
 
             // Muut osiot - customText täydentää generoitua sisältöä
+            // Tärkein muutos tässä on, että tarkistetaan, onko customText olemassa
+            // ennen kuin lisätään generatedContentiin.
             generatedContent = generateSectionContent(section, selection, state);
 
             let finalContent = generatedContent;
@@ -153,7 +171,10 @@ const Summary = ({ state }) => {
 
 
             if (finalContent) {
-                if (!/[.!?]$/.test(finalContent.split('\n').pop()) && !finalContent.endsWith('\n\n')) {
+                // Varmistetaan, että rivinvaihtojen jälkeiset pisteet poistetaan oikein.
+                // Ja lisätään piste vain, jos teksti ei jo pääty välimerkkiin ja ei ole rivinvaihtoja lopussa.
+                const lastLine = finalContent.split('\n').pop();
+                if (!/[.!?]$/.test(lastLine) && !finalContent.endsWith('\n\n')) {
                     finalContent += '.';
                 }
                 textParts.push(`**${section.otsikko}**\n${finalContent}`);
@@ -168,7 +189,9 @@ const Summary = ({ state }) => {
         let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.trim(); 
         
         if (koulutusJaYrittajyysFinalContent) {
-            if (!/[.!?]$/.test(koulutusJaYrittajyysFinalContent.split('\n').pop()) && !koulutusJaYrittajyysFinalContent.endsWith('\n\n')) {
+            // Varmistetaan, että rivinvaihtojen jälkeiset pisteet poistetaan oikein.
+            const lastLine = koulutusJaYrittajyysFinalContent.split('\n').pop();
+            if (!/[.!?]$/.test(lastLine) && !koulutusJaYrittajyysFinalContent.endsWith('\n\n')) {
                 koulutusJaYrittajyysFinalContent += '.';
             }
             let tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
@@ -195,6 +218,8 @@ const Summary = ({ state }) => {
         
         // --- Siivotaan ylimääräisiä tyhjiä rivejä ja pisteitä ---
         let cleanedTextParts = textParts.map(part => {
+            // Poistetaan piste, jos se on yksittäinen rivinvaihtojen keskellä tai lopussa
+            // ja varmistetaan, ettei poisteta pisteitä lauseen lopusta
             return part.replace(/\n\s*\.\s*$/, '').trim(); 
         }).filter(Boolean); 
 
