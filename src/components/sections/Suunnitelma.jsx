@@ -22,6 +22,7 @@ const Suunnitelma = ({ state, actions }) => {
                         checked={state.suunnitelma?.[phrase.id]}
                         // Kutsutaan uutta action-funktiota, kun valinta muuttuu
                         onChange={(isChecked) => onUpdateSuunnitelma(phrase.id, isChecked)}
+                        className="custom-checkbox-row"
                     />
                 ))}
             </div>

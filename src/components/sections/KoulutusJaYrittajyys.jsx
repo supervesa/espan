@@ -178,7 +178,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                         <button
                             onClick={handleUseSummary}
                             title="Siirrä ehdotus alla olevaan lisätietokenttään"
-                            className='copy-suggestion-button' 
+                            className='button-neg' 
                         >
                             Käytä tätä yhteenvetona
                         </button>

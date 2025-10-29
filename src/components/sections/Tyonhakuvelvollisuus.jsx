@@ -56,8 +56,8 @@ const Alennustyokalu = ({ sectionData, selection, onUpdate, onCancel }) => {
                 <p>{esikatselu || "Ei perusteluja valittu."}</p>
             </div>
             <div className="alennus-tyokalu-actions">
-                <button onClick={handleSave} className="save-button">Tallenna perustelut</button>
-                <button onClick={onCancel} className="cancel-button">Peruuta</button>
+                <button onClick={handleSave} className="btn">Tallenna perustelut</button>
+                <button onClick={onCancel} className="btn btn--secondary">Peruuta</button>
             </div>
         </div>
     );

@@ -96,20 +96,24 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             <div className="subsection">
                 <h3 className="subsection-title">Koulutus</h3>
                 {/* --- LISÄTTY: Tekstikenttä ja nappi --- */}
-                <div className="paste-area-container" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+               {/* --- LISÄTTY: Tekstikenttä ja nappi (Tyylitelty) --- */}
+                <div className="paste-area-container">
                     <textarea
                         rows="3"
                         placeholder="Liitä koulutustiedot tähän..."
                         value={pasteText}
                         onChange={(e) => setPasteText(e.target.value)}
-                        style={{ flexGrow: 1, minHeight: '60px' }}
+                        className="paste-area-textarea"
                     />
-                    <button onClick={handleParseAndFill} type="button" style={{ height: '60px', flexShrink: 0 }}>
+                    <button onClick={handleParseAndFill} type="button" className="btn btn--secondary paste-area-button">
                         Poimi koulutus
                     </button>
                 </div>
-                 {parseFeedback && <p style={{ fontSize: '0.9em', color: parseFeedback.includes('!') ? 'green' : 'red', marginTop: '-0.5rem', marginBottom: '1rem' }}>{parseFeedback}</p>}
-                 {/* --- LISÄYS LOPPUU --- */}
+                 {parseFeedback && (
+                    <p className={parseFeedback.includes('!') ? 'parse-feedback parse-feedback--success' : 'parse-feedback parse-feedback--error'}>
+                        {parseFeedback}
+                    </p>
+                 )}
 
                 <div className="options-container">
                     {/* Käytetään RadioPhraseSectionin sijaan suoraa renderöintiä, jotta nappi tulee oikeaan paikkaan */}

@@ -126,7 +126,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
             <section className="section-container">
                 <div className="section-header">
                     <h2 className="section-title">Palkkatuki ja muut tuet</h2>
-                    <button onClick={() => setShowModal(true)} className="info-button">Näytä ohjeet</button>
+                    <button onClick={() => setShowModal(true)} className="btn--secondary">Näytä ohjeet</button>
                 </div>
                 
                 <div className="info-box">
@@ -158,18 +158,21 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                         label="Puolletaanko analyysin mukaista palkkatukea?"
                         checked={palkkatukiState.palkkatuki_puolletaan}
                         onChange={(val) => onUpdatePalkkatuki('palkkatuki_puolletaan', val)}
+                        className="custom-checkbox-row"
                     />
                     {helsinkiLisaTulos && (
                          <Checkbox
                             label="Puolletaanko Helsinki-lisää?"
                             checked={palkkatukiState.helsinkilisa_puolletaan}
                             onChange={(val) => onUpdatePalkkatuki('helsinkilisa_puolletaan', val)}
+                            className="custom-checkbox-row"
                         />
                     )}
                      <Checkbox
                         label="Puolletaanko työkokeilua?"
                         checked={palkkatukiState.tyokokeilu_puolletaan}
                         onChange={(val) => onUpdatePalkkatuki('tyokokeilu_puolletaan', val)}
+                        className="custom-checkbox-row"
                     />
 
                     <div style={{ marginTop: '1rem' }}>

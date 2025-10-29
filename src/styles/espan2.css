@@ -1,0 +1,1360 @@
+/* --- espan2.css --- */
+
+/* --- 1. YHDISTETYT CSS-MUUTTUJAT --- */
+:root {
+  /* Fontit */
+  --font-sans: "Inter", "Poppins", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Päävärit */
+  --color-primary-start: #ff6b00;
+  --color-primary-end: #ff4fa3;
+  --color-primary: #ff6b00; 
+  --color-primary-hover: #e05e00;
+
+  /* Taustat ja pinnat */
+  --color-background: #faf7f5;
+  --color-surface: #ffffff; 
+
+  /* Tekstit */
+  --color-text-primary: #0a1724;
+  --color-text-secondary: #6b7785;
+  
+  /* Reunat ja varjot */
+  --color-border: rgba(10,23,36,0.08); 
+  --border-radius: 6px;           /* Päivitetty pyyntösi mukaan */
+  --shadow: none;                 /* Päivitetty pyyntösi mukaan */
+  --shadow-focus-ring: 0 0 0 3px rgba(255,107,0,0.15);
+
+  /* Status-värit */
+  --color-success: #1e9a5a;
+  --color-danger: #e34a4a;
+  --color-warning: #ffb020;
+}
+
+/* --- 2. PERUSTYYLIT (Tuotannosta) --- */
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  margin: 0;
+  padding: 2rem;
+  user-select: none;
+  scroll-padding-top: 2rem; 
+}
+
+h1 { font-size: 2.25rem; font-weight: 700; color: var(--color-text-primary); }
+h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem; color: var(--color-text-primary); }
+h3 { font-weight: 600; color: var(--color-text-primary); }
+p, label, li { color: var(--color-text-secondary); font-size: 0.875rem; }
+
+/* --- 3. ASETTELU (Uusi dynaaminen) --- */
+.layout-container {
+  display: grid;
+  grid-template-columns: 1fr 340px; 
+  gap: 2.5rem;
+  align-items: flex-start;
+  max-width: 1600px;
+  margin: auto;
+}
+
+/* --- 4. DYNAAMINEN SIVUPANEELI (Uusi) --- */
+.summary-panel {
+  position: sticky;
+  top: 2rem;
+  height: calc(100vh - 4rem);
+  
+  background-color: var(--color-surface); 
+  
+  /* Hienovarainen gradient-border */
+  border: 1px solid transparent; 
+  background-image: linear-gradient(var(--color-surface), var(--color-surface)), 
+                    linear-gradient(to bottom right, var(--color-border), rgba(255,255,255,0.2), var(--color-border));
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+
+  border-radius: var(--border-radius); /* 6px */
+  box-shadow: var(--shadow); /* none */
+  padding: 1.5rem;
+  min-width: 300px;
+  max-width: 600px;
+  overflow-y: auto; 
+  display: flex;
+  flex-direction: column;
+  z-index: 5; 
+}
+
+/* Vetokahva (Uusi) */
+.summary-drag-handle {
+  position: absolute;
+  left: -5px; top: 0; width: 10px; height: 100%;
+  cursor: ew-resize; z-index: 10;
+}
+.summary-drag-handle::before {
+  content: ""; position: absolute; left: 4px; top: 50%;
+  width: 2px; height: 40px; background: var(--color-border);
+  border-radius: 1px; transform: translateY(-50%); transition: background 0.15s ease;
+}
+.summary-drag-handle:hover::before {
+  background: linear-gradient(180deg, var(--color-primary-start), var(--color-primary-end));
+}
+
+/* Paneelin sisäiset osat (Uusi) */
+.summary-progress-tracker {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+  padding-bottom: 1.5rem; border-bottom: 1px solid var(--color-border);
+}
+.summary-items-list {
+  list-style: none; padding: 0; margin: 1.5rem 0; flex-grow: 1;
+}
+.summary-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.75rem 0.5rem; border-radius: calc(var(--border-radius) / 2);
+  cursor: pointer; transition: background-color 0.15s ease;
+}
+.summary-item:hover { background: rgba(0,0,0,0.03); }
+
+/* Scroll-Spy -korostus */
+.summary-item--active {
+  background-color: rgba(0,0,0,0.05);
+  font-weight: 600;
+}
+
+.summary-item__title { font-weight: 500; }
+.summary-actions {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--color-border);
+}
+
+/* Paneelin 'Chip'-komponentit (Uusi) */
+.chip {
+  display: inline-flex; align-items: center; background: var(--color-surface);
+  border: 1px solid var(--color-border); border-radius: 9999px;
+  padding: 0.4rem 0.8rem; font-size: 0.875rem; gap: 0.4rem;
+  cursor: pointer; transition: all 0.15s ease; 
+  box-shadow: none; /* Ei varjoa */
+}
+.chip:hover { background: rgba(0,0,0,0.03); }
+.chip--active {
+  background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end));
+  color: white; border: 1px solid transparent;
+}
+.chip--warning {
+  background: rgba(255,176,32,0.1); color: var(--color-warning);
+  border-color: rgba(255,176,32,0.2);
+}
+
+/* Paneelin 'Tag'-statukset (Uusi) */
+.tag {
+  display: inline-block; background: rgba(255,107,0,0.1); color: var(--color-primary);
+  border-radius: var(--border-radius); padding: 0.2rem 0.6rem;
+  font-size: 0.75rem; font-weight: 500;
+}
+.tag--success { background: rgba(30,154,90,0.1); color: var(--color-success); }
+.tag--warning { background: rgba(255,176,32,0.1); color: var(--color-warning); }
+.tag--pending { background: rgba(107,119,133,0.1); color: var(--color-text-secondary); }
+
+/* Paneelin painikkeet (Uusi) */
+.btn {
+  font-family: inherit;
+  background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end));
+  color: white; padding: 0.75rem 1.5rem; border: none; border-radius: var(--border-radius);
+  cursor: pointer; font-weight: 600; transition: all 0.15s ease;
+  text-align: center;
+}
+.btn:hover { transform: translateY(-2px); opacity: 0.9; }
+.btn--secondary {
+  background: var(--color-surface); color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+}
+.btn--secondary:hover {
+  transform: translateY(-2px); opacity: 1; border-color: var(--color-text-primary);
+}
+.btn:disabled {
+  background: rgba(0,0,0,0.05); color: var(--color-text-secondary);
+  cursor: not-allowed; transform: none; opacity: 0.7;
+  border: 1px solid var(--color-border);
+}
+.btn:disabled:not(.btn--secondary) {
+  background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end));
+  color: white; opacity: 0.4;
+}
+
+
+/* --- 5. TUOTANTOTYYLIT (Päivitetty ilme) --- */
+
+.section-container, .summary-box {
+    background-color: var(--color-surface);
+    border-radius: var(--border-radius); /* 6px */
+    box-shadow: var(--shadow); /* none */
+    
+    /* Hienovarainen gradient-border */
+    border: 1px solid transparent; 
+    background-image: linear-gradient(var(--color-surface), var(--color-surface)), 
+                      linear-gradient(to bottom right, var(--color-border), rgba(255,255,255,0.2), var(--color-border));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+
+    padding: 1.5rem; 
+    margin-bottom: 1.5rem;
+    z-index: 1; 
+    position: relative; 
+}
+
+.phrase-option {
+    border: 1px solid var(--color-border); border-radius: 0.5rem; cursor: pointer;
+    transition: all 0.2s ease-in-out; background-color: #fff;
+    padding: 1rem; margin-bottom: 0.5rem;
+}
+.phrase-option:hover { border-color: var(--color-primary); }
+.phrase-option.selected {
+    border-color: var(--color-primary);
+    background-color: #eff6ff; 
+    box-shadow: 0 0 0 1px var(--color-primary);
+}
+.phrase-option.recommended {
+  border: 2px solid var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2); 
+  position: relative; 
+}
+
+.variables-container {
+    background-color: #f9fafb; border-radius: 0.5rem; border: 1px solid #f3f4f6;
+}
+
+input, select, textarea {
+    margin-top: 0.25rem; display: block; width: 100%;
+    box-sizing: border-box; border-radius: 0.375rem;
+    border: 1px solid var(--color-border); padding: 0.5rem 0.75rem;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    background: var(--color-surface); color: var(--color-text-primary);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus-ring);
+  outline: none;
+}
+
+.info-box {
+    border-left: 4px solid var(--color-primary);
+    background-color: #eff6ff; 
+    border-radius: 0rem 0.5rem 0.5rem 0rem;
+    padding: 1rem;
+}
+
+.boolean-buttons button {
+    border: 1px solid transparent; cursor: pointer;
+    background-color: #e5e7eb; 
+    border-radius: 0.375rem; padding: 0.5rem 1rem;
+}
+.boolean-buttons button.selected {
+    background-color: var(--color-primary);
+    color: white;
+}
+
+.analysis-container { border-top: 2px solid var(--color-border); }
+.analysis-container .ehdotus {
+    font-weight: 700; color: var(--color-primary); padding-top: 0.5rem;
+}
+
+.summary-content { background-color: #f3f4f6; border-radius: 0.5rem; }
+.summary-content strong {
+    display: block; font-weight: 700; color: var(--color-text-primary); margin-bottom: 0.25rem;
+}
+
+.copy-button {
+    background-color: var(--color-primary); color: white; font-weight: 600;
+    border-radius: 0.5rem; border: none; cursor: pointer;
+    transition: background-color 0.2s; padding: 0.5rem 1rem;
+}
+.copy-button:hover { background-color: var(--color-primary-hover); }
+.copy-button:disabled { background-color: #9ca3af; cursor: not-allowed; }
+
+.feedback-text { color: #16a34a; font-weight: 500; }
+
+.keskustelu-tuki-container {
+    background-color: #f3f4f6; border-radius: 0.5rem;
+    padding: 1rem; margin-bottom: 1.5rem;
+}
+.keskustelu-tuki-container h3 {
+    font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem;
+}
+
+.slider-container {
+    margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1rem;
+}
+.slider-container span {
+    font-weight: 600; font-size: 1.25rem; color: var(--color-primary);
+}
+.slider {
+    -webkit-appearance: none; width: 100%; height: 8px; background: var(--color-border);
+    outline: none; opacity: 0.7; transition: opacity .2s;
+    border-radius: 9999px; margin-top: 0.5rem;
+}
+.slider:hover { opacity: 1; }
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 20px; height: 20px;
+    background: var(--color-primary); cursor: pointer; border-radius: 50%;
+}
+.slider::-moz-range-thumb {
+    width: 20px; height: 20px; background: var(--color-primary);
+    cursor: pointer; border-radius: 50%;
+}
+
+/* Diff-näkymä */
+.diff {
+  margin-top: 1rem; font-family: var(--font-mono); font-size: 0.875rem;
+  border-radius: var(--border-radius); overflow: hidden;
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  box-shadow: var(--shadow);
+}
+.diff__line { display: flex; padding: 0.3rem 0.75rem; gap: 0.75rem; }
+.diff__line--added { background: rgba(30,154,90,0.08); border-left: 4px solid var(--color-success); }
+.diff__line--removed { background: rgba(227,74,74,0.08); border-left: 4px solid var(--color-danger); color: var(--color-text-secondary); }
+.diff__line--modified { background: rgba(255,176,32,0.08); border-left: 4px solid var(--color-warning); }
+.diff__gutter { width: 40px; text-align: right; color: var(--color-text-secondary); }
+.diff__content { flex: 1; white-space: pre-wrap; }
+
+/* --- espan2.css - LISÄYS: A-TMT Guidance Box --- */
+
+/* Päälaatikko: käytetään samaa gradient-reunusta,
+   mutta eri taustaväriä erottuvuuden vuoksi. */
+.guidance-box.a-tmt-guidance {
+  background-color: var(--color-surface) !important;
+  border-radius: var(--border-radius) !important;
+  box-shadow: var(--shadow) !important;
+  
+  /* Hienovarainen gradient-border, kuten .section-container */
+  border: 1px solid transparent !important; 
+  background-image: linear-gradient(var(--color-surface), var(--color-surface)), 
+                    linear-gradient(to bottom right, var(--color-border), rgba(255,255,255,0.2), var(--color-border)) !important;
+  background-origin: border-box !important;
+  background-clip: padding-box, border-box !important;
+
+  padding: 1.5rem !important; 
+  margin-top: 2rem !important; /* Lisätään väliä edelliseen osioon */
+  z-index: 1 !important; 
+  position: relative !important; 
+}
+
+/* Huomautusteksti (esim. työttömyyden kesto) */
+.guidance-box .info-note {
+  font-size: 0.875rem !important;
+  color: var(--color-text-secondary) !important;
+  font-style: italic !important;
+  margin-bottom: 1rem !important;
+  display: block !important;
+}
+
+/* Varoituslaatikko (ristiriita) */
+.guidance-box .warning {
+  background-color: rgba(227, 74, 74, 0.05) !important;
+  border: 1px solid rgba(227, 74, 74, 0.1) !important;
+  border-left: 4px solid var(--color-danger) !important;
+  color: var(--color-danger) !important;
+  padding: 0.75rem 1rem !important;
+  margin-bottom: 1rem !important;
+  border-radius: var(--border-radius) !important;
+}
+.guidance-box .warning strong {
+  color: var(--color-danger) !important;
+}
+
+/* Suositellun statuksen korostus */
+.guidance-box .recommended-status {
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important; /* Käytetään päätekstiväriä selkeyden vuoksi */
+}
+
+/* Perustelut-osion kääre */
+.guidance-box .justification {
+  margin-top: 1.5rem !important;
+}
+
+/* Blockquote-tyyli perusteluille */
+.guidance-box blockquote {
+  border-left: 4px solid var(--color-border) !important;
+  background-color: var(--color-background) !important; /* Hieman eri tausta */
+  padding: 0.75rem 1rem !important;
+  margin: 0.5rem 0 0.5rem 0 !important;
+  border-radius: 0 4px 4px 0 !important;
+}
+.guidance-box blockquote br {
+  display: none !important; /* Estetään turhat rivinvaihdot React-fragmentista */
+}
+.guidance-box blockquote strong {
+  color: var(--color-primary) !important; /* Korostetaan avaintermit */
+}
+.guidance-box blockquote em {
+  font-style: italic !important;
+  color: var(--color-text-secondary) !important;
+}
+
+/* Lisätietopyyntöjen kääre */
+.guidance-box .additional-info-request {
+  margin-top: 1.5rem !important;
+  padding-top: 1.5rem !important;
+  border-top: 1px solid var(--color-border) !important;
+}
+
+/* Lisätietorivi (Label + Input) */
+.guidance-box .info-row {
+  display: flex !important;
+  flex-wrap: wrap; /* Rivittyy pienillä näytöillä */
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 1rem !important;
+  margin-bottom: 1rem !important;
+}
+
+.guidance-box .info-row label {
+  font-weight: 500 !important;
+  flex-basis: 200px !important; /* Antaa labelille kiinteän leveyden */
+  flex-grow: 0;
+  color: var(--color-text-primary) !important;
+  margin: 0 !important;
+}
+
+.guidance-box .info-row select,
+.guidance-box .info-row input[type="number"] {
+  flex: 1 !important; /* Antaa syöttökentän viedä lopun tilan */
+  min-width: 150px; /* Estää kenttää kutistumasta liikaa */
+  margin: 0 !important;
+}
+
+/* Pieni huomautus inputin vieressä (esim. Alle 4h/vko) */
+.guidance-box .info-row .info-note {
+  flex-basis: 100% !important; /* Vie koko leveyden ja siirtyy omalle rivilleen */
+  margin: -0.75rem 0 0 0 !important; /* Siirretään lähemmäs inputia */
+  text-align: right !important;
+  color: var(--color-primary) !important;
+}
+/* --- espan2.css - LISÄYS: Accordion / Hajautin --- */
+
+.accordion-item {
+  border-top: 1px solid var(--color-border) !important;
+}
+.accordion-item:first-child {
+  border-top: none !important;
+}
+
+/* * Otsikko (<summary> tai .accordion-title) 
+ * Tämä poistaa oletusnuolen ja lisää hover-efektin.
+ */
+.accordion-title {
+  width: 100% !important;
+  text-align: left !important;
+  padding: 0.75rem 0.5rem !important;
+  background: none !important;
+  border: none !important;
+  cursor: pointer !important;
+  font-weight: 600 !important; /* Lihavoidaan hieman teemaan sopivaksi */
+  color: var(--color-text-primary) !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  transition: background-color 0.2s ease !important;
+  
+  /* Estää <summary>-tagin oletusnuolen näkymisen */
+  list-style: none !important; 
+}
+.accordion-title::-webkit-details-marker {
+  display: none !important; /* Safari/Chrome */
+}
+.accordion-title:hover {
+  background-color: rgba(0,0,0,0.03) !important;
+}
+
+/* * Uusi nuoli-ikoni 
+ * Lisätään otsikon loppuun.
+ */
+.accordion-title::after {
+  content: '›'; /* Yksinkertainen, elegantti nuoli */
+  font-size: 1.75rem; /* Isompi, selkeämpi */
+  font-weight: 400; /* Ohuempi kuin teksti */
+  color: var(--color-primary); /* Teeman pääväri */
+  transition: transform 0.2s ease-in-out !important;
+  transform: rotate(0deg); /* Oletuksena kiinni */
+  line-height: 1;
+}
+
+/* * Avatun accordionin tila 
+ * Kääntää nuolen 90 astetta.
+ */
+.accordion-item[open] > .accordion-title::after {
+  transform: rotate(90deg) !important;
+}
+
+/* * Accordionin sisältö 
+ * Lisätään hieman sisennystä, jotta se asettuu kauniisti.
+ */
+.accordion-content {
+  padding: 0 0.5rem 1rem 0.75rem !important; /* Sisennys vasemmalla */
+  color: var(--color-text-secondary) !important;
+  
+  /* Lisätään pehmeä animaatio sisällön ilmestymiselle */
+  animation: fadeIn 0.3s ease-out !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* --- espan2.css - LISÄYS: Suggestions Container & Buttons --- */
+
+/* * .suggestions-container
+ * Muutetaan harmaasta teeman mukaiseksi laatikoksi.
+ */
+.suggestions-container {
+  background-color: var(--color-surface) !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  box-shadow: var(--shadow) !important; /* none */
+  
+  /* Hienovarainen gradient-border */
+  border: 1px solid transparent !important; 
+  background-image: linear-gradient(var(--color-surface), var(--color-surface)), 
+                    linear-gradient(to bottom right, var(--color-border), rgba(255,255,255,0.2), var(--color-border)) !important;
+  background-origin: border-box !important;
+  background-clip: padding-box, border-box !important;
+
+  padding: 1.5rem !important; 
+  margin-top: 2rem !important;
+}
+
+/* * Listan alkiot laatikon sisällä (jos käytössä)
+ * Poistetaan vanhat reunat ja lisätään moderni hover-efekti.
+ */
+.suggestions-container li {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  padding: 0.75rem !important;
+  border-radius: var(--border-radius) !important;
+  background-color: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  transition: border-color 0.2s ease !important;
+  margin-bottom: 0.5rem !important; /* Väliä alkioille */
+}
+
+.suggestions-container li:hover {
+   border-color: var(--color-primary) !important;
+}
+
+/* * Painikkeet (button) laatikon sisällä
+ * Muutetaan harmaat napit teeman pääväri-gradienteiksi.
+ */
+.suggestions-container li button {
+  font-family: var(--font-sans) !important;
+  background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end)) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  padding: 0.25rem 0.75rem !important; /* Pienempi padding listan sisällä */
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.suggestions-container li button:hover {
+  transform: translateY(-1px) !important;
+  opacity: 0.9 !important;
+}
+/* --- espan2.css - LISÄYS: KoulutusJaYrittajyys --- */
+
+/* * Osio (.subsection)
+ * Luo selkeän jaon .section-container'in sisälle.
+ */
+.subsection {
+  margin-top: 1.5rem !important;
+  padding-top: 1.5rem !important;
+  border-top: 1px solid var(--color-border) !important;
+}
+.subsection:first-of-type {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: none !important;
+}
+
+/* * Alaotsikko (.subsection-title)
+ * Muotoillaan H3-elementti selkeäksi väliotsikoksi.
+ */
+.subsection-title {
+  font-size: 1.125rem !important; /* Hieman pienempi kuin H2 */
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+  margin-bottom: 1rem !important;
+}
+
+/* * Yhteenvedon esikatselu (.summary-preview)
+ * Tämä laatikko korostaa ehdotettua tekstiä.
+ */
+.summary-preview.language-summary-preview {
+  background-color: #eff6ff !important; /* Käytetään tuttua vaaleansinistä korostusta */
+  border: 1px solid rgba(37, 99, 235, 0.2) !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  padding: 1rem 1.5rem !important;
+  margin-top: 1.5rem !important;
+}
+
+.summary-preview h4 {
+  margin-top: 0 !important;
+  margin-bottom: 0.5rem !important;
+  color: var(--color-text-primary) !important;
+  font-weight: 600 !important;
+}
+
+.summary-preview p {
+  color: var(--color-text-secondary) !important;
+  font-style: italic !important;
+  margin: 0 !important;
+}
+
+/* * "Käytä tätä" -painike (.copy-suggestion-button)
+ * Tehdään tästä toissijainen, mutta selkeä painike.
+ */
+.button-neg {
+  font-family: var(--font-sans) !important;
+  background-color: var(--color-surface) !important;
+  color: var(--color-primary) !important;
+  border: 1px solid var(--color-primary) !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  padding: 0.25rem 0.75rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  margin-top: 1rem !important;
+}
+
+.button-neg:hover {
+  background-color: rgba(255, 107, 0, 0.1) !important; /* Kevyt oranssi hover */
+  transform: translateY(-1px) !important;
+}
+
+/* * Palauteviesti (.feedback-text)
+ * Varmistetaan, että tämäkin on tyylitelty, jos se puuttui.
+ */
+.feedback-text {
+  display: inline-block !important;
+  margin-left: 1rem !important;
+  font-size: 0.875rem !important;
+  color: var(--color-success) !important;
+  font-weight: 500 !important;
+}
+/* --- espan2.css - LISÄYS: Tyokyky-komponentti --- */
+
+/* * Keskustelun tuki - Accordion (<details>)
+ * Poistetaan oletusnuoli ja lisätään reunaviiva.
+ */
+.discussion-accordion {
+  border-top: 1px solid var(--color-border) !important;
+}
+.discussion-accordion:first-of-type {
+  border-top: none !important;
+}
+
+/* * Accordionin otsikko (<summary>)
+ * Muotoillaan se klikattavaksi otsikoksi.
+ */
+.discussion-accordion > summary {
+  width: 100% !important;
+  text-align: left !important;
+  padding: 0.75rem 0.5rem !important;
+  background: none !important;
+  border: none !important;
+  cursor: pointer !important;
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  transition: background-color 0.2s ease !important;
+  list-style: none !important; /* Poistaa oletusnuolen */
+}
+.discussion-accordion > summary::-webkit-details-marker {
+  display: none !important; /* Safari/Chrome */
+}
+.discussion-accordion > summary:hover {
+  background-color: rgba(0,0,0,0.03) !important;
+}
+
+/* * Uusi nuoli-ikoni <summary>-elementille
+ */
+.discussion-accordion > summary::after {
+  content: '›';
+  font-size: 1.75rem;
+  font-weight: 400;
+  color: var(--color-primary);
+  transition: transform 0.2s ease-in-out !important;
+  transform: rotate(0deg);
+  line-height: 1;
+}
+
+/* * Avatun accordionin tila (kääntää nuolen)
+ */
+.discussion-accordion[open] > summary::after {
+  transform: rotate(90deg) !important;
+}
+
+/* * Accordionin sisältö
+ */
+.discussion-content {
+  padding: 0 0.5rem 1rem 0.75rem !important; /* Sisennys */
+  color: var(--color-text-secondary) !important;
+  animation: fadeIn 0.3s ease-out !important;
+}
+
+/* * Kysymysrivi accordionin sisällä
+ * Asettelee labelin ja inputin vierekkäin.
+ */
+.question-row {
+  display: flex !important;
+  flex-wrap: wrap; /* Rivittyy tarvittaessa */
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 1rem !important;
+  padding: 0.75rem 0 !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+.discussion-content > div:last-child {
+  border-bottom: none !important; /* Ei reunaviivaa viimeiselle */
+}
+
+.question-row label {
+  flex: 1 1 200px !important; /* Label vie tilaa, mutta joustaa */
+  min-width: 150px;
+  color: var(--color-text-primary) !important;
+  padding-right: 1rem !important;
+}
+
+.question-row .boolean-buttons,
+.question-row input[type="text"],
+.question-row select {
+  flex: 1 1 200px !important; /* Kenttä vie tilaa, mutta joustaa */
+  margin-top: 0 !important; /* Nollataan oletusmarginaali */
+}
+
+/* * Koonti-laatikko (.koonti-container)
+ * Tyylitellään laatikko tekstikentän ja napin ympärille.
+ */
+.koonti-container {
+  margin-top: 1.5rem !important;
+  padding-top: 1.5rem !important;
+  border-top: 1px dashed var(--color-border) !important; /* Erotetaan muista */
+}
+.koonti-container label {
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* * Koonti-painike
+ * Tehdään siitä toissijainen nappi.
+ */
+.koonti-container button {
+  font-family: var(--font-sans) !important;
+  background-color: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  padding: 0.5rem 1rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  margin-top: 0.75rem !important;
+}
+
+.koonti-container button:hover {
+  background-color: rgba(0,0,0,0.03) !important;
+  border-color: var(--color-text-primary) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Varmistetaan, että sliderin numero näkyy oikein */
+.slider-container span {
+    font-weight: 600 !important;
+    font-size: 1.25rem !important;
+    color: var(--color-primary) !important;
+}
+/* --- espan2.css - LISÄYS: PalkkatukiCalculator --- */
+
+/* * Otsikon ja napin asettelu
+ * Asettaa H2-otsikon ja "Näytä ohjeet" -napin samalle riville.
+ */
+.section-header {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  margin-bottom: 1rem !important; /* Väliä ala-sisältöön */
+}
+/* Nollataan oletusmarginaali otsikolta, jotta keskitys onnistuu */
+.section-header > .section-title {
+  margin-bottom: 0 !important;
+}
+/* Pienennetään napin kokoa, koska se on otsikon vieressä */
+.section-header .btn--secondary {
+  padding: 0.5rem 1rem !important;
+  font-size: 0.875rem !important;
+}
+
+/* * Kysymysten kääre
+ */
+.questions-container {
+  margin-top: 1.5rem !important;
+  padding-top: 1.5rem !important;
+  border-top: 1px solid var(--color-border) !important;
+}
+
+/* * Väliotsikoiden (h4, h5) ja viivan (hr) tyylit
+ */
+hr {
+  border: none !important;
+  height: 1px !important;
+  background-color: var(--color-border) !important;
+  margin: 1.5rem 0 !important;
+}
+
+h4 {
+  font-size: 1.125rem !important;
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+  margin-bottom: 1rem !important;
+}
+
+h5 {
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+  margin: 1.5rem 0 0.75rem 0 !important;
+}
+/* Ensimmäinen h5 ei tarvitse ylämarginaalia */
+div > h5:first-child {
+  margin-top: 0 !important;
+}
+
+/* * Päätösten tilat (.puollettu / .ei-puollettu)
+ */
+.puollettu {
+  color: var(--color-success) !important;
+  font-weight: 600 !important;
+}
+.ei-puollettu {
+  color: var(--color-danger) !important;
+  font-weight: 600 !important;
+}
+
+/* * Checkbox-komponentin tyylit
+ * Oletetaan, että <Checkbox> tuottaa <label><input type="checkbox">...</label>
+ */
+.checkbox-wrapper {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  margin-bottom: 0.5rem !important;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+.checkbox-wrapper:hover {
+  background-color: rgba(0,0,0,0.03);
+}
+.checkbox-wrapper input[type="checkbox"] {
+  width: 1.15em !important;
+  height: 1.15em !important;
+  margin: 0 !important;
+  accent-color: var(--color-primary) !important;
+  cursor: pointer;
+}
+.checkbox-wrapper label {
+  color: var(--color-text-primary) !important;
+  margin: 0 !important;
+  cursor: pointer;
+}
+
+/* --- espan2.css - LISÄYS: Modal-ikkuna --- */
+
+.modal-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background-color: rgba(10, 23, 36, 0.5) !important; /* Puoliläpinäkyvä tausta */
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  z-index: 100 !important;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.modal-content {
+  background-color: var(--color-surface) !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1) !important;
+  padding: 2rem !important;
+  width: 90% !important;
+  max-width: 700px !important;
+  max-height: 80vh !important;
+  overflow-y: auto !important;
+  position: relative !important;
+  z-index: 101 !important;
+  
+  /* Hienovarainen gradient-border */
+  border: 1px solid transparent !important; 
+  background-image: linear-gradient(var(--color-surface), var(--color-surface)), 
+                    linear-gradient(to bottom right, var(--color-border), rgba(255,255,255,0.2), var(--color-border)) !important;
+  background-origin: border-box !important;
+  background-clip: padding-box, border-box !important;
+}
+
+/* Oletus oletetulle "Sulje"-napille */
+.modal-close-button {
+  position: absolute !important;
+  top: 1rem !important;
+  right: 1rem !important;
+  background: none !important;
+  border: none !important;
+  font-size: 1.5rem !important;
+  font-weight: 600;
+  color: var(--color-text-secondary) !important;
+  cursor: pointer !important;
+}
+.modal-close-button:hover {
+  color: var(--color-text-primary) !important;
+}
+
+/* Modalin sisällön tyylit */
+.modal-content h5 {
+  color: var(--color-primary) !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+.modal-content h5:first-of-type {
+  margin-top: 0 !important;
+}
+
+.modal-content ul {
+  list-style-type: disc !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+}
+.modal-content li {
+  margin-bottom: 0.5rem !important;
+}
+/* --- espan2.css - KORJAUS: Palkkatuki Checkbox-asettelut --- */
+
+/* * 1. Määritellään laatikoiden perusrakenne
+ */
+.questions-container h4,
+.questions-container h5 {
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.75rem !important;
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+  padding-bottom: 0.5rem !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+/* * 2. Korjataan "Kummallinen sisennys"
+ * Muotoillaan "Lisättävät huomiot" -laatikko.
+ * Poistetaan PADDING, joka aiheutti tuplasisenn_yksen_.
+ */
+.questions-container div[style*="margin-top: 1rem"] {
+  margin-top: 1.5rem !important;
+  padding: 1.5rem !important; /* TÄMÄ AIHEUTTI VIRHEEN - KORJATAAN ALLA */
+  
+  /* KORJAUS: Määritellään padding tarkemmin */
+  padding: 1.5rem 1.5rem 1rem 1.5rem !important; 
+  
+  background-color: var(--color-background) !important;
+  border-radius: var(--border-radius) !important;
+  border: 1px solid var(--color-border) !important;
+}
+/* Nollataan laatikon sisällä olevan otsikon marginaali */
+.questions-container div[style*="margin-top: 1rem"] h5 {
+  margin-top: 0 !important;
+  padding-bottom: 0.75rem !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+
+/* * 3. Korjataan "Napit liian ylhäällä"
+ * Kohdistetaan kaikki <label>-elementit (joita <Checkbox> käyttää)
+ * "Puollot" ja "Lisättävät huomiot" -osioissa.
+ */
+.questions-container > label,
+.questions-container div[style*="margin-top: 1rem"] > label {
+  display: flex !important;
+  /* KORJAUS: Asetetaan suunta ja keskitetään */
+  flex-direction: row-reverse !important;  /* Kääntää järjestyksen: [Input] [Teksti] */
+  align-items: center !important;         /* Keskittää pystysuunnassa */
+  justify-content: flex-end !important;   /* Pakottaa sisällön vasempaan reunaan */
+  gap: 0.75rem !important;                /* Väli napin ja tekstin väliin */
+  
+  margin-bottom: 0.5rem !important;
+  cursor: pointer !important;
+  padding: 0.5rem !important;
+  border-radius: var(--border-radius) !important;
+  transition: background-color 0.2s ease !important;
+}
+
+/* Nollataan laatikon sisäisten rivien padding, jotta ne linjautuvat */
+.questions-container div[style*="margin-top: 1rem"] > label {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+.questions-container div[style*="margin-top: 1rem"] > label:hover {
+    background-color: transparent !important; /* Ei hover-efektiä laatikon sisällä */
+}
+
+/* Yleinen hover-efekti (vain "Puollot"-osiossa) */
+.questions-container > label:hover {
+  background-color: rgba(0,0,0,0.03) !important;
+}
+
+/* Kohdistetaan itse <input> labelin sisällä */
+.questions-container > label input[type="checkbox"],
+div[style*="margin-top: 1rem"] > label input[type="checkbox"] {
+   margin: 0 !important;
+   width: 1.15em !important;
+   height: 1.15em !important;
+   accent-color: var(--color-primary) !important;
+   flex-shrink: 0; /* Estää napin kutistumisen */
+}
+/* --- espan2.css - LISÄYS: Palveluunohjaus (custom-text) --- */
+
+.custom-text-container {
+  margin-top: 1.5rem !important;
+  padding-top: 1.5rem !important;
+  border-top: 1px solid var(--color-border) !important;
+}
+
+/* --- espan2.css - LISÄYS: Yleinen Checkbox-tyyli --- */
+
+/* * Tämä on uusi, yleiskäyttöinen luokka,
+ * jonka voit lisätä <Checkbox> -komponentillesi.
+ */
+.custom-checkbox-row {
+  /* 1. Asettelu: Korjaa "liian ylhäällä" -ongelman */
+  display: flex !important;
+  align-items: center !important; /* Keskittää pystysuunnassa */
+  gap: 0.75rem !important;        /* Väli napin ja tekstin väliin */
+  
+  /* 2. Käytettävyys: Suuri ja helppo klikkausalue */
+  cursor: pointer !important;
+  padding: 0.75rem 0.5rem !important;
+  margin-bottom: 0.25rem !important;
+  
+  /* 3. Ulkoasu: Sopii teemaan */
+  border-radius: var(--border-radius) !important; /* 6px */
+  transition: background-color 0.2s ease !important;
+}
+
+/* Kevyt hover-tehoste */
+.custom-checkbox-row:hover {
+  background-color: rgba(0,0,0,0.03) !important;
+}
+
+/* * Itse <input type="checkbox"> -elementin tyylittely
+ * Tämä tehdään <label>-elementin (jonka luokka on .custom-checkbox-row) sisällä.
+ */
+.custom-checkbox-row input[type="checkbox"] {
+  /* 1. Ulkonäkö: "Näyttävä" ja teemaan sopiva */
+  width: 1.25em !important;   /* Tehdään napista hieman isompi */
+  height: 1.25em !important;
+  accent-color: var(--color-primary) !important; /* TÄMÄ ON AVAIN: Värjää napin oranssiksi */
+  
+  /* 2. Asettelu: Varmistaa linjauksen */
+  margin: 0 !important;      /* Nollaa oletusmarginaalit */
+  flex-shrink: 0 !important; /* Estää napin kutistumisen */
+  cursor: pointer !important;
+}
+
+/* Varmistetaan, että teksti (label) checkboxin sisällä on oikean värinen */
+.custom-checkbox-row,
+.custom-checkbox-row label {
+    color: var(--color-text-primary) !important;
+    margin: 0 !important;
+}
+/* --- espan2.css - LISÄYS: Tyonhakuvelvollisuus & Alennustyökalu --- */
+
+/* * Laatikot (Context, Analysis, Next Steps)
+ * Käytetään teemasta poikkeavaa taustaa korostukseen.
+ */
+.context-box,
+.analysis-box,
+.next-steps-box {
+  background-color: #eff6ff !important; /* Sama vaaleansininen kuin .info-box */
+  border: 1px solid rgba(37, 99, 235, 0.2) !important;
+  border-radius: var(--border-radius) !important; /* 6px */
+  padding: 1.5rem !important;
+  margin-bottom: 1.5rem !important;
+}
+
+/* Analyysilaatikon erityistyylit */
+.analysis-box {
+  padding: 0 !important; /* Nollataan padding, header hoitaa sen */
+  background-color: var(--color-surface) !important; /* Pidetään tämä valkoisena */
+  border: 1px solid var(--color-border) !important;
+}
+.analysis-header {
+  background-color: var(--color-background) !important; /* Hillitty harmaa tausta */
+  padding: 0.75rem 1.5rem !important;
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  /* Pyöristetään vain yläkulmat */
+  border-top-left-radius: var(--border-radius);
+  border-top-right-radius: var(--border-radius);
+}
+.analysis-content {
+  padding: 1.5rem !important;
+}
+.analysis-content h4 {
+  margin-top: 0 !important;
+  border: none !important;
+  padding: 0 !important;
+}
+.analysis-content ul {
+  list-style-type: disc !important;
+  padding-left: 1.5rem !important;
+  margin: 0.5rem 0 1rem 0 !important;
+}
+.analysis-content p {
+  margin: 0.25rem 0 !important;
+}
+.analysis-content .ehdotus {
+  margin-top: 1rem !important;
+  font-weight: 600 !important;
+  color: var(--color-primary) !important;
+  font-size: 1.125rem !important;
+}
+
+/* "Seuraavat askeleet" -laatikon listatyyli */
+.next-steps-box ul {
+  list-style-type: disc !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+}
+
+/* * Alennustyökalun nappi
+ */
+.alennus-nappi-container {
+  margin-top: 1.5rem !important;
+  padding-top: 1.5rem !important;
+  border-top: 1px solid var(--color-border) !important;
+  text-align: center !important;
+}
+.alennus-nappi-container button {
+  /* Käytetään toissijaisen napin tyyliä */
+  font-family: var(--font-sans) !important;
+  background-color: var(--color-surface) !important;
+  color: var(--color-text-primary) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--border-radius) !important;
+  padding: 0.5rem 1rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+.alennus-nappi-container button:hover {
+  background-color: rgba(0,0,0,0.03) !important;
+  border-color: var(--color-text-primary) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* * Alennustyökalu itse
+ * Käytetään keltaista "huomio"-teemaa.
+ */
+.alennus-tyokalu {
+  background-color: #fefce8 !important; /* Keltainen korostus */
+  border: 1px solid #facc15 !important;
+  border-radius: var(--border-radius) !important;
+  padding: 1.5rem !important;
+  margin-top: 1rem !important;
+}
+.alennus-tyokalu h4 {
+  margin-top: 0 !important;
+  padding-bottom: 0.75rem !important;
+  border-bottom: 1px solid #facc15 !important;
+}
+
+/* Checkbox-valintojen grid */
+.perustelut-valinnat {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 1rem 1.5rem !important;
+  margin-bottom: 1rem !important;
+}
+
+/* Varmistetaan, että checkbox-rivit toimivat gridissä */
+.alennus-tyokalu .checkbox-wrapper {
+  /* Käytetään yleistä checkbox-tyyliä */
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  cursor: pointer !important;
+  padding: 0.5rem !important;
+  border-radius: var(--border-radius) !important;
+  transition: background-color 0.2s ease !important;
+}
+.alennus-tyokalu .checkbox-wrapper:hover {
+  background-color: rgba(0,0,0,0.05) !important;
+}
+.alennus-tyokalu .checkbox-wrapper input[type="checkbox"] {
+   margin: 0 !important;
+   width: 1.15em !important;
+   height: 1.15em !important;
+   accent-color: var(--color-primary) !important;
+}
+.alennus-tyokalu .checkbox-wrapper label {
+  color: var(--color-text-primary) !important;
+  margin: 0 !important;
+}
+
+/* Vapaa teksti -kenttä */
+.vapaa-teksti-container {
+  margin-top: 1rem !important;
+}
+.vapaa-teksti-container label {
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Esikatselulaatikko */
+.esikatselu-laatikko {
+  margin-top: 1.5rem !important;
+  padding: 1rem !important;
+  background-color: var(--color-surface) !important;
+  border: 1px dashed var(--color-border) !important;
+  border-radius: var(--border-radius) !important;
+}
+.esikatselu-laatikko strong {
+  display: block !important;
+  font-weight: 600 !important;
+  color: var(--color-text-primary) !important;
+  margin-bottom: 0.25rem !important;
+}
+.esikatselu-laatikko p {
+  margin: 0 !important;
+  font-style: italic !important;
+}
+
+/* Tallenna/Peruuta-painikkeet */
+.alennus-tyokalu-actions {
+  display: flex !important;
+  gap: 0.5rem !important;
+  margin-top: 1.5rem !important;
+  padding-top: 1rem !important;
+  border-top: 1px solid #facc15 !important;
+}
+
+/* --- espan2.css - LISÄYS: Koulutus (Paste Area) --- */
+
+/* * Kääre "Liitä"-tekstikentälle ja napille
+ */
+.paste-area-container {
+  display: flex !important;
+  align-items: flex-start !important; /* Linjaa kentän ja napin yläreunat */
+  gap: 0.75rem !important;
+  margin-bottom: 1rem !important;
+}
+
+/* * Tekstikenttä
+ */
+.paste-area-textarea {
+  flex-grow: 1 !important; /* Vie suurimman osan tilasta */
+  min-height: 60px !important;
+}
+
+/* * "Poimi koulutus" -nappi
+ * Pakotetaan korkeus vastaamaan tekstikenttää.
+ */
+.paste-area-button {
+  height: 60px !important;
+  flex-shrink: 0 !important; /* Estää napin kutistumisen */
+  padding: 0.5rem 1rem !important; /* Säädetään paddingia korkeuteen sopivaksi */
+}
+
+/* * Palauteteksti (Parse Feedback)
+ * Korvaa inline-tyylit.
+ */
+.parse-feedback {
+  font-size: 0.9em !important;
+  font-weight: 500 !important;
+  margin-top: -0.5rem !important;
+  margin-bottom: 1rem !important;
+}
+.parse-feedback--success {
+  color: var(--color-success) !important;
+}
+.parse-feedback--error {
+  color: var(--color-danger) !important;
+}
+/* --- espan2.css - LISÄYS: Generoitu teksti SummaryPanelin listassa --- */
+
+/* * Muokataan listan alkion (.summary-item) rakennetta
+ * Nyt se sisältää headerin ja mahdollisen tekstin.
+ */
+.summary-item {
+  flex-direction: column !important; /* Asetetaan osat allekkain */
+  align-items: stretch !important;  /* Viedään koko leveys */
+  padding: 0 !important; /* Nollataan vanha padding */
+  border-bottom: 1px solid var(--color-border) !important; /* Erotinviiva */
+}
+.summary-items-list > li:last-child {
+  border-bottom: none !important; /* Ei viivaa viimeiselle */
+}
+
+/* * Yläosa: Otsikko ja status-tagi
+ * Tämä osa on klikattava.
+ */
+.summary-item-header {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  padding: 0.75rem 0.5rem !important; /* Palautetaan alkuperäinen padding */
+  cursor: pointer !important;
+  transition: background-color 0.15s ease !important;
+  border-radius: calc(var(--border-radius) / 2) !important;
+}
+.summary-item-header:hover {
+  background-color: rgba(0,0,0,0.03) !important;
+}
+/* Korostus scroll-spyn kautta kohdistuu nyt headeriin */
+.summary-item--active .summary-item-header {
+   background-color: rgba(0,0,0,0.05) !important;
+   font-weight: 600 !important;
+}
+
+/* * Alaosa: Generoitu teksti
+ */
+.summary-item-generated-text {
+  padding: 0.5rem 0.75rem 1rem 0.75rem !important; /* Sopiva padding tekstille */
+  font-size: 0.8rem !important; /* Hieman pienempi fontti */
+  color: var(--color-text-secondary) !important;
+  line-height: 1.4 !important;
+  white-space: pre-wrap; /* Säilyttää rivinvaihdot */
+  border-top: 1px dashed var(--color-border) !important; /* Erottaa headerista */
+  margin-top: 0.5rem !important;
+}
+
+/* * Varmistetaan feedback-tekstin näkyvyys actions-lohkossa
+ */
+.summary-actions .feedback-text {
+  display: block !important;
+  text-align: center !important;
+  margin-top: 0.5rem !important;
+  height: 1.25rem !important;
+  color: var(--color-success) !important;
+  font-weight: 500 !important;
+  font-size: 0.875rem !important;
+}

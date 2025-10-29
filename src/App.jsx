@@ -17,6 +17,7 @@ import AiAnalyysi from './components/AiAnalyysi';
 import { planData } from './data/planData';
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
+import './styles/espan2.css';
 
 // Deep merge function remains the same
 const deepMerge = (target, source) => {

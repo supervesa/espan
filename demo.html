@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESPAN UI Demo (Tuotantotyylit + Dynaaminen paneeli)</title>
+<style>
+  /* --- 1. YHDISTETYT CSS-MUUTTUJAT --- */
+  :root {
+    /* Fontit */
+    --font-sans: "Inter", "Poppins", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", monospace;
+
+    /* Päävärit */
+    --color-primary-start: #ff6b00;
+    --color-primary-end: #ff4fa3;
+    --color-primary: #ff6b00; 
+    --color-primary-hover: #e05e00;
+
+    /* Taustat ja pinnat */
+    --color-background: #faf7f5;
+    --color-surface: #ffffff; /* PALAUTETTU: Läpinäkymätön pinta */
+
+    /* Tekstit */
+    --color-text-primary: #0a1724;
+    --color-text-secondary: #6b7785;
+    
+    /* Reunat ja varjot */
+    --color-border: rgba(10,23,36,0.08); 
+    --border-radius: 6px;           /* MUUTETTU: 6px */
+    --shadow: none;                 /* MUUTETTU: Varjo pois */
+    --shadow-focus-ring: 0 0 0 3px rgba(255,107,0,0.15);
+
+    /* Status-värit */
+    --color-success: #1e9a5a;
+    --color-danger: #e34a4a;
+    --color-warning: #ffb020;
+  }
+
+  /* --- 2. PERUSTYYLIT (Tuotannosta) --- */
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--color-background);
+    color: var(--color-text-primary);
+    margin: 0;
+    padding: 2rem;
+    user-select: none;
+    scroll-padding-top: 2rem; 
+  }
+
+  h1 { font-size: 2.25rem; font-weight: 700; }
+  h2 { font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem; color: var(--color-text-primary); }
+  h3 { font-weight: 600; color: var(--color-text-primary); }
+  p, label, li { color: var(--color-text-secondary); font-size: 0.875rem; }
+  
+  /* --- 3. ASETTELU (Uusi dynaaminen) --- */
+  .layout-container {
+    display: grid;
+    grid-template-columns: 1fr 340px; 
+    gap: 2.5rem;
+    align-items: flex-start;
+    max-width: 1600px;
+    margin: auto;
+  }
+
+  /* --- 4. DYNAAMINEN SIVUPANEELI (Uusi) --- */
+  .summary-panel {
+    position: sticky;
+    top: 2rem;
+    height: calc(100vh - 4rem);
+    
+    /* PALAUTETTU: Läpinäkymätön tausta (korjaa resizen) */
+    background-color: var(--color-surface); 
+    
+    /* MUUTETTU: Paluu hienovaraiseen gradient-borderiin */
+    border: 1px solid transparent; 
+    background-image: linear-gradient(var(--color-surface), var(--color-surface)), 
+                      linear-gradient(to bottom right, var(--color-border), rgba(255,255,255,0.2), var(--color-border));
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+
+    border-radius: var(--border-radius); /* 6px */
+    box-shadow: var(--shadow); /* none */
+    padding: 1.5rem;
+    min-width: 300px;
+    max-width: 600px;
+    overflow-y: auto; 
+    display: flex;
+    flex-direction: column;
+    z-index: 5; 
+    
+    /* POISTETTU: Nämä rikkoivat resizen */
+    /* backdrop-filter: blur(10px); */
+    /* -webkit-backdrop-filter: blur(10px); */
+  }
+
+  /* Vetokahva (Uusi) */
+  .summary-drag-handle {
+    position: absolute;
+    left: -5px; top: 0; width: 10px; height: 100%;
+    cursor: ew-resize; z-index: 10;
+  }
+  .summary-drag-handle::before {
+    content: ""; position: absolute; left: 4px; top: 50%;
+    width: 2px; height: 40px; background: var(--color-border);
+    border-radius: 1px; transform: translateY(-50%); transition: background 0.15s ease;
+  }
+  .summary-drag-handle:hover::before {
+    background: linear-gradient(180deg, var(--color-primary-start), var(--color-primary-end));
+  }
+  
+  /* Paneelin sisäiset osat (Uusi) */
+  .summary-progress-tracker {
+    display: flex; flex-wrap: wrap; gap: 0.5rem;
+    padding-bottom: 1.5rem; border-bottom: 1px solid var(--color-border);
+  }
+  .summary-items-list {
+    list-style: none; padding: 0; margin: 1.5rem 0; flex-grow: 1;
+  }
+  .summary-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.75rem 0.5rem; border-radius: calc(var(--border-radius) / 2);
+    cursor: pointer; transition: background-color 0.15s ease;
+  }
+  .summary-item:hover { background: rgba(0,0,0,0.03); }
+  
+  .summary-item--active {
+    background-color: rgba(0,0,0,0.05);
+    font-weight: 600;
+  }
+  
+  .summary-item__title { font-weight: 500; }
+  .summary-actions {
+    display: flex; flex-direction: column; gap: 0.5rem;
+    margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--color-border);
+  }
+
+  /* Paneelin 'Chip'-komponentit (Uusi) */
+  .chip {
+    display: inline-flex; align-items: center; background: var(--color-surface);
+    border: 1px solid var(--color-border); border-radius: 9999px;
+    padding: 0.4rem 0.8rem; font-size: 0.875rem; gap: 0.4rem;
+    cursor: pointer; transition: all 0.15s ease; 
+    box-shadow: none; /* Otettu varjo pois */
+  }
+  .chip:hover { background: rgba(0,0,0,0.03); }
+  .chip--active {
+    background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end));
+    color: white; border: 1px solid transparent;
+  }
+  .chip--warning {
+    background: rgba(255,176,32,0.1); color: var(--color-warning);
+    border-color: rgba(255,176,32,0.2);
+  }
+
+  /* Paneelin 'Tag'-statukset (Uusi) */
+  .tag {
+    display: inline-block; background: rgba(255,107,0,0.1); color: var(--color-primary);
+    border-radius: var(--border-radius); padding: 0.2rem 0.6rem;
+    font-size: 0.75rem; font-weight: 500;
+  }
+  .tag--success { background: rgba(30,154,90,0.1); color: var(--color-success); }
+  .tag--warning { background: rgba(255,176,32,0.1); color: var(--color-warning); }
+  .tag--pending { background: rgba(107,119,133,0.1); color: var(--color-text-secondary); }
+
+  /* Paneelin painikkeet (Uusi) */
+  .btn {
+    font-family: inherit;
+    background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end));
+    color: white; padding: 0.75rem 1.5rem; border: none; border-radius: var(--border-radius);
+    cursor: pointer; font-weight: 600; transition: all 0.15s ease;
+    text-align: center;
+  }
+  .btn:hover { transform: translateY(-2px); opacity: 0.9; }
+  .btn--secondary {
+    background: var(--color-surface); color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+  }
+  .btn--secondary:hover {
+    transform: translateY(-2px); opacity: 1; border-color: var(--color-text-primary);
+  }
+  .btn:disabled {
+    background: rgba(0,0,0,0.05); color: var(--color-text-secondary);
+    cursor: not-allowed; transform: none; opacity: 0.7;
+    border: 1px solid var(--color-border);
+  }
+  .btn:disabled:not(.btn--secondary) {
+    background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end));
+    color: white; opacity: 0.4;
+  }
+
+
+  /* --- 5. TUOTANTOTYYLIT (Palautettu) --- */
+
+  .section-container, .summary-box {
+      background-color: var(--color-surface);
+      /* MUUTETTU: Border-radius (6px) ja varjo pois */
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow); /* none */
+      
+      /* MUUTETTU: Paluu hienovaraiseen gradient-borderiin */
+      border: 1px solid transparent; 
+      background-image: linear-gradient(var(--color-surface), var(--color-surface)), 
+                        linear-gradient(to bottom right, var(--color-border), rgba(255,255,255,0.2), var(--color-border));
+      background-origin: border-box;
+      background-clip: padding-box, border-box;
+
+      padding: 1.5rem; 
+      margin-bottom: 1.5rem;
+      z-index: 1; 
+      position: relative; 
+  }
+
+  .phrase-option {
+      border: 1px solid var(--color-border); border-radius: 0.5rem; cursor: pointer;
+      transition: all 0.2s ease-in-out; background-color: #fff;
+      padding: 1rem; margin-bottom: 0.5rem;
+  }
+  .phrase-option:hover { border-color: var(--color-primary); }
+  .phrase-option.selected {
+      border-color: var(--color-primary);
+      background-color: #eff6ff; /* Palautettu */
+      box-shadow: 0 0 0 1px var(--color-primary);
+  }
+  .phrase-option.recommended {
+    border: 2px solid var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2); /* Palautettu */
+    position: relative; 
+  }
+
+  .variables-container {
+      background-color: #f9fafb; border-radius: 0.5rem; border: 1px solid #f3f4f6;
+  }
+
+  input, select, textarea {
+      margin-top: 0.25rem; display: block; width: 100%;
+      box-sizing: border-box; border-radius: 0.375rem;
+      border: 1px solid var(--color-border); padding: 0.5rem 0.75rem;
+      box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      background: var(--color-surface); color: var(--color-text-primary);
+  }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-focus-ring);
+    outline: none;
+  }
+
+  .info-box {
+      border-left: 4px solid var(--color-primary);
+      background-color: #eff6ff; /* Palautettu */
+      border-radius: 0rem 0.5rem 0.5rem 0rem;
+      padding: 1rem;
+  }
+
+  .boolean-buttons button {
+      border: 1px solid transparent; cursor: pointer;
+      background-color: #e5e7eb; /* Palautettu */
+      border-radius: 0.375rem; padding: 0.5rem 1rem;
+  }
+  .boolean-buttons button.selected {
+      background-color: var(--color-primary);
+      color: white;
+  }
+
+  .analysis-container { border-top: 2px solid var(--color-border); }
+  .analysis-container .ehdotus {
+      font-weight: 700; color: var(--color-primary); padding-top: 0.5rem;
+  }
+
+  .summary-content { background-color: #f3f4f6; border-radius: 0.5rem; }
+  .summary-content strong {
+      display: block; font-weight: 700; color: var(--color-text-primary); margin-bottom: 0.25rem;
+  }
+
+  .copy-button {
+      background-color: var(--color-primary); color: white; font-weight: 600;
+      border-radius: 0.5rem; border: none; cursor: pointer;
+      transition: background-color 0.2s; padding: 0.5rem 1rem;
+  }
+  .copy-button:hover { background-color: var(--color-primary-hover); }
+  .copy-button:disabled { background-color: #9ca3af; cursor: not-allowed; }
+
+  .feedback-text { color: #16a34a; font-weight: 500; }
+
+  .keskustelu-tuki-container {
+      background-color: #f3f4f6; border-radius: 0.5rem;
+      padding: 1rem; margin-bottom: 1.5rem;
+  }
+  .keskustelu-tuki-container h3 {
+      font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem;
+  }
+
+  .slider-container {
+      margin-bottom: 1.5rem; display: flex; align-items: center; gap: 1rem;
+  }
+  .slider-container span {
+      font-weight: 600; font-size: 1.25rem; color: var(--color-primary);
+  }
+  .slider {
+      -webkit-appearance: none; width: 100%; height: 8px; background: var(--color-border);
+      outline: none; opacity: 0.7; transition: opacity .2s;
+      border-radius: 9999px; margin-top: 0.5rem;
+  }
+  .slider:hover { opacity: 1; }
+  .slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 20px; height: 20px;
+      background: var(--color-primary); cursor: pointer; border-radius: 50%;
+  }
+  .slider::-moz-range-thumb {
+      width: 20px; height: 20px; background: var(--color-primary);
+      cursor: pointer; border-radius: 50%;
+  }
+  
+  /* Diff-näkymä */
+  .diff {
+    margin-top: 1rem; font-family: var(--font-mono); font-size: 0.875rem;
+    border-radius: var(--border-radius); overflow: hidden;
+    border: 1px solid var(--color-border); background: var(--color-surface);
+    box-shadow: var(--shadow);
+  }
+  .diff__line { display: flex; padding: 0.3rem 0.75rem; gap: 0.75rem; }
+  .diff__line--added { background: rgba(30,154,90,0.08); border-left: 4px solid var(--color-success); }
+  .diff__line--removed { background: rgba(227,74,74,0.08); border-left: 4px solid var(--color-danger); color: var(--color-text-secondary); }
+  .diff__line--modified { background: rgba(255,176,32,0.08); border-left: 4px solid var(--color-warning); }
+  .diff__gutter { width: 40px; text-align: right; color: var(--color-text-secondary); }
+  .diff__content { flex: 1; white-space: pre-wrap; }
+
+</style>
+</head>
+<body>
+
+  <div class="layout-container">
+
+    <main>
+      <h1>ESPAN käyttöliittymädemo</h1>
+
+      <div class="section-container" id="osio-palkkatuki">
+        <h2>Osio 1: Palkkatuki (Tuotantotyylit)</h2>
+        
+        <label for="nimi">Asiakkaan nimi</label>
+        <input type="text" id="nimi" placeholder="Kirjoita nimi..." value="Matti Meikäläinen">
+        
+        <label for="huomiot">Huomiot (Muokkaa tätä)</label>
+        <textarea id="huomiot" rows="4" placeholder="Kirjoita lisätietoja...">Asiakas on ollut työttömänä yhtäjaksoisesti yli 12 kk ja kuuluu palkkatuen piiriin.</textarea>
+
+        <div class="info-box" style="margin-top: 1.5rem;">
+          <p>Tämä on <strong>.info-box</strong>. Se käyttää varoitusväriä ja korostaa tärkeää tietoa.</p>
+        </div>
+
+        <div class="boolean-buttons" style="margin-top: 1.5rem;">
+          <label>Onko ehto täyttynyt?</label>
+          <button class="selected">Kyllä</button>
+          <button>Ei</button>
+        </div>
+      </div>
+
+      <div class="section-container" id="osio-tyonhaku">
+        <h2>Osio 2: Työnhakuvelvollisuus (Klikkaa tästä)</h2>
+        
+        <div class="phrase-option selected">
+          <p>Tämä on <strong>.phrase-option.selected</strong>. Asiakkaalle asetetaan työnhakuvelvollisuus.</p>
+        </div>
+        <div class="phrase-option recommended">
+          <p>Tämä on <strong>.phrase-option.recommended</strong>. Tätä suositellaan automaattisesti.</p>
+        </div>
+        <div class="phrase-option">
+          <p>Tämä on normaali <strong>.phrase-option</strong>.</p>
+        </div>
+        
+        <div class="diff" style="margin-top: 1.5rem;">
+          <div class="diff__line diff__line--removed">
+            <div class="diff__gutter">-</div>
+            <div class="diff__content">Asiakas on ollut työttömänä yli 12 kuukautta.</div>
+          </div>
+          <div class="diff__line diff__line--added">
+            <div class="diff__gutter">+</div>
+            <div class="diff__content">Asiakas on ollut työttömänä yhtäjaksoisesti yli 12 kk ja kuuluu palkkatuen piiriin.</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="section-container" id="osio-tyokyky">
+          <h2>Osio 3: Työkyky (Liikuta slideria)</h2>
+          
+          <div class="slider-container">
+            <label>Työkykyarvio (1-10)</label>
+            <span>7</span>
+            <input type="range" min="1" max="10" value="7" class="slider">
+          </div>
+      </div>
+
+      <div style="height: 100vh;"></div>
+
+    </main>
+
+    <aside class="summary-panel">
+      
+      <div class="summary-drag-handle"></div>
+
+      <h2>Yhteenveto</h2>
+      
+      <div class="summary-progress-tracker">
+        <div id="palkkatuki-chip" class="chip chip--active">Palkkatuki</div>
+        <div id="tyonhaku-chip" class="chip chip--warning">Työnhaku</div>
+        <div id="tyokyky-chip" class="chip">Työkyky</div>
+      </div>
+
+      <ul class="summary-items-list">
+        <li class="summary-item" data-target="osio-palkkatuki" onclick="document.getElementById('osio-palkkatuki').scrollIntoView({behavior: 'smooth'});">
+          <span class="summary-item__title">Palkkatuki</span>
+          <span id="palkkatuki-status" class="tag tag--success">Valmis</span>
+        </li>
+        <li class="summary-item" data-target="osio-tyonhaku" onclick="document.getElementById('osio-tyonhaku').scrollIntoView({behavior: 'smooth'});">
+          <span class="summary-item__title">Työnhakuvelv.</span>
+          <span id="tyonhaku-status" class="tag tag--warning">Kesken</span>
+        </li>
+        <li class="summary-item" data-target="osio-tyokyky" onclick="document.getElementById('osio-tyokyky').scrollIntoView({behavior: 'smooth'});">
+          <span class="summary-item__title">Työkyky</span>
+          <span id="tyokyky-status" class="tag tag--pending">Odottaa</span>
+        </li>
+      </ul>
+
+      <div class="summary-actions">
+        <button id="save-button" class="btn" disabled>Tallenna analyysi</button>
+        <button class="btn btn--secondary" disabled>Kopioi yhteenveto</button>
+      </div>
+
+    </aside>
+
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      
+      // --- 1. PANEELIN LEVEYDEN MUUTOS (ENNALLAAN) ---
+      const layoutContainer = document.querySelector('.layout-container');
+      const summaryPanel = document.querySelector('.summary-panel');
+      const dragHandle = document.querySelector('.summary-drag-handle');
+      let isResizing = false;
+
+      dragHandle.addEventListener('mousedown', function (e) {
+        isResizing = true;
+        document.body.style.cursor = 'ew-resize';
+      });
+
+      document.addEventListener('mousemove', function (e) {
+        if (!isResizing) { return; }
+        let newWidth = window.innerWidth - e.clientX - (parseFloat(getComputedStyle(summaryPanel).paddingRight) * 2);
+        const minWidth = parseFloat(getComputedStyle(summaryPanel).minWidth);
+        const maxWidth = parseFloat(getComputedStyle(summaryPanel).maxWidth);
+        if (newWidth < minWidth) newWidth = minWidth;
+        if (newWidth > maxWidth) newWidth = maxWidth;
+        layoutContainer.style.gridTemplateColumns = `1fr ${newWidth}px`;
+      });
+
+      document.addEventListener('mouseup', function (e) {
+        isResizing = false;
+        document.body.style.cursor = '';
+      });
+      
+      // --- 2. UUSI: "ELÄVÄ YHTEENVETO" (Toteutus 1) ---
+
+      // Tilaobjekti
+      let completionState = {
+        palkkatuki: false, // Asetetaan aluksi falseksi
+        tyonhaku: false,
+        tyokyky: false
+      };
+
+      // Haetaan kaikki tarvittavat elementit
+      const saveButton = document.getElementById('save-button');
+      
+      const huomiotInput = document.getElementById('huomiot');
+      const palkkatukiStatusTag = document.getElementById('palkkatuki-status');
+      const palkkatukiChip = document.getElementById('palkkatuki-chip');
+      
+      const tyonhakuOptions = document.querySelectorAll('#osio-tyonhaku .phrase-option');
+      const tyonhakuStatusTag = document.getElementById('tyonhaku-status');
+      const tyonhakuChip = document.getElementById('tyonhaku-chip');
+      
+      const tyokykySlider = document.querySelector('#osio-tyokyky .slider');
+      const tyokykyStatusTag = document.getElementById('tyokyky-status');
+      const tyokykyChip = document.getElementById('tyokyky-chip');
+
+      // Pääfunktio, joka tarkistaa, ovatko kaikki osiot valmiita
+      function checkAllComplete() {
+        const allDone = Object.values(completionState).every(status => status === true);
+        saveButton.disabled = !allDone;
+      }
+
+      // 1. Palkkatuen tilan päivitys
+      function updatePalkkatukiStatus() {
+        const textLength = huomiotInput.value.length;
+
+        if (textLength > 10) { 
+          palkkatukiStatusTag.textContent = 'Valmis';
+          palkkatukiStatusTag.className = 'tag tag--success';
+          palkkatukiChip.className = 'chip chip--active';
+          completionState.palkkatuki = true;
+        } else if (textLength > 0) {
+          palkkatukiStatusTag.textContent = 'Kesken';
+          palkkatukiStatusTag.className = 'tag tag--warning';
+          palkkatukiChip.className = 'chip chip--warning';
+          completionState.palkkatuki = false;
+        } else {
+          palkkatukiStatusTag.textContent = 'Odottaa';
+          palkkatukiStatusTag.className = 'tag tag--pending';
+          palkkatukiChip.className = 'chip';
+          completionState.palkkatuki = false;
+        }
+        checkAllComplete();
+      }
+
+      // 2. Työnhaun tilan päivitys (UUSI)
+      function updateTyonhakuStatus() {
+        tyonhakuStatusTag.textContent = 'Valmis';
+        tyonhakuStatusTag.className = 'tag tag--success';
+        tyonhakuChip.className = 'chip chip--active';
+        completionState.tyonhaku = true;
+        
+        // Poistetaan kuuntelijat, jotta tätä ei ajeta turhaan uudelleen
+        tyonhakuOptions.forEach(opt => opt.removeEventListener('click', updateTyonhakuStatus));
+        checkAllComplete();
+      }
+
+      // 3. Työkyvyn tilan päivitys (UUSI)
+      function updateTyokykyStatus() {
+        tyokykyStatusTag.textContent = 'Valmis';
+        tyokykyStatusTag.className = 'tag tag--success';
+        tyokykyChip.className = 'chip chip--active';
+        completionState.tyokyky = true;
+        
+        // Poistetaan kuuntelija
+        tyokykySlider.removeEventListener('input', updateTyokykyStatus);
+        checkAllComplete();
+      }
+
+      // Lisätään kuuntelijat
+      huomiotInput.addEventListener('input', updatePalkkatukiStatus);
+      tyonhakuOptions.forEach(opt => opt.addEventListener('click', updateTyonhakuStatus));
+      tyokykySlider.addEventListener('input', updateTyokykyStatus);
+      
+      // Kutsutaan kerran alussa, jotta napin tila ja Palkkatuen tila on oikea
+      updatePalkkatukiStatus();
+
+
+      // --- 3. UUSI: "SCROLL-SPYING" (Toteutus 2) ---
+
+      const sections = document.querySelectorAll('.section-container');
+      const summaryItems = document.querySelectorAll('.summary-item');
+
+      const observerOptions = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.4 
+      };
+
+      const observerCallback = (entries, observer) => {
+        entries.forEach(entry => {
+          const targetSummaryItem = document.querySelector(`.summary-item[data-target="${entry.target.id}"]`);
+          
+          if (entry.isResizing || entry.isIntersecting) { // Korjattu: "isResizing" ei ole validi, mutta "isIntersecting" on
+            summaryItems.forEach(item => {
+              item.classList.remove('summary-item--active');
+            });
+            if (targetSummaryItem) {
+              targetSummaryItem.classList.add('summary-item--active');
+            }
+          }
+        });
+      };
+
+      const observer = new IntersectionObserver(observerCallback, observerOptions);
+      sections.forEach(section => {
+        observer.observe(section);
+      });
+
+    });
+  </script>
+
+</body>
+</html>

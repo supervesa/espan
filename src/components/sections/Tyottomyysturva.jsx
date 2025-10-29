@@ -169,7 +169,7 @@ const Tyottomyysturva = ({ state, actions }) => {
                         </div>
                     ))}
                     {valittuFraasi && (
-                        <button className="move-to-summary-button" onClick={handleMoveToSummary}>
+                        <button className="btn" onClick={handleMoveToSummary}>
                             Siirrä valittu yhteenvetoon
                         </button>
                     )}
