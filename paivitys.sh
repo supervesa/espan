@@ -1,259 +1,267 @@
-#!/bin/bash
+# Luo uusi ominaisuuskansio
+mkdir -p src/components/koulutusYrittajyys
 
-# Luodaan hakemistot, jos niitä ei ole olemassa
-mkdir -p src/components
-mkdir -p src/data
+# Luo utils-kansio ja aputiedosto
+mkdir -p src/utils
+cat <<EOF > src/utils/stringUtils.js
+// Aputoiminto: Muuttaa lauseen ensimmäisen kirjaimen pieneksi
+export const toLowerFirst = (str) => {
+    if (!str) return '';
+    return str.charAt(0).toLowerCase() + str.slice(1);
+};
 
-# Luodaan datatiedosto viestipohjille
-cat > src/data/messageTemplates.js << 'EOF'
-export const messageTemplates = [
-    // --- Kategoria: Ajanvaraukset ja muistutukset ---
-    {
-        id: 'ajanvaraus-yleinen',
-        category: 'Ajanvaraukset ja muistutukset',
-        title: 'Tapaamisen varaus (Yleinen)',
-        template: `Tervehdys Helsingin työllisyyspalveluista!
-Sinulle on varattu aika tapaamiseen {meetingType} varten {date} klo {time}. Asiantuntijana toimii {expertName}.
-Paikka: {location}
-Jos esitetty aika ei sovi, ilmoitathan siitä mahdollisimman pian.
-Huomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon.
-Terveisin {expertName}, Helsingin työllisyyspalvelut`,
-        fields: [
-            { id: 'meetingType', label: 'Tapaamisen tyyppi', type: 'text', placeholder: 'esim. alkuhaastatteluun' },
-            { id: 'date', label: 'Päivämäärä', type: 'date' },
-            { id: 'time', label: 'Kellonaika', type: 'time' },
-            { id: 'expertName', label: 'Asiantuntija', type: 'text', placeholder: 'Vesa Nessling' },
-            { id: 'location', label: 'Paikka', type: 'text', placeholder: 'Viipurinkatu 2, 00510 Helsinki' }
-        ]
-    },
-    {
-        id: 'puhelinaika-yleinen',
-        category: 'Ajanvaraukset ja muistutukset',
-        title: 'Puhelinajan varaus (Yleinen)',
-        template: `Tervehdys Helsingin työllisyyspalveluista!
-Sinulle on varattu puhelinaika {meetingType} varten {date} klo {time}. Asiantuntijana toimii {expertName}.
-Asiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.
-Huomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon.
-Terveisin {expertName}, Helsingin työllisyyspalvelut`,
-        fields: [
-            { id: 'meetingType', label: 'Puhelun aihe', type: 'text', placeholder: 'esim. alkuhaastattelua' },
-            { id: 'date', label: 'Päivämäärä', type: 'date' },
-            { id: 'time', label: 'Kellonaika', type: 'time' },
-            { id: 'expertName', label: 'Asiantuntija', type: 'text', placeholder: 'Vesa Nessling' }
-        ]
-    },
-    {
-        id: 'ajan-siirto',
-        category: 'Ajanvaraukset ja muistutukset',
-        title: 'Ajan siirto',
-        template: `Tervehdys Helsingin työllisyyspalveluista!
-Aiemmin sovittua aikaa {meetingType} varten on siirretty.
-Uusi aika on {date} klo {time}. Asiantuntijana toimii {expertName}.
-Terveisin {expertName}, Helsingin työllisyyspalvelut`,
-        fields: [
-            { id: 'meetingType', label: 'Tapaamisen tyyppi', type: 'text', placeholder: 'esim. työnhakukeskustelulle' },
-            { id: 'date', label: 'Uusi päivämäärä', type: 'date' },
-            { id: 'time', label: 'Uusi kellonaika', type: 'time' },
-            { id: 'expertName', label: 'Asiantuntija', type: 'text', placeholder: 'Vesa Nessling' }
-        ]
-    },
-
-    // --- Kategoria: Yhteydenotot ja tavoittelu ---
-    {
-        id: 'tavoitteluyritys-syylla',
-        category: 'Yhteydenotot ja tavoittelu',
-        title: 'Tavoitteluyritys (Syyllä)',
-        template: `Tervehdys Helsingin työllisyyspalveluista!
-Yritin tavoitella sinua puhelimitse. Asia koskee: {reason}.
-Soitan sinulle uudelleen myöhemmin tai voit jättää meille yhteydenottopyynnön Työmarkkinatorilla.
-Terveisin {expertName}, Helsingin työllisyyspalvelut`,
-        fields: [
-            { id: 'reason', label: 'Yhteydenoton syy', type: 'text', placeholder: 'työnhaun aloittamista...' },
-            { id: 'expertName', label: 'Asiantuntija', type: 'text', placeholder: 'Vesa Nessling' }
-        ]
-    },
-    {
-        id: 'ilmoitus-soitosta-syylla',
-        category: 'Yhteydenotot ja tavoittelu',
-        title: 'Ilmoitus tulevasta soitosta',
-        template: `Tervehdys Helsingin työllisyyspalveluista!
-Tavoittelen sinua puhelimitse {date} klo {time} koskien asiaa: {reason}.
-Terveisin {expertName}, Helsingin työllisyyspalvelut`,
-        fields: [
-            { id: 'date', label: 'Päivämäärä', type: 'date' },
-            { id: 'time', label: 'Kellonaika', type: 'time' },
-            { id: 'reason', label: 'Soiton syy', type: 'text', placeholder: 'sairauslomaasi ja työnhakua' },
-            { id: 'expertName', label: 'Asiantuntija', type: 'text', placeholder: 'Vesa Nessling' }
-        ]
-    },
-
-    // --- Kategoria: Muut ilmoitukset ja ohjeet ---
-    {
-        id: 'vastaus-yhteydenottopyyntoon',
-        category: 'Muut ilmoitukset ja ohjeet',
-        title: 'Vastaus yhteydenottopyyntöön (Yleinen)',
-        template: `Hei,
-Kiitos yhteydenotostasi. {message}
-Terveisin, {expertName}, Helsingin työllisyyspalvelut`,
-        fields: [
-            { id: 'message', label: 'Viesti', type: 'textarea', placeholder: 'Olen vastaanottanut työtodistuksesi...' },
-            { id: 'expertName', label: 'Asiantuntija', type: 'text', placeholder: 'Vesa Nessling' }
-        ]
-    },
-    {
-        id: 'muistutus-suunnitelman-hyvaksyminen',
-        category: 'Muut ilmoitukset ja ohjeet',
-        title: 'Muistutus suunnitelman hyväksymisestä',
-        template: `Tervehdys Helsingin työllisyyspalveluista!
-Et ole vielä hyväksynyt työllistymissuunnitelmaasi. Hoidathan asian Työmarkkinatorin asiointipalvelussa {date} mennessä.
-Terveisin {expertName}, Helsingin työllisyyspalvelut`,
-        fields: [
-            { id: 'date', label: 'Määräaika', type: 'date' },
-            { id: 'expertName', label: 'Asiantuntija', type: 'text', placeholder: 'Vesa Nessling' }
-        ]
-    }
-];
+// Aputoiminto: Muodostaa listasta siistin lauseen (esim. "a, b ja c")
+export const createListSentence = (items) => {
+    if (!items || items.length === 0) return '';
+    if (items.length === 1) return items[0];
+    if (items.length === 2) return items.join(' ja ');
+    
+    const allButLast = items.slice(0, -1).join(', ');
+    const last = items[items.length - 1];
+    return \`\${allButLast} ja \${last}\`;
+};
 EOF
 
-# Luodaan MessageGenerator-komponentti
-cat > src/components/MessageGenerator.jsx << 'EOF'
-import React, { useState, useEffect, useMemo } from 'react';
-import { messageTemplates } from '../data/messageTemplates';
+# Luo logiikka-hook (useKoulutusSummary.js)
+cat <<EOF > src/components/koulutusYrittajyys/useKoulutusSummary.js
+import { useMemo } from 'react';
+import { kielitaitoTasot } from '../../data/guide'; // Varmista polku
+import { toLowerFirst, createListSentence } from '../../utils/stringUtils';
 
-function MessageGenerator() {
-    const [selectedTemplateId, setSelectedTemplateId] = useState('');
-    const [formData, setFormData] = useState({});
-    const [generatedMessage, setGeneratedMessage] = useState('');
-    const [copySuccess, setCopySuccess] = useState('');
-
-    const groupedTemplates = useMemo(() => {
-        return messageTemplates.reduce((acc, template) => {
-            (acc[template.category] = acc[template.category] || []).push(template);
-            return acc;
-        }, {});
-    }, []);
-
-    const currentTemplate = useMemo(() => {
-        return messageTemplates.find(t => t.id === selectedTemplateId);
-    }, [selectedTemplateId]);
-
-    useEffect(() => {
-        if (currentTemplate) {
-            const initialFormData = {};
-            currentTemplate.fields.forEach(field => {
-                initialFormData[field.id] = '';
-            });
-            setFormData(initialFormData);
-        } else {
-            setFormData({});
-        }
-    }, [currentTemplate]);
+export const useKoulutusSummary = (koulutusState, kielitasoState, customTekstit, sectionData) => {
     
-    useEffect(() => {
-        if (!currentTemplate) {
-            setGeneratedMessage('');
-            return;
-        }
+    const generatedSummarySentence = useMemo(() => {
+        koulutusState = koulutusState || {};
+        const { customKoulutusText, customKielitasoText } = customTekstit || {};
+        const allFraasit = sectionData.fraasit || [];
 
-        let message = currentTemplate.template;
-        for (const key in formData) {
-            const value = formData[key] || '';
-            let formattedValue = value;
-            if (currentTemplate.fields.find(f => f.id === key)?.type === 'date' && value) {
-                const [year, month, day] = value.split('-');
-                formattedValue = `${day}.${month}.${year}`;
+        let summaryParts = [];
+
+        // 1. Käsittele Koulutus/Yrittäjyys -valinnat (Yksivalinnat)
+        if (koulutusState && koulutusState.avainsana) {
+            const phrase = allFraasit.find(f => f.avainsana === koulutusState.avainsana);
+            if (phrase && (phrase.ryhma === 'koulutus' || phrase.ryhma === 'yrittajyys')) {
+                let text = phrase.teksti || '';
+                if (koulutusState.muuttujat) {
+                    Object.entries(koulutusState.muuttujat).forEach(([key, value]) => {
+                        if (value || typeof value === 'number') {
+                            text = text.replace(\`[\${key}]\`, value);
+                        }
+                    });
+                }
+                summaryParts.push(text.replace(/\s*\[.*?\]/g, '').trim());
             }
-            message = message.replace(new RegExp(`{${key}}`, 'g'), formattedValue);
         }
-        setGeneratedMessage(message);
 
-    }, [formData, currentTemplate]);
+        // 2. Käsittele Ammattikortit (Monivalinnat)
+        const selectedCards = Object.keys(koulutusState)
+            .map(avainsana => {
+                if (koulutusState[avainsana] === true) { 
+                    const fraasi = allFraasit.find(f => f.avainsana === avainsana);
+                    if (fraasi && fraasi.ryhma === 'ammattikortit') {
+                        return fraasi.teksti; 
+                    }
+                }
+                return null;
+            })
+            .filter(Boolean); 
 
-    const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleCopy = () => {
-        if (!generatedMessage) return;
-        navigator.clipboard.writeText(generatedMessage).then(() => {
-            setCopySuccess('Viesti kopioitu leikepöydälle!');
-            setTimeout(() => setCopySuccess(''), 2000);
-        }, () => {
-            setCopySuccess('Kopiointi epäonnistui.');
-        });
-    };
-
-    const handleClear = () => {
-        if (currentTemplate) {
-            const clearedFormData = {};
-            currentTemplate.fields.forEach(field => {
-                clearedFormData[field.id] = '';
-            });
-            setFormData(clearedFormData);
+        if (selectedCards.length > 0) {
+            const cardListString = createListSentence(selectedCards);
+            summaryParts.push(\`Asiakkaalla on voimassa mm. \${cardListString}.\`);
         }
-    };
+        
+        // 3. Käsittele Kielitaito 
+        let languageParts = [];
+        let suomiTiedot = '';
 
+        if (kielitasoState?.muutKielet && kielitasoState.muutKielet.length > 0) {
+             if (typeof kielitaitoTasot !== 'undefined') {
+                const suomi = kielitasoState.muutKielet.find(lang => lang.kieli.toLowerCase() === 'suomi' && lang.taso);
+                if (suomi) {
+                    const levelDescription = kielitaitoTasot[suomi.taso]?.selkokuvaus;
+                    if (levelDescription) {
+                        suomiTiedot = toLowerFirst(levelDescription);
+                    }
+                }
+             }
+        }
+
+        if (kielitasoState?.aidinkieli && suomiTiedot) {
+            const suomiTiedotSuomeksi = suomiTiedot.replace(/^(\w+)/, '\$1 suomeksi');
+            languageParts.push(\`Asiakkaan äidinkieli on \${kielitasoState.aidinkieli}, asiakas \${suomiTiedotSuomeksi}\`);
+        } else if (kielitasoState?.aidinkieli) {
+            languageParts.push(\`Asiakkaan äidinkieli on \${kielitasoState.aidinkieli}.\`);
+        } else if (suomiTiedot) {
+            const suomiTiedotSuomeksi = suomiTiedot.replace(/^(\w+)/, '\$1 suomeksi');
+            languageParts.push(\`Asiakas \${suomiTiedotSuomeksi}\`);
+        }
+        
+        if (languageParts.length > 0) {
+            const lause = languageParts.join(', '); 
+            summaryParts.push(lause.endsWith('.') ? lause : lause + '.');
+        }
+
+        // 4. Lisää Custom-tekstit
+        const combinedGenerated = summaryParts.filter(part => part && part.trim() !== '').join(' ').replace(/\.\./g, '.').trim();
+        let finalTextParts = [];
+        if (combinedGenerated) finalTextParts.push(combinedGenerated);
+         if (customKoulutusText && customKoulutusText !== combinedGenerated) {
+             if(!finalTextParts.some(p => p === customKoulutusText)) {
+                finalTextParts.push(customKoulutusText);
+             }
+        }
+        if (customKielitasoText && customKielitasoText !== customKoulutusText && customKielitasoText !== combinedGenerated) {
+             if(!finalTextParts.some(p => p === customKielitasoText)) {
+                finalTextParts.push(customKielitasoText);
+             }
+        }
+
+        return finalTextParts.join('. ').replace(/\.\./g, '.').trim();
+
+    }, [koulutusState, kielitasoState, customTekstit, sectionData]);
+
+    return generatedSummarySentence;
+};
+EOF
+
+# Luo RadioPhraseSection.jsx (Yksivalinnoille)
+cat <<EOF > src/components/koulutusYrittajyys/RadioPhraseSection.jsx
+import React from 'react';
+import { PhraseOption } from '../PhraseOption'; // Tuodaan ylemmältä tasolta
+
+/**
+ * Komponentti yksittäisen osion renderöintiin, joka tukee YKSIVALINTOJA (radio).
+ * Esim. Koulutus tai Yrittäjyys.
+ */
+const RadioPhraseSection = ({ title, phrases, sectionId, sectionState, actions }) => {
+    
+    if (!phrases || phrases.length === 0) {
+        return null;
+    }
+
+    const { onSelect, onUpdateVariable } = actions;
+
+    const renderRadioPhrase = (phrase) => {
+        // YKSIVALINTA-logiikka: tarkistetaan, onko fraasin avainsana se,
+        // joka on tallennettu osion stateen.
+        const isSelected = sectionState?.avainsana === phrase.avainsana ? sectionState : null;
+
+        return (
+            <PhraseOption
+                key={phrase.avainsana}
+                phrase={phrase}
+                // Pakotetaan PhraseOption käyttämään yksivalinta-logiikkaa
+                section={{ id: sectionId, monivalinta: false }}
+                isSelected={isSelected}
+                onSelect={onSelect}
+                onUpdateVariable={onUpdateVariable}
+            />
+        );
+    };
 
     return (
-        <div className="section-container">
-            <h2>Viestigeneraattori</h2>
-            <div className="form-grid">
-                <div className="form-row">
-                    <label htmlFor="template-select">Valitse viestipohja</label>
-                    <select id="template-select" value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
-                        <option value="">-- Valitse pohja --</option>
-                        {Object.entries(groupedTemplates).map(([category, templates]) => (
-                            <optgroup label={category} key={category}>
-                                {templates.map(template => (
-                                    <option key={template.id} value={template.id}>{template.title}</option>
-                                ))}
-                            </optgroup>
-                        ))}
-                    </select>
-                </div>
-                {currentTemplate && currentTemplate.fields.map(field => (
-                    <div className="form-row" key={field.id}>
-                        <label htmlFor={field.id}>{field.label}</label>
-                        {field.type === 'textarea' ? (
-                             <textarea 
-                                id={field.id}
-                                name={field.id}
-                                value={formData[field.id] || ''}
-                                onChange={handleInputChange}
-                                placeholder={field.placeholder || ''}
-                                rows="3"
-                            />
-                        ) : (
-                            <input
-                                type={field.type}
-                                id={field.id}
-                                name={field.id}
-                                value={formData[field.id] || ''}
-                                onChange={handleInputChange}
-                                placeholder={field.placeholder || ''}
-                            />
-                        )}
-                    </div>
-                ))}
+        <div className="subsection">
+            <h3 className="subsection-title">{title}</h3>
+            <div className="options-container">
+                {phrases.map(renderRadioPhrase)}
             </div>
-            {currentTemplate && (
-                <div className="esikatselu-container">
-                    <h3>Esikatselu</h3>
-                    <textarea value={generatedMessage} readOnly rows="10"></textarea>
-                    <div className="button-container">
-                         <button onClick={handleCopy}>Kopioi viesti</button>
-                         <button onClick={handleClear} className="secondary-button">Tyhjennä kentät</button>
-                    </div>
-                    {copySuccess && <p className="copy-success-message">{copySuccess}</p>}
-                </div>
-            )}
         </div>
     );
-}
+};
 
-export default MessageGenerator;
+export default RadioPhraseSection;
 EOF
 
-echo "Tiedostot luotu onnistuneesti!"
-echo "Lisää seuraavaksi <MessageGenerator /> App.jsx-tiedostoosi."
+# Luo Ammattikortit.jsx (Monivalinnoille)
+cat <<EOF > src/components/koulutusYrittajyys/Ammattikortit.jsx
+import React from 'react';
+import { PhraseOption } from '../PhraseOption'; // Tuodaan ylemmältä tasolta
+
+/**
+ * Komponentti ammattikorttien valintojen renderöintiä varten (MONIVALINTA).
+ */
+const Ammattikortit = ({ sectionId, sectionState, korttiFraasit, actions }) => {
+    
+    if (!korttiFraasit || korttiFraasit.length === 0) {
+        return null;
+    }
+
+    const { onSelect, onUpdateVariable } = actions;
+
+    const renderCardPhrase = (phrase) => {
+        // MONIVALINTA-logiikka: tarkistetaan, onko avainsanalle
+        // tallennettu stateen arvo 'true'.
+        const isSelected = !!sectionState?.[phrase.avainsana];
+
+        return (
+            <PhraseOption
+                key={phrase.avainsana}
+                phrase={phrase}
+                // Pakotetaan PhraseOption käyttämään monivalinta-logiikkaa
+                section={{ id: sectionId, monivalinta: true }} 
+                isSelected={isSelected}
+                onSelect={onSelect}
+                onUpdateVariable={onUpdateVariable}
+            />
+        );
+    };
+
+    return (
+        <div className="options-container card-options">
+            <h4 className="subsection-subtitle" style={{ width: '100%', marginBottom: '0.5rem' }}>Ammattikortit</h4>
+            {korttiFraasit.map(renderCardPhrase)}
+        </div>
+    );
+};
+
+export default Ammattikortit;
+EOF
+
+# Luo SummaryPreview.jsx (Koontilaatikko)
+cat <<EOF > src/components/koulutusYrittajyys/SummaryPreview.jsx
+import React, { useState } from 'react';
+
+/**
+ * Komponentti "Ehdotus yhteenvetoon" -laatikon näyttämiseen.
+ * Hallitsee oman "Käytä tätä" -napin palautteen.
+ */
+const SummaryPreview = ({ sentence, sectionId, onUpdateCustomText }) => {
+    const [actionFeedback, setActionFeedback] = useState('');
+
+    const handleUseSummary = () => {
+        if (!sentence || !onUpdateCustomText) return;
+        
+        // Kutsutaan ylempää annettua actionia
+        onUpdateCustomText(sectionId, sentence);
+        
+        // Asetetaan palaute
+        setActionFeedback('Ehdotus siirretty lisätietoihin!');
+        setTimeout(() => setActionFeedback(''), 2500);
+    };
+
+    // Jos lausetta ei ole, älä näytä mitään
+    if (!sentence) {
+        return null;
+    }
+
+    return (
+        <div className="summary-preview language-summary-preview">
+            <h4>Ehdotus yhteenvetoon:</h4>
+            <p>{sentence}</p>
+            <button
+                onClick={handleUseSummary}
+                title="Siirrä ehdotus alla olevaan lisätietokenttään"
+                className='copy-suggestion-button' 
+            >
+                Käytä tätä yhteenvetona
+            </button>
+            {actionFeedback && <span className='feedback-text'> {actionFeedback}</span>}
+        </div>
+    );
+};
+
+export default SummaryPreview;
+EOF
+
+echo "Kaikki tiedostot luotu."

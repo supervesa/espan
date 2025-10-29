@@ -1,163 +1,221 @@
 import React, { useState, useMemo } from 'react';
-// LISÄYS: Tuodaan YLEISET_SUUNNITELMA_FRAASIT, jotta voimme tulostaa niitä
-import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI} from '../data/planData.js';
-import { YLEISET_SUUNNITELMA_FRAASIT } from '../data/constants.js'; 
+import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
 import AikatauluEhdotus from './AikatauluEhdotus';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
-const Summary = ({ state }) => {
-    const [feedback, setFeedback] = useState('');
-    
-    const summaryText = useMemo(() => {
-        let textParts = [];
-        planData.aihealueet.forEach(section => {
-            const selection = state[section.id];
-            const customText = state[`custom-${section.id}`];
-            let sectionTextParts = [];
-            
-            const processPhrase = (phraseObject) => {
-                let text = phraseObject?.teksti || '';
-                const phraseState = section.monivalinta ? selection?.[phraseObject.avainsana] : selection;
-                if (phraseState?.muuttujat) {
-                    Object.entries(phraseState.muuttujat).forEach(([key, value]) => {
-                        if (value || typeof value === 'number') {
-                             text = text.replace(`[${key}]`, value);
-                        }
-                    });
-                }
-                // Poistetaan lopusta piste, jotta lauseiden yhdistäminen on siistimpää.
-                return text.replace(/\s*\[.*?\]/g, '').replace(/\(\s*v\.\s*\)/, '').trim().replace(/\.$/, '');
-            };
+// Apufunktio fraasin käsittelyyn
+const processPhrase = (phraseData, specificSelectionState) => {
+    if (!phraseData || !phraseData.teksti) return '';
 
-            // --- OSIOKOHTAINEN TULOSTUSLOGIIKKA ---
+    let text = phraseData.teksti;
+    const variableSource = specificSelectionState?.muuttujat || {};
 
-            if (section.id === 'tyokyky' && state.tyokyky) {
-                const s = state.tyokyky;
-                let combinedText = '';
-                if (s.paavalinta) {
-                    combinedText += s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus ?
-                        `Asiakkaalla on työkyvyn alentuma: ${s.alentumaKuvaus}.` : (s.paavalinta.teksti || '');
+    if (phraseData.muuttujat && typeof variableSource === 'object') {
+        Object.keys(phraseData.muuttujat).forEach((key) => {
+            const value = variableSource[key];
+            if (value !== undefined && value !== null) {
+                try {
+                    const escapedKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                    const regex = new RegExp(`\\[${escapedKey}\\]`, 'g');
+                    text = text.replace(regex, String(value));
+                } catch (e) {
+                    console.error(`Error replacing variable [${key}]:`, e);
                 }
-                if (s.omaArvio) {
-                    combinedText += (combinedText ? ' ' : '') + `Hän arvioi oman työkykynsä pistemääräksi ${s.omaArvio}/10.`;
-                }
-                if (s.palveluohjaukset && Object.keys(s.palveluohjaukset).length > 0) {
-                     const ohjaukset = Object.values(s.palveluohjaukset).map(p => p.teksti.toLowerCase()).join(', ');
-                     combinedText += (combinedText ? ' ' : '') + `Tilanteen selvittämiseksi asiakas on ohjattu seuraaviin palveluihin: ${ohjaukset}.`;
-                 }
-                if (s.koonti) {
-                    combinedText += `\n\nKoonti keskustelusta:\n${s.koonti}`;
-                }
-                if (combinedText) sectionTextParts.push(combinedText.trim());
-            } 
-            else if (section.id === 'palkkatuki' && state.palkkatuki?.puoltoKappale) {
-                // Otetaan suoraan valmis, PalkkatukiCalculatorissa rakennettu lause.
-                sectionTextParts.push(state.palkkatuki.puoltoKappale);
-            }
-            // LISÄYS: UUSI LOGIIKKA SUUNNITELMA-OSIOLLE
-            else if (section.id === 'suunnitelma' && state.suunnitelma) {
-                // Käydään läpi yleiset fraasit ja katsotaan, mitkä niistä on valittu.
-                Object.values(YLEISET_SUUNNITELMA_FRAASIT).forEach(phrase => {
-                    if (state.suunnitelma[phrase.id]) {
-                        sectionTextParts.push(phrase.teksti);
-                    }
-                });
-            }
-            else if (section.id === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
-                sectionTextParts.push(state.tyottomyysturva.yhteenvetoFraasi);
-            }
-            else if (section.id === 'tyonhakuvelvollisuus' && selection) {
-                let koottuTeksti = processPhrase(selection);
-                if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
-                    const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([,v]) => v).map(([k]) => k);
-                    let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
-                    if (perustelut.length > 0) alennusTeksti += ` Perusteet: ${perustelut.join(', ')}.`;
-                    if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
-                    koottuTeksti += alennusTeksti;
-                }
-                if (!koottuTeksti.includes("Haetut paikat") && !koottuTeksti.includes("TYÖNHAKUVELVOLLISUUDEN TOTEUTTAMINEN JA SEURANTA")) {
-                    koottuTeksti += `\n\n${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI.trim()}`; 
-                }
-                sectionTextParts.push(koottuTeksti);
-            }
-            else if (selection) {
-                if (section.monivalinta) {
-                    Object.values(selection)
-                        .filter(phrase => phrase.avainsana !== 'syntymavuosi') // Poistaa syntymävuoden
-                        .forEach(phrase => sectionTextParts.push(processPhrase(phrase)));
-                } else if (selection.teksti) {
-                    sectionTextParts.push(processPhrase(selection));
-                }
-            }
-
-            if (customText) {
-                sectionTextParts.push(customText);
-            }
-
-            if (sectionTextParts.length > 0) {
-                // Yhdistetään osion sisäiset tekstit välilyönnillä, paitsi tietyissä erikoistapauksissa.
-                const joiner = (['tyonhakuvelvollisuus', 'tyokyky', 'suunnitelma'].includes(section.id)) ? '\n' : '. ';
-                let content = sectionTextParts.join(joiner);
-                if(joiner === '. ' && !content.endsWith('.') && !content.endsWith('!')) {
-                    content += '.';
-                }
-                textParts.push(`**${section.otsikko}**\n${content}`);
             }
         });
+    }
+    text = text.replace(/\(\s*v\.\s*\)/g, '').replace(/\s*\[[A-Z_]+\]/g, '').trim();
+    return text.replace(/\.$/, '').trim();
+};
 
-        const ttIndex = textParts.findIndex(p => p.startsWith('**Työttömyysturva**'));
-        const perustiedotIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
+// Apufunktio yksittäisen osion sisällön generointiin
+// Tämä funktio ei nyt enää kutsu Koulutus/Yrittäjyys/Ammattikortit-osioille mitään,
+// koska niille on uusi erityinen käsittely useMemo-hookissa.
+const generateSectionContent = (section, selection, state) => {
+    let generated = '';
 
-        if (ttIndex > -1 && perustiedotIndex > -1) {
-            const ttContent = textParts[ttIndex].replace('**Työttömyysturva**\n', '');
-            textParts[perustiedotIndex] += ` ${ttContent}`; // Yhdistetään välilyönnillä
-            textParts.splice(ttIndex, 1);
+    if (section.id === 'tyokyky' && state.tyokyky) {
+        const s = state.tyokyky;
+        let tyokykyParts = [];
+        if (s.paavalinta) {
+            if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) {
+                tyokykyParts.push(`Asiakkaalla on työkyvyn alentuma: ${s.alentumaKuvaus}`);
+            } else if (s.paavalinta.avainsana === 'tyokyky_selvityksessa') {
+                tyokykyParts.push("Työkyky vaatii lisäselvitystä");
+            } else if (s.paavalinta.avainsana === 'tyokyky_normaali') {
+                tyokykyParts.push("Työkyky on normaali");
+            }
+        }
+        if (s.omaArvio) tyokykyParts.push(`Hän arvioi oman työkykynsä pistemääräksi ${s.omaArvio}/10`);
+        if (s.palveluohjaukset && Object.keys(s.palveluohjaukset).length > 0) {
+            const ohjaukset = Object.values(s.palveluohjaukset).map(p => p.teksti.toLowerCase().replace(/\.$/, '')).join(', ');
+            tyokykyParts.push(`Tilanteen selvittämiseksi asiakas on ohjattu seuraaviin palveluihin: ${ohjaukset}`);
+        }
+        let combinedText = tyokykyParts.join('. ').trim();
+        if (s.koonti && s.koonti.trim()) {
+            combinedText += (combinedText ? '\n\n' : '') + `Koonti keskustelusta:\n${s.koonti.trim()}`;
+        }
+        generated = combinedText;
+    }
+    else if (section.id === 'palkkatuki' && state.palkkatuki?.puoltoKappale) {
+        generated = state.palkkatuki.puoltoKappale.replace(/\.$/, '').trim();
+    }
+    else if (section.id === 'tyonhakuvelvollisuus' && selection) {
+        const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
+        if (phraseData) {
+            let koottuTeksti = processPhrase(phraseData, selection);
+            if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
+                const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([, v]) => v).map(([k]) => k);
+                let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
+                if (perustelut.length > 0) alennusTeksti += ` Perusteet: ${perustelut.join(', ')}.`;
+                if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
+                koottuTeksti += alennusTeksti;
+            }
+            generated = koottuTeksti;
+        }
+    }
+    // Yleinen käsittely: monivalinnat ja yksittäiset valinnat (EI koske koulutus/ammattikortit/yrittajyys-osioita enää tässä)
+    else if (selection && typeof selection === 'object' && !['koulutus', 'ammattikortit', 'yrittajyys'].includes(section.id)) {
+        let generatedParts = [];
+        if (section.monivalinta) {
+            const selectedKeys = Object.keys(selection).filter(avainsana => 
+                avainsana !== 'syntymavuosi' && 
+                avainsana !== 'alle_6kk_tyossa' && 
+                (selection[avainsana] === true || (typeof selection[avainsana] === 'object' && selection[avainsana] !== null && Object.keys(selection[avainsana]).length > 0))
+            );
+
+            if (selectedKeys.length > 0) {
+                selectedKeys.forEach(avainsana => {
+                    const phraseState = selection[avainsana];
+                    const phraseData = section.fraasit?.find(f => f.avainsana === avainsana);
+
+                    if (phraseData) {
+                        let processedText = '';
+                        if (typeof phraseState === 'object' && phraseState !== null && phraseState.avainsana === avainsana) {
+                            processedText = processPhrase(phraseData, phraseState);
+                        } else if (phraseState === true) {
+                            processedText = processPhrase(phraseData, {});
+                        }
+                        if (processedText) generatedParts.push(processedText);
+                    }
+                });
+                generated = generatedParts.join('. ');
+            }
+        } else if (selection.avainsana) {
+            const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
+            if (phraseData) {
+                generated = processPhrase(phraseData, selection);
+            }
+        }
+    }
+    return generated.trim();
+};
+
+
+const Summary = ({ state }) => {
+    const [feedback, setFeedback] = useState('');
+
+    const summaryText = useMemo(() => {
+        let textParts = [];
+        let tyottomyysturvaFraasi = '';
+        let koulutusJaYrittajyysCustomText = ''; // Tähän kerätään vain customText koulutus/yrittäjyys-osioista
+
+        planData.aihealueet.forEach(section => {
+            const selection = state[section.id];
+            const customText = state[`custom-${section.id}`]?.trim() || '';
+
+            let generatedContent = '';
+
+            if (section.id === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
+                tyottomyysturvaFraasi = state.tyottomyysturva.yhteenvetoFraasi.replace(/\.$/, '').trim();
+                return;
+            }
+
+            // Koulutus, ammattikortit ja yrittäjyys -osioiden käsittely:
+            // Kerätään customText talteen, muu generointi ohitetaan tässä loopissa
+            if (['koulutus', 'ammattikortit', 'yrittajyys'].includes(section.id)) {
+                if (customText) {
+                    koulutusJaYrittajyysCustomText += (koulutusJaYrittajyysCustomText ? '\n\n' : '') + customText;
+                }
+                return; // Älä lisää näitä osioita yksittäin päälooppiin
+            }
+
+            // Muut osiot - customText täydentää generoitua sisältöä
+            generatedContent = generateSectionContent(section, selection, state);
+
+            let finalContent = generatedContent;
+
+            if (customText) {
+                finalContent += (finalContent ? '\n\n' : '') + customText;
+            }
+            if (finalContent === '.') finalContent = '';
+
+
+            if (finalContent) {
+                if (!/[.!?]$/.test(finalContent.split('\n').pop()) && !finalContent.endsWith('\n\n')) {
+                    finalContent += '.';
+                }
+                textParts.push(`**${section.otsikko}**\n${finalContent}`);
+
+                if (section.id === 'tyonhakuvelvollisuus' && selection) {
+                    textParts[textParts.length - 1] += `\n\n${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI.trim()}`;
+                }
+            }
+        }); // End of forEach loop
+
+        // --- Kootaan ja lisätään Koulutus ja yrittäjyys -osio (VAIN customTextillä) ---
+        let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.trim(); 
+        
+        if (koulutusJaYrittajyysFinalContent) {
+            if (!/[.!?]$/.test(koulutusJaYrittajyysFinalContent.split('\n').pop()) && !koulutusJaYrittajyysFinalContent.endsWith('\n\n')) {
+                koulutusJaYrittajyysFinalContent += '.';
+            }
+            let tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
+            if (tyotilanneIndex === -1) { 
+                tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
+            }
+            const insertIndex = tyotilanneIndex > -1 ? tyotilanneIndex + 1 : 0;
+            textParts.splice(insertIndex, 0, `**Koulutus ja yrittäjyys**\n${koulutusJaYrittajyysFinalContent}`);
+        }
+
+        // --- Sijoita Työttömyysturva suunnitelman perustiedot -osion jälkeen ---
+        if (tyottomyysturvaFraasi) {
+            const formattedTtFraasi = tyottomyysturvaFraasi.endsWith('.') ? tyottomyysturvaFraasi : tyottomyysturvaFraasi + '.';
+            const perustiedotIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
+
+            if (perustiedotIndex > -1) {
+                const existingPerustiedot = textParts[perustiedotIndex];
+                textParts[perustiedotIndex] = existingPerustiedot + `\n${formattedTtFraasi}`;
+            } else {
+                const tyyppiIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman tyyppi**'));
+                textParts.splice(tyyppiIndex > -1 ? tyyppiIndex + 1 : 0, 0, `**Työttömyysturva**\n${formattedTtFraasi}`);
+            }
         }
         
-        if (textParts.length === 0) return '';
-        return FINGERPRINT + textParts.join('\n\n');
+        // --- Siivotaan ylimääräisiä tyhjiä rivejä ja pisteitä ---
+        let cleanedTextParts = textParts.map(part => {
+            return part.replace(/\n\s*\.\s*$/, '').trim(); 
+        }).filter(Boolean); 
+
+        return FINGERPRINT + cleanedTextParts.join('\n\n');
 
     }, [state]);
 
     const handleCopy = () => {
         try {
-            // Kopioidaan sekä HTML- että raakatekstinä.
             const plainText = summaryText.replace(FINGERPRINT, '').replace(/\*\*/g, '');
-
-            const htmlText = summaryText
-                .replace(FINGERPRINT, '')
-                .split('\n\n')
-                .map(paragraph => {
-                    const lines = paragraph.split('\n');
-                    const header = `<strong>${lines[0].replace(/\*\*/g, '')}</strong>`;
-                    const body = lines.slice(1).join('<br>');
-                    // Jos kappaleessa on vain otsikko, älä lisää turhaa <br>-tagia.
-                    return `<p>${header}${body ? '<br>' + body : ''}</p>`;
-                })
-                .join('');
-            
+            const htmlText = summaryText.replace(FINGERPRINT,'').split('\n\n').map(paragraph => {const lines = paragraph.split('\n'); const header = lines[0] ? `<strong>${lines[0].replace(/\*\*/g, '')}</strong>` : ''; const body = lines.slice(1).filter(line => line.trim() !== '').join('<br>'); return `<p>${header}${body ? (header ? '<br>' : '') + body : ''}</p>`;}).join(''); // prettier-ignore
             const blobHtml = new Blob([htmlText], { type: 'text/html' });
             const blobText = new Blob([plainText], { type: 'text/plain' });
-            const clipboardItem = new ClipboardItem({
-                'text/html': blobHtml,
-                'text/plain': blobText,
-            });
-
-            navigator.clipboard.write([clipboardItem]).then(() => {
-                setFeedback('Kopioitu muotoiltuna!');
-                setTimeout(() => setFeedback(''), 2000);
-            });
+            const clipboardItem = new ClipboardItem({'text/html': blobHtml,'text/plain': blobText,}); // prettier-ignore
+            navigator.clipboard.write([clipboardItem]).then(() => { setFeedback('Kopioitu muotoiltuna!'); setTimeout(() => setFeedback(''), 2000); }, (rejectReason) => { console.error("Formatted copy failed:", rejectReason); throw new Error("Formatted copy failed"); }); // prettier-ignore
         } catch (err) {
-            // Varmuuskopio vanhoille selaimille
-            navigator.clipboard.writeText(summaryText.replace(FINGERPRINT, '').replace(/\*\*/g, ''))
-            .then(() => {
-                setFeedback('Kopioitu (ei-muotoiltuna)!');
-                setTimeout(() => setFeedback(''), 2000);
-            });
+            console.warn("Clipboard API error or formatted copy failed, falling back to plain text:", err);
+            navigator.clipboard.writeText(summaryText.replace(FINGERPRINT, '').replace(/\*\*/g, '')).then(() => { setFeedback('Kopioitu (ei-muotoiltuna)!'); setTimeout(() => setFeedback(''), 2000); }, (rejectErr) => { console.error("Plain text copy failed:", rejectErr); setFeedback('Kopiointi epäonnistui.'); setTimeout(() => setFeedback(''), 2000); }); // prettier-ignore
         }
     };
-    
+
     return (
         <aside className="summary-sticky-container">
             <div className="summary-box">
@@ -170,7 +228,7 @@ const Summary = ({ state }) => {
                                     if (lIndex === 0 && line.startsWith('**') && line.endsWith('**')) {
                                         return <strong key={lIndex}>{line.replace(/\*\*/g, '')}</strong>;
                                     }
-                                    return <React.Fragment key={lIndex}><br />{line}</React.Fragment>;
+                                    return <React.Fragment key={lIndex}>{lIndex > 0 && <br />}{line}</React.Fragment>;
                                 })}
                             </p>
                         ))
@@ -179,12 +237,11 @@ const Summary = ({ state }) => {
                     )}
                 </div>
                 <button onClick={handleCopy} className="copy-button" disabled={!summaryText}>Kopioi leikepöydälle</button>
-                <p className="feedback-text">{feedback}</p>
+                {feedback && <p className="feedback-text">{feedback}</p>}
             </div>
-            
+
             <AikatauluEhdotus state={state} />
         </aside>
     );
 };
-
 export default Summary;

@@ -29,7 +29,12 @@ const Tyottomyysturva = ({ state, actions }) => {
     const [valittuFraasi, setValittuFraasi] = useState('');
 
     const tyotilanneInfo = useMemo(() => {
-        const tilanteet = state.tyotilanne ? Object.values(state.tyotilanne).map(s => s.teksti.replace(/\[.*?\]/g, '').trim()) : [];
+        // --- KORJAUS TÄSSÄ: Lisätty .filter() tarkistamaan s.teksti ---
+        const tilanteet = state.tyotilanne
+            ? Object.values(state.tyotilanne)
+                  .filter(s => s && typeof s === 'object' && typeof s.teksti === 'string') // Varmistetaan, että s.teksti on olemassa ja string
+                  .map(s => s.teksti.replace(/\[.*?\]/g, '').trim())
+            : [];
         return tilanteet.length > 0 ? tilanteet.join(', ') : "Ei vielä määritetty.";
     }, [state.tyotilanne]);
 
@@ -77,7 +82,7 @@ const Tyottomyysturva = ({ state, actions }) => {
     // --- PÄIVITETTY FUNKTIO, JOKA PÄIVITTÄÄ KOONNIN JA LUO EHDOTUKSET ---
     const handleGenerateSuggestions = () => {
         const answers = ttState.answers || {};
-        
+
         // 1. Luo ja päivitä yksityiskohtainen koonti
         let koontiText = '';
         sectionData.questions.forEach(q => {
@@ -114,7 +119,7 @@ const Tyottomyysturva = ({ state, actions }) => {
     return (
         <section className="section-container">
             <h2 className="section-title">Työttömyysturva</h2>
-            
+
             <details className="discussion-accordion">
                 <summary>Keskustelun tuki: Työttömyysturvan selvitys</summary>
                 <div className="discussion-content">
@@ -155,7 +160,7 @@ const Tyottomyysturva = ({ state, actions }) => {
                 <div className="suggestions-container">
                     <h4>Ehdotetut fraasit yhteenvetoon:</h4>
                     {ehdotetutFraasit.map((phrase, index) => (
-                        <div 
+                        <div
                             key={index}
                             className={`suggestion-item ${valittuFraasi === phrase ? 'selected' : ''}`}
                             onClick={() => handleSelectPhrase(phrase)}
@@ -171,7 +176,7 @@ const Tyottomyysturva = ({ state, actions }) => {
                 </div>
             )}
         </section>
-    );
-};
+    ); // <-- Varmista, että return päättyy tähän puolipisteeseen
+}; // <-- Varmista, että komponenttifunktio päättyy tähän aaltosulkuun ja puolipisteeseen
 
 export default Tyottomyysturva;

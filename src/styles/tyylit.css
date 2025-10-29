@@ -878,3 +878,149 @@ input, select, textarea {
 .move-to-summary-button:hover {
   background-color: #218838;
 }
+/* --- A-TMT Guidance Box Styles --- */
+
+.guidance-box.a-tmt-guidance {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 1px dashed #007bff; /* Dashed blue border */
+  border-radius: 8px;
+  background-color: #f0f8ff; /* Light blue background */
+  font-size: 0.95em;
+}
+
+.guidance-box h3 {
+  margin-top: 0;
+  color: #0056b3;
+  font-weight: 600;
+  border-bottom: 1px solid #bce8f1;
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.guidance-box .recommended-status strong {
+  font-size: 1.1em;
+  color: #004085;
+  background-color: #cce5ff;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.guidance-box .justification {
+  margin-top: 1rem;
+}
+
+.guidance-box .justification h4 {
+  font-size: 1em;
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.guidance-box blockquote {
+  margin: 0 0 0.8rem 0;
+  padding: 0.8rem 1rem;
+  background-color: #e9ecef;
+  border-left: 4px solid #adb5bd;
+  font-size: 0.9em;
+  color: #495057;
+}
+
+.guidance-box blockquote strong { /* Style the status name inside the quote */
+    color: #0056b3;
+}
+.guidance-box blockquote em { /* Style the law notes */
+    color: #6c757d;
+}
+
+.guidance-box .warning {
+  color: #721c24;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  padding: 0.75rem 1.25rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.additional-info-request {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px dotted #ccc;
+}
+
+.additional-info-request h4 {
+    font-size: 1em;
+    color: #333;
+    margin-bottom: 0.8rem;
+}
+
+.info-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 0.8rem;
+}
+
+.info-row label {
+    flex-basis: 150px; /* Adjust as needed */
+    flex-shrink: 0;
+    font-weight: 500;
+}
+
+.info-row select,
+.info-row input[type="number"] {
+    flex-grow: 1;
+    padding: 6px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.info-note {
+    font-size: 0.85em;
+    color: #6c757d;
+    margin-left: 5px;
+}
+
+/* opinnot ja yrittäjyys*/
+
+.subsection {
+  margin-bottom: 1.5rem; /* Lisää tilaa osioiden väliin */
+}
+
+.subsection-title {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #444;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #eee; /* Kevyt erotinviiva */
+}
+
+.summary-preview.language-summary-preview {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background-color: #f0f8ff; /* Vaaleansininen tausta */
+  border: 1px solid #bce8f1;
+  border-radius: 6px;
+  font-size: 0.95em;
+}
+
+.summary-preview h4 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #0056b3;
+}
+
+.copy-suggestion-button {
+  margin-top: 0.5rem;
+  padding: 5px 10px;
+  font-size: 0.85em;
+  cursor: pointer;
+  margin-right: 0.5rem;
+}
+
+.language-summary-preview .info-note {
+    font-size: 0.85em;
+    color: #6c757d;
+}
+

@@ -6,17 +6,19 @@ import SuunnitelmanTyyppi from './components/sections/SuunnitelmanTyyppi';
 import Perustiedot from './components/sections/Perustiedot';
 import Tyottomyysturva from './components/sections/Tyottomyysturva';
 import Tyotilanne from './components/sections/Tyotilanne';
-import KoulutusJaYrittajyys from './components/sections/KoulutusJaYrittajyys';
+import KoulutusJaYrittajyys from './components/koulutusYrittajyys';
 import Tyokyky from './components/sections/Tyokyky';
 import PalkkatukiCalculator from './components/sections/PalkkatukiCalculator';
 import Palveluunohjaus from './components/sections/Palveluunohjaus';
 import Suunnitelma from './components/sections/Suunnitelma';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
+import Kielitaso from './components/sections/Kielitaso';
 import AiAnalyysi from './components/AiAnalyysi';
 import { planData } from './data/planData';
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
 
+// Deep merge function remains the same
 const deepMerge = (target, source) => {
     const output = { ...target };
     if (target && typeof target === 'object' && source && typeof source === 'object') {
@@ -46,44 +48,73 @@ function App() {
 
     const handleSelectPhrase = useCallback((sectionId, avainsana, isMultiSelect, updatedSelection = null) => {
         setState(currentState => {
-            const newState = { ...currentState };
+            const newState = JSON.parse(JSON.stringify(currentState));
+
             const section = planData.aihealueet.find(s => s.id === sectionId);
-            if (!section || !section.fraasit) return newState;
-            
+            if (!section || !section.fraasit) {
+                console.error(`Section data not found for id: ${sectionId}`);
+                return currentState;
+            }
+
             const phrase = section.fraasit.find(f => f.avainsana === avainsana);
-            if (!phrase) return newState;
+            if (!phrase) {
+                 console.error(`Phrase not found for avainsana: ${avainsana} in section: ${sectionId}`);
+                 return currentState;
+            }
 
             if (updatedSelection) {
                 newState[sectionId] = updatedSelection;
                 return newState;
             }
 
-            const newPhraseObject = {
-                avainsana: phrase.avainsana,
-                teksti: phrase.teksti,
-                muuttujat: {},
-            };
-            if (phrase.muuttujat) {
-                Object.entries(phrase.muuttujat).forEach(([key, config]) => {
-                    newPhraseObject.muuttujat[key] = config.oletus !== undefined ? config.oletus : (config.vaihtoehdot ? config.vaihtoehdot[0] : '');
-                });
+            if (!newState[sectionId]) {
+                newState[sectionId] = {};
             }
+            const currentSelections = newState[sectionId];
 
             if (isMultiSelect) {
-                const currentSelections = { ...(newState[sectionId] || {}) };
+                // TÄMÄ LOHKO KORJATTU "suunnitelman_perustiedot" -osion KÄSITTELYÄ VARTEN
                 if (currentSelections[avainsana]) {
+                    // Poista valinta (jos klikataan uudelleen)
                     delete currentSelections[avainsana];
                 } else {
-                    currentSelections[avainsana] = newPhraseObject;
+                    // Lisää valinta. TALLENNETAAN OBJEKTINA, JOTTA VOIDAAN LIITTÄÄ MUUTTUJAT.
+                    const initialVariables = {};
+                    if (phrase.muuttujat) {
+                        Object.entries(phrase.muuttujat).forEach(([key, config]) => {
+                            if (config) {
+                                initialVariables[key] = config.oletus !== undefined ? config.oletus : (config.vaihtoehdot ? config.vaihtoehdot[0] : '');
+                            } else {
+                                initialVariables[key] = '';
+                            }
+                        });
+                    }
+                    currentSelections[avainsana] = {
+                        avainsana: avainsana, // Tallenna myös avainsana tunnistusta varten
+                        muuttujat: initialVariables // Alustetaan muuttujat tähän
+                    };
                 }
-                newState[sectionId] = currentSelections;
-            } else {
-                if (newState[sectionId]?.avainsana === avainsana) {
-                    delete newState[sectionId];
+
+            } else { // Yksivalinta (esim. Koulutus, Yrittäjyys)
+                if (currentSelections.avainsana === avainsana) {
+                    delete currentSelections.avainsana;
+                    delete currentSelections.muuttujat;
                 } else {
-                    newState[sectionId] = newPhraseObject;
+                    currentSelections.avainsana = phrase.avainsana;
+                    currentSelections.muuttujat = {};
+
+                    if (phrase.muuttujat) {
+                        Object.entries(phrase.muuttujat).forEach(([key, config]) => {
+                            if (config) {
+                                currentSelections.muuttujat[key] = config.oletus !== undefined ? config.oletus : (config.vaihtoehdot ? config.vaihtoehdot[0] : '');
+                            } else {
+                                currentSelections.muuttujat[key] = '';
+                            }
+                        });
+                    }
                 }
             }
+
             return newState;
         });
     }, []);
@@ -93,7 +124,16 @@ function App() {
             const newState = JSON.parse(JSON.stringify(currentState));
             const section = planData.aihealueet.find(s => s.id === sectionId);
             if (!section) return currentState;
-            const target = section.monivalinta ? newState[sectionId]?.[avainsana] : newState[sectionId];
+
+            let target;
+            if (section.monivalinta) {
+                // Monivalinnoissa, kuten "suunnitelman_perustiedot", kohde on avainsanan alla
+                target = newState[sectionId]?.[avainsana];
+            } else {
+                // Yksivalinnoissa kohde on suoraan sectionId:n alla
+                target = newState[sectionId];
+            }
+
             if (target) {
                 if (!target.muuttujat) target.muuttujat = {};
                 target.muuttujat[variableKey] = value;
@@ -101,9 +141,11 @@ function App() {
             return newState;
         });
     }, []);
-    
+
+
     const handleUpdateCustomText = useCallback((sectionId, value) => {
-        setState(currentState => ({ ...currentState, [`custom-${sectionId}`]: value }));
+        const customKey = sectionId === 'kielitaso' ? `custom-kielitaso` : `custom-${sectionId}`;
+        setState(currentState => ({ ...currentState, [customKey]: value }));
     }, []);
 
     const handleUpdateTyokyky = useCallback((key, value) => {
@@ -134,51 +176,55 @@ function App() {
             }
         }));
     }, []);
-    
-    // --- TÄMÄ FUNKTIO ON NYT KORJATTU ---
+
     const handleUpdateTyottomyysturva = useCallback((key, value) => {
         setState(prevState => {
             const newTtState = { ...(prevState.tyottomyysturva || {}) };
-            
+
             if (key === 'updateKysymys') {
                 const currentAnswers = { ...(newTtState.answers || {}) };
                 currentAnswers[value.id] = value.value;
                 newTtState.answers = currentAnswers;
             } else if (key === 'updateSummaries') {
-                // Käsittelee sekä koontitekstin että yhteenvetofraasin päivityksen kerralla
                 newTtState.koonti = value.koonti;
                 newTtState.yhteenvetoFraasi = value.yhteenvetoFraasi;
             } else if (key === 'updateYhteenveto') {
-                // Käsittelee VAIN yhteenvetofraasin päivityksen
                 newTtState.yhteenvetoFraasi = value;
             } else {
-                // Yleinen käsittelijä muille, esim. 'koonti'-kentän suora muokkaus
                 newTtState[key] = value;
             }
-
             return { ...prevState, tyottomyysturva: newTtState };
         });
     }, []);
 
-    // LISÄYS: UUSI FUNKTIO SUUNNITELMA-OSION PÄIVITYKSEEN
-    const handleUpdateSuunnitelma = useCallback((phraseId, isChecked) => {
+    const handleUpdateKielitaso = useCallback((key, value) => {
         setState(prevState => {
-            const newSuunnitelmaState = { ...(prevState.suunnitelma || {}) };
-            // Asetetaan fraasin tila (true/false) sen id:n perusteella
-            newSuunnitelmaState[phraseId] = isChecked;
-            return { ...prevState, suunnitelma: newSuunnitelmaState };
+            const currentKielitaso = prevState.kielitaso || { aidinkieli: '', muutKielet: [{ kieli: 'Suomi', taso: '' }] };
+            let updatedKielitaso = JSON.parse(JSON.stringify(currentKielitaso));
+
+            if (key === 'updateAidinkieli') {
+                updatedKielitaso.aidinkieli = value;
+            } else if (key === 'updateMuuKieli') {
+                const { index, field, value: langValue } = value;
+                if (!updatedKielitaso.muutKielet) updatedKielitaso.muutKielet = [];
+                while (updatedKielitaso.muutKielet.length <= index) {
+                     updatedKielitaso.muutKielet.push({ kieli: index === 0 ? 'Suomi' : '', taso: ''});
+                }
+                updatedKielitaso.muutKielet[index] = { ...updatedKielitaso.muutKielet[index], [field]: langValue };
+            }
+
+            return { ...prevState, kielitaso: updatedKielitaso };
         });
     }, []);
 
-    const actions = { 
-        onSelect: handleSelectPhrase, 
-        onUpdateVariable: handleUpdateVariable, 
+    const actions = {
+        onSelect: handleSelectPhrase,
+        onUpdateVariable: handleUpdateVariable,
         onUpdateCustomText: handleUpdateCustomText,
         onUpdateTyokyky: handleUpdateTyokyky,
         onUpdatePalkkatuki: handleUpdatePalkkatuki,
         onUpdateTyottomyysturva: handleUpdateTyottomyysturva,
-        // LISÄYS: UUSI ACTION VÄLITETÄÄN ETTEENPÄIN
-        onUpdateSuunnitelma: handleUpdateSuunnitelma,
+        onUpdateKielitaso: handleUpdateKielitaso,
     };
 
     return (
@@ -187,13 +233,13 @@ function App() {
                 <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
             </header>
             <div className="tab-navigation">
-                <button 
+                <button
                     className={`tab-button ${activeTab === 'suunnitelma' ? 'active' : ''}`}
                     onClick={() => setActiveTab('suunnitelma')}
                 >
                     Suunnitelman rakennus
                 </button>
-                <button 
+                <button
                     className={`tab-button ${activeTab === 'viestit' ? 'active' : ''}`}
                     onClick={() => setActiveTab('viestit')}
                 >
@@ -209,6 +255,7 @@ function App() {
                         <Tyottomyysturva state={state} actions={actions} />
                         <Tyotilanne state={state} actions={actions} />
                         <KoulutusJaYrittajyys state={state} actions={actions} />
+                        <Kielitaso state={state} actions={actions} />
                         <Tyokyky state={state} actions={actions} />
                         <PalkkatukiCalculator state={state} actions={actions} />
                         <Palveluunohjaus state={state} actions={actions} />
@@ -221,7 +268,7 @@ function App() {
             )}
 
             {activeTab === 'viestit' && (
-                <div className="main-grid-single">
+                 <div className="main-grid-single">
                     <main className="sections-container">
                         <MessageGenerator />
                     </main>

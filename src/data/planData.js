@@ -49,15 +49,82 @@ export const planData = {
         { lyhenne: "Työkokeilussa", teksti: "Asiakas on työkokeilussa.", "avainsana": "tyokokeilu" }
       ]
     },
-    {
-      otsikko: "Koulutus ja yrittäjyys",
-      id: "koulutus_yrittajyys",
-      monivalinta: true,
+      {
+      otsikko: "Koulutus", // Nimi muutettu
+      id: "koulutus",      // <-- ID MUUTETTU
+      monivalinta: false,
       fraasit: [
-         { lyhenne: "Koulutustausta", teksti: "Asiakas on koulutukseltaan [KOULUTUS] (v. [VUOSI]).", avainsana: "koulutus_tausta", muuttujat: { KOULUTUS: { tyyppi: "teksti" }, VUOSI: { tyyppi: "teksti" } } },
-         { lyhenne: "Ei tutkintoa", teksti: "Asiakkaalla ei ole toisen asteen tutkintoa.", avainsana: "ei_tutkintoa" },
-         { lyhenne: "Oppisopimus", teksti: "Asiakas on oppisopimuskoulutuksessa.", avainsana: "oppisopimus" },
-         { lyhenne: "Ei yrittäjyyttä", teksti: "Asiakkaalla ei ole yrittäjyysajatuksia.", "avainsana": "ei_yrittajyysajatuksia" }
+         // Vain koulutusfraasit jäävät
+         { 
+           lyhenne: "Koulutustausta", 
+           teksti: "Asiakas on koulutukseltaan [KOULUTUS] (v. [VUOSI]).", 
+           avainsana: "koulutus_tausta", 
+           muuttujat: { KOULUTUS: { tyyppi: "teksti" }, VUOSI: { tyyppi: "teksti" } },
+           ryhma: 'koulutus' // Tämä voi jäädä, ei haittaa mitään
+         },
+         { 
+           lyhenne: "Ei tutkintoa", 
+           teksti: "Asiakkaalla ei ole toisen asteen tutkintoa.", 
+           avainsana: "ei_tutkintoa",
+           ryhma: 'koulutus'
+         },
+         { 
+           lyhenne: "Oppisopimus", 
+           teksti: "Asiakas on oppisopimuskoulutuksessa.", 
+           avainsana: "oppisopimus",
+           ryhma: 'koulutus'
+         }
+         // Yrittäjyys-fraasi poistettu täältä
+      ]
+    },
+    {
+      otsikko: "Yrittäjyys",
+      id: "yrittajyys",
+      monivalinta: false,
+      fraasit: [
+         { 
+           lyhenne: "Ei yrittäjyyttä", 
+           teksti: "Asiakkaalla ei ole yrittäjyysajatuksia.", 
+           "avainsana": "ei_yrittajyysajatuksia",
+           ryhma: 'yrittajyys'
+         }
+      ]
+    },
+    // --- LISÄÄ TÄMÄ UUSI OSIO planData.js-TIEDOSTOON ---
+    {
+      otsikko: "Ammattikortit", // Otsikolla ei ole väliä, piilotamme sen
+      id: "ammattikortit", // UUSI, OMA ID
+      monivalinta: true, // TÄMÄ ON MONIVALINTAOSIO
+      fraasit: [
+         {
+          avainsana: 'hygieniapassi',
+          teksti: 'hygieniapassi', // Yhteenvetoa varten
+          tyyppi: 'monivalinta',
+          ryhma: 'ammattikortit',
+          lyhenne: 'Hygieniapassi'
+        },
+        {
+          avainsana: 'tyoturvallisuuskortti',
+          teksti: 'työturvallisuuskortti',
+          tyyppi: 'monivalinta',
+          ryhma: 'ammattikortit',
+          lyhenne: 'Työturvallisuuskortti'
+        },
+        {
+          avainsana: 'tulityokortti',
+          teksti: 'tulityökortti',
+          tyyppi: 'monivalinta',
+          ryhma: 'ammattikortit',
+          lyhenne: 'Tulityökortti'
+        },
+        {
+          avainsana: 'alkoholipassi',
+          teksti: 'alkoholipassi',
+          tyyppi: 'monivalinta',
+          ryhma: 'ammattikortit',
+          lyhenne: 'Alkoholipassi'
+        }
+        // Lisää uudet kortit tähän listaan
       ]
     },
     {
@@ -158,6 +225,7 @@ export const planData = {
           muuttujat: { LKM: { tyyppi: "numero", oletus: 0 }, AIKAJAKSO: { tyyppi: "valinta", vaihtoehdot: ["kuukaudessa", "kolmen kuukauden aikana"], oletus: "kuukaudessa" } }
         }
       ]
-    }
+    },
+    
   ]
 };
