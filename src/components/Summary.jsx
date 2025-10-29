@@ -233,7 +233,7 @@ const Summary = ({ state }) => {
                             </p>
                         ))
                     ) : (
-                        <p>Valitse osioita aloittaaksesi...</p>
+                        <p>Valitse osioita aloittaaksesi..</p>
                     )}
                 </div>
                 <button onClick={handleCopy} className="copy-button" disabled={!summaryText}>Kopioi leikepöydälle</button>
