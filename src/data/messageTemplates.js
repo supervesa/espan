@@ -248,12 +248,22 @@ export const messageTemplates = [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ]
     },
+        {
+        id: 'vastaus-yhteydenottopyyntoon-varaus-tiedustelu',
+        category: 'Muut ilmoitukset ja ohjeet',
+        title: 'Vastaus yhteydenottopyyntöön (Ajanvaraus , tiedustelu)',
+        subject: 'Vastaus yhteydenottopyyntöösi',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nOlet jättänyt yhteydenottopyynnön Helsingin työllisyyspalveluihin. Sinulle varataan aika työnhakukeskusteluun. Saat siitä ilmoituksen Suomi.fi-viestipalveluun, mikäli olet ottanut sähköisen asioinnin käyttöön. Muussa tapauksessa ilmoitus toimitetaan sinulle postitse.\n\nVoit myös laittaa kirjallisia tiedusteluja Työmarkkinatorin asiointipalvelussa yhteydenottopyynnöllä.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        fields: [
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ]
+    },
     {
         id: 'dokumenttien-toimitus',
         category: 'Muut ilmoitukset ja ohjeet',
         title: 'Ohje dokumenttien toimittamiseen (Turvaposti)',
         subject: 'Dokumenttien toimittaminen Helsingin työllisyyspalveluihin',
-        template: `Hei,\n\nPyydämme teitä toimittamaan seuraavat dokumentit: {dokumentit}.\n\nVoitte toimittaa ne turvallisesti käyttämällä Helsingin kaupungin turvasähköpostia osoitteessa securemail.hel.fi.\n\nValitkaa vastaanottajaksi kirjaamo.tyollisyyspalvelut@hel.fi ja mainitkaa viestissä nimenne sekä henkilötunnuksenne.\n\nTerveisin,\n{expertName}`,
+        template: `Hei,\n\nPyydän sinua toimittamaan seuraavat dokumentit: {dokumentit}.\n\nVoit toimittaa ne turvallisesti käyttämällä Helsingin kaupungin turvasähköpostia osoitteessa securemail.hel.fi.\n\nValitkaa vastaanottajaksi vesa.nessling@hel.fi ja mainitse viestissä nimi.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'dokumentit', label: 'Pyydettävät dokumentit', type: 'textarea', placeholder: 'esim. työsopimus ja viimeisin palkkalaskelma' },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
