@@ -280,6 +280,17 @@ export const messageTemplates = [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ]
     },
+        {
+        id: 'muistutus-suunnitelman-hyvaksyminen (aika mennyt)',
+        category: 'Muut ilmoitukset ja ohjeet',
+        title: 'Muistutus suunnitelman hyväksymisestä, aika mennyt',
+        subject: 'Muistutus työllistymissuunnitelman hyväksymisestä',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle laadittu työllistymissuunnitelma odottaa vielä hyväksyntääsi. Pyydän sinua vahvistamaan suunnitelman vastaamalla tähän viestiin (esimerkiksi "Hyväksyn suunnitelman", muista myös mainita nimesi).\n\nMikäli en saa vahvistusta hyväksymisestä, avaan asiasta selvityspyynnön ja varaan uuden tapaamisajan.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        fields: [
+            { id: 'date', label: 'Määräaika', type: 'date' },
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ]
+    },
 {
     id: 'suunnitelman-paivitys-kaksiosainen',
     category: 'Muut ilmoitukset ja ohjeet',
