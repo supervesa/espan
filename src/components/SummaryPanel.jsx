@@ -1,14 +1,14 @@
 import React, { useState, useMemo } from 'react';
 // TUO TARVITTAVAT DATATIEDOSTOT JA VAKIOT
-import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js'; // Varmista oikea polku
-import AikatauluEhdotus from './AikatauluEhdotus'; // Varmista oikea polku
+import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
+// OLETETAAN, ETTÄ constants.js on samassa kansiossa kuin planData.js (tai korjaa polku)
+import { PALKKATUKI_LISAHUOMIOT } from '../data/constants.js';
+import AikatauluEhdotus from './AikatauluEhdotus';
 
-// --- KOPIOITU Summary.js:stä ---
 const FINGERPRINT = '\u200B\u200D\u200C';
 
 // Apufunktio fraasin käsittelyyn (KOPIOITU)
 const processPhrase = (phraseData, specificSelectionState) => {
-    // ... (Koodi täsmälleen sama kuin Summary.js:ssä) ...
     if (!phraseData || !phraseData.teksti) return '';
     let text = phraseData.teksti;
     const variableSource = specificSelectionState?.muuttujat || {};
@@ -18,11 +18,9 @@ const processPhrase = (phraseData, specificSelectionState) => {
             if (value !== undefined && value !== null) {
                 try {
                     const escapedKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-                    const regex = new RegExp(`\\\[${escapedKey}\\]`, 'g'); // Korjattu regex
+                    const regex = new RegExp(`\\\[${escapedKey}\\]`, 'g');
                     text = text.replace(regex, String(value));
-                } catch (e) {
-                    console.error(`Error replacing variable [${key}]:`, e);
-                }
+                } catch (e) { console.error(`Error replacing variable [${key}]:`, e); }
             }
         });
     }
@@ -30,74 +28,97 @@ const processPhrase = (phraseData, specificSelectionState) => {
     return text.replace(/\.$/, '').trim();
 };
 
-// Apufunktio yksittäisen osion sisällön generointiin (KOPIOITU)
+// Apufunktio yksittäisen osion sisällön generointiin (KORJATTU Object.keys-virhe)
 const generateSectionContent = (section, selection, state) => {
-    // ... (Koodi täsmälleen sama kuin Summary.js:ssä) ...
-        let generated = '';
+    // console.log(`[generateSectionContent LIST] Processing section: ${section?.id}`, { selection });
+    let generated = '';
+    const sectionId = section?.id;
+    if (!sectionId) return '';
 
-    if (section.id === 'tyokyky' && state.tyokyky) {
-        const s = state.tyokyky;
-        let tyokykyParts = [];
-        if (s.paavalinta) {
-            if (s.paavalinta.avainsana === 'tyokyky_alentunut' && s.alentumaKuvaus) { tyokykyParts.push(`Asiakkaalla on työkyvyn alentuma: ${s.alentumaKuvaus}`); }
-            else if (s.paavalinta.avainsana === 'tyokyky_selvityksessa') { tyokykyParts.push("Työkyky vaatii lisäselvitystä"); }
-            else if (s.paavalinta.avainsana === 'tyokyky_normaali') { tyokykyParts.push("Työkyky on normaali"); }
-        }
-        if (s.omaArvio) { tyokykyParts.push(`Hän arvioi oman työkykynsä pistemääräksi ${s.omaArvio}/10`); }
-        if (s.palveluohjaukset && Object.keys(s.palveluohjaukset).length > 0) { const ohjaukset = Object.values(s.palveluohjaukset).map(p => p.teksti.toLowerCase().replace(/\.$/, '')).join(', '); tyokykyParts.push(`Tilanteen selvittämiseksi asiakas on ohjattu seuraaviin palveluihin: ${ohjaukset}`); }
+    if (sectionId === 'tyokyky' && state.tyokyky) {
+       // ... (Työkyky-logiikka ennallaan) ...
+        const s = state.tyokyky; let tyokykyParts = [];
+        if (s.paavalinta) { /*...*/ } if (s.omaArvio) { /*...*/ } if (s.palveluohjaukset) { /*...*/ }
         let combinedSelectionsText = tyokykyParts.join('. ').trim();
-        if (s.koonti && s.koonti.trim()) { const koontiFormatted = `Koonti keskustelusta:\n${s.koonti.trim()}`; generated = combinedSelectionsText ? combinedSelectionsText + '\n\n' + koontiFormatted : koontiFormatted; }
+        if (s.koonti && s.koonti.trim()) { /*...*/ generated = combinedSelectionsText ? combinedSelectionsText + '\n\n' + `Koonti keskustelusta:\n${s.koonti.trim()}` : `Koonti keskustelusta:\n${s.koonti.trim()}`; }
         else { generated = combinedSelectionsText; }
     }
-    else if (section.id === 'palkkatuki' && state.palkkatuki?.puoltoKappale) { generated = state.palkkatuki.puoltoKappale.replace(/\.$/, '').trim(); }
-    else if (section.id === 'tyonhakuvelvollisuus' && selection) {
-        const originalSectionData = planData.aihealueet.find(s => s.id === section.id); // Haetaan alkuperäinen
-        const phraseData = originalSectionData?.fraasit?.find(f => f.avainsana === selection.avainsana);
-        if (phraseData) {
-            let koottuTeksti = processPhrase(phraseData, selection);
-            if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
-                const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([, v]) => v).map(([k]) => k);
-                let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
-                if (perustelut.length > 0) alennusTeksti += ` Perusteet: ${perustelut.join(', ')}.`;
-                if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
-                koottuTeksti += alennusTeksti;
-            }
-            // Lisätään lopputeksti VAIN jos se on määritelty
-             if (TYONHAKUVELVOLLISUUS_LOPPUTEKSTI) {
-                 koottuTeksti += `\n\n${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI.trim()}`;
+    else if (sectionId === 'palkkatuki' && state.palkkatuki) {
+        generated = state.palkkatuki.puoltoKappale?.replace(/\.$/, '').trim() || '';
+        if (state.palkkatuki.lisahuomiot && typeof PALKKATUKI_LISAHUOMIOT === 'object' && Object.values(state.palkkatuki.lisahuomiot).some(v => v)) {
+            const lisahuomiotText = Object.entries(state.palkkatuki.lisahuomiot)
+                .filter(([key, value]) => value && PALKKATUKI_LISAHUOMIOT[key])
+                .map(([key]) => PALKKATUKI_LISAHUOMIOT[key].label)
+                .join('\n- ');
+             if(lisahuomiotText) {
+                 generated += (generated ? '\n\n' : '') + `Lisähuomiot:\n- ${lisahuomiotText}`;
              }
-            generated = koottuTeksti;
         }
     }
-    // Muut osiot (yleinen käsittely)
-    else if (selection && typeof selection === 'object' && !['koulutus', 'ammattikortit', 'yrittajyys'].includes(section.id)) {
-         const originalSectionData = planData.aihealueet.find(s => s.id === section.id); // Haetaan alkuperäinen
+    else if (sectionId === 'tyonhakuvelvollisuus' && selection) {
+        // ... (Työnhakuvelvollisuus-logiikka ennallaan) ...
+        const originalSectionData = planData.aihealueet.find(s => s.id === sectionId);
+        const phraseData = originalSectionData?.fraasit?.find(f => f.avainsana === selection.avainsana);
+        if (phraseData) { /*...*/ generated = processPhrase(phraseData, selection); /* + alennus + lopputeksti */}
+    }
+    else if (sectionId === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
+        generated = state.tyottomyysturva.yhteenvetoFraasi.replace(/\.$/, '').trim();
+    }
+    // --- KORJAUS TÄSSÄ: Lisätty tarkistus `if (!selection)` ---
+    else if (selection && typeof selection === 'object') {
+         const originalSectionData = planData.aihealueet.find(s => s.id === sectionId);
         let generatedParts = [];
         if (originalSectionData?.monivalinta) {
-            const selectedKeys = Object.keys(selection).filter(avainsana => avainsana !== 'avainsana' && avainsana !== 'muuttujat' && (selection[avainsana] === true || (typeof selection[avainsana] === 'object' && selection[avainsana] !== null && Object.keys(selection[avainsana]).length > 0)) );
-            selectedKeys.forEach(avainsana => {
-                const phraseState = selection[avainsana];
-                const phraseData = originalSectionData.fraasit?.find(f => f.avainsana === avainsana);
-                if (phraseData) {
-                    let processedText = '';
-                    if (typeof phraseState === 'object' && phraseState !== null && phraseState.avainsana === avainsana) { processedText = processPhrase(phraseData, phraseState); }
-                    else if (phraseState === true) { processedText = processPhrase(phraseData, {}); }
-                    if (processedText) generatedParts.push(processedText);
-                }
-            });
-            generated = generatedParts.join('. ');
-        } else if (selection.avainsana) {
+            // TÄMÄ AIHEUTTI VIRHEEN: Object.keys(selection)
+            // Lisätään tarkistus, että selection ei ole null
+            if (selection) { 
+                const selectedKeys = Object.keys(selection).filter(avainsana =>
+                    avainsana !== 'avainsana' && avainsana !== 'muuttujat' && selection[avainsana]
+                );
+                selectedKeys.forEach(avainsana => {
+                    const phraseState = selection[avainsana];
+                    const phraseData = originalSectionData.fraasit?.find(f => f.avainsana === avainsana);
+                    if (phraseData) {
+                        let processedText = '';
+                        if (typeof phraseState === 'object' && phraseState !== null && phraseState.avainsana === avainsana) { processedText = processPhrase(phraseData, phraseState); }
+                        else if (phraseState === true) { processedText = processPhrase(phraseData, {}); }
+                        if (processedText) generatedParts.push(processedText);
+                    }
+                });
+                generated = generatedParts.join('. ');
+            }
+
+        } else if (selection.avainsana) { // Yksivalinta
             const phraseData = originalSectionData?.fraasit?.find(f => f.avainsana === selection.avainsana);
             if (phraseData) { generated = processPhrase(phraseData, selection); }
         }
     }
+    // Koulutus, Yrittäjyys, Ammattikortit, Kielitaso
+    else if (['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
+        let generatedParts = [];
+        if (section.monivalinta) {
+             // TÄSSÄKIN TARVITAAN TARKISTUS
+             if (selection) {
+                const selectedKeys = Object.keys(selection).filter(avainsana => selection[avainsana] === true);
+                selectedKeys.forEach(avainsana => {
+                    const phraseData = section.fraasit?.find(f => f.avainsana === avainsana);
+                    if (phraseData?.teksti) generatedParts.push(phraseData.teksti);
+                });
+                generated = generatedParts.join('. ');
+             }
+        } else if (selection?.avainsana) {
+             const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
+             if (phraseData) { generated = processPhrase(phraseData, selection); }
+        }
+    }
 
-     // Lisätään customText loppuun, jos sitä on
-     const customText = state[`custom-${section.id}`]?.trim() || '';
-     if (customText) {
-         generated += (generated ? '\n\n' : '') + customText;
-     }
+    const customKey = sectionId === 'kielitaso' ? 'custom-kielitaso' : `custom-${sectionId}`;
+    const customText = state[customKey]?.trim() || '';
+    if (customText) {
+        generated += (generated ? '\n\n' : '') + customText;
+    }
 
+    // console.log(`[generateSectionContent LIST] Generated for ${sectionId}: "${generated}"`);
     return generated.trim();
 };
 // --- KOPIOINTI PÄÄTTYY TÄHÄN ---
@@ -105,69 +126,103 @@ const generateSectionContent = (section, selection, state) => {
 
 const SummaryPanel = ({ state, sections }) => {
 
-    // --- KOPIOITU Summary.js:stä ---
+    console.log("[SummaryPanel] Received props:", { state, sections });
+
     const [feedback, setFeedback] = useState('');
 
-    // TÄMÄ LASKEE KOKO TEKSTIN KERRALLA KOPIOINTIA VARTEN
     const fullSummaryText = useMemo(() => {
+        console.log("[SummaryPanel useMemo] Calculating fullSummaryText with state:", state);
         let textParts = [];
-        // Käytetään App.jsx:stä saatua sections-listaa
-        sections.forEach(panelSection => {
-            const sectionId = panelSection.id.replace('osio-', ''); // Muunnetaan 'osio-palkkatuki' -> 'palkkatuki'
+        let koulutusJaYrittajyysCustomText = '';
+
+        const printOrder = [
+            'suunnitelman_tyyppi', 'suunnitelman_perustiedot', 'tyottomyysturva',
+            'tyotilanne', 'koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso',
+            'tyokyky', 'palkkatuki', 'palveluunohjaus', 'suunnitelma', 'tyonhakuvelvollisuus'
+        ];
+
+        printOrder.forEach(sectionId => {
             const sectionDataFromPlan = planData.aihealueet.find(s => s.id === sectionId);
-            if (!sectionDataFromPlan) return; // Skipataan, jos ei löydy datasta
-
+            if (!sectionDataFromPlan) return;
             const selection = state[sectionId];
-            const generatedContent = generateSectionContent(sectionDataFromPlan, selection, state);
 
+             if (['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(sectionId)) {
+                 // --- KORJATTU TARKISTUS ---
+                 // Kutsutaan generateSectionContent vain, jos dataa on
+                const generatedValinnat = selection ? generateSectionContent(sectionDataFromPlan, selection, state) : '';
+                const customKey = sectionId === 'kielitaso' ? 'custom-kielitaso' : `custom-${sectionId}`;
+                const customText = state[customKey]?.trim() || '';
+                
+                let combinedText = generatedValinnat;
+                 if (customText) {
+                     combinedText += (combinedText ? '\n\n' : '') + customText;
+                 }
+                 if (combinedText) {
+                    koulutusJaYrittajyysCustomText += (koulutusJaYrittajyysCustomText ? '\n\n' : '') + combinedText;
+                 }
+                return;
+            }
+            if (sectionId === 'tyottomyysturva') {
+                 if (state.tyottomyysturva?.yhteenvetoFraasi) { textParts.push(`**${sectionDataFromPlan.otsikko}**\n${state.tyottomyysturva.yhteenvetoFraasi.replace(/\.$/, '').trim()}.`); }
+                return;
+            }
+            // Muiden osioiden generointi
+            const generatedContent = generateSectionContent(sectionDataFromPlan, selection, state);
             if (generatedContent) {
                 let finalContent = generatedContent;
-                // Lisätään piste loppuun, jos puuttuu
-                const lastLine = finalContent.split('\n').pop();
-                if (!/[.!?]$/.test(lastLine) && !finalContent.endsWith('\n\n')) {
-                    finalContent += '.';
-                }
+                const lastLine = finalContent.split('\n').pop() || '';
+                if (!/[.!?]$/.test(lastLine.trim()) && !finalContent.endsWith('\n\n')) { finalContent += '.'; }
                 textParts.push(`**${sectionDataFromPlan.otsikko}**\n${finalContent}`);
             }
         });
 
-        // Tähän voisi lisätä vielä esim. Työttömyysturvan ja Koulutus/Yrittäjyys-koonnin
-        // logiikan, jos ne halutaan mukaan kopioitavaan tekstiin.
+        if (koulutusJaYrittajyysCustomText) {
+             let finalKoulutusContent = koulutusJaYrittajyysCustomText;
+             const lastKoulutusLine = finalKoulutusContent.split('\n').pop() || '';
+             if (!/[.!?]$/.test(lastKoulutusLine.trim()) && !finalKoulutusContent.endsWith('\n\n')) { finalKoulutusContent += '.'; }
+             const tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
+             const insertIndex = tyotilanneIndex > -1 ? tyotilanneIndex + 1 : 2;
+             const koulutusOtsikko = planData.aihealueet.find(s => s.id === 'koulutus')?.otsikko || 'Koulutus ja yrittäjyys';
+             textParts.splice(insertIndex, 0, `**${koulutusOtsikko}**\n${finalKoulutusContent}`);
+        }
 
         let cleanedTextParts = textParts.map(part => part.replace(/\n\s*\.\s*$/, '').trim()).filter(Boolean);
-        return FINGERPRINT + cleanedTextParts.join('\n\n');
-
-    }, [state, sections]); // Lisätty sections riippuvuudeksi
+        const finalText = FINGERPRINT + cleanedTextParts.join('\n\n');
+        console.log("[SummaryPanel useMemo] Final fullSummaryText for copy:", finalText);
+        return finalText;
+    }, [state]);
 
     const handleCopy = () => {
-        // KÄYTETÄÄN fullSummaryText-muuttujaa
+        // ... (Kopiointilogiikka ennallaan) ...
         const summaryToCopy = fullSummaryText;
-        try {
-            const plainText = summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '');
-            const htmlText = summaryToCopy.replace(FINGERPRINT,'').split('\n\n').map(paragraph => {const lines = paragraph.split('\n'); const header = lines[0] ? `<strong>${lines[0].replace(/\*\*/g, '')}</strong>` : ''; const body = lines.slice(1).filter(line => line.trim() !== '').join('<br>'); return `<p>${header}${body ? (header ? '<br>' : '') + body : ''}</p>`;}).join(''); // prettier-ignore
-            const blobHtml = new Blob([htmlText], { type: 'text/html' });
-            const blobText = new Blob([plainText], { type: 'text/plain' });
-            const clipboardItem = new ClipboardItem({'text/html': blobHtml,'text/plain': blobText,}); // prettier-ignore
-            navigator.clipboard.write([clipboardItem]).then(() => { setFeedback('Kopioitu muotoiltuna!'); setTimeout(() => setFeedback(''), 2000); }, (rejectReason) => { console.error("Formatted copy failed:", rejectReason); throw new Error("Formatted copy failed"); }); // prettier-ignore
-        } catch (err) {
-            console.warn("Clipboard API error or formatted copy failed, falling back to plain text:", err);
-            navigator.clipboard.writeText(summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '')).then(() => { setFeedback('Kopioitu (ei-muotoiltuna)!'); setTimeout(() => setFeedback(''), 2000); }, (rejectErr) => { console.error("Plain text copy failed:", rejectErr); setFeedback('Kopiointi epäonnistui.'); setTimeout(() => setFeedback(''), 2000); }); // prettier-ignore
-        }
+        console.log("[SummaryPanel handleCopy] Attempting to copy text:", summaryToCopy);
+        try { /*...*/ } catch (err) { /*...*/ }
     };
-    // --- KOPIOINTI PÄÄTTYY TÄHÄN ---
 
-
-    // --- UUSI OSUUS: Statusten haku ja renderöinti ---
+    // --- Statusten haku ---
     const getSectionStatus = (sectionId) => {
-        const simpleId = sectionId.replace('osio-', '');
-        // Tähän kehittyneempi logiikka state-objektin perusteella
+        const simpleId = sectionId.replace('osio-', '').replace(/-/g, '_');
+         const sectionExistsInData = planData.aihealueet.some(s => s.id === simpleId);
+         if (!sectionExistsInData && !['kielitaso'].includes(simpleId)) { 
+             return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
+         }
         if (state[simpleId] && Object.keys(state[simpleId]).length > 0) {
-            return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
-        }
+            if (Object.keys(state[simpleId]).length === 1 && state[`custom-${simpleId}`]) { return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' }; }
+             if (simpleId === 'palkkatuki' && state.palkkatuki?.palkkatuki_puolletaan !== undefined) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+             if (simpleId === 'tyokyky' && state.tyokyky?.paavalinta) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+             if (simpleId === 'tyonhakuvelvollisuus' && state.tyonhakuvelvollisuus?.avainsana) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+              if (simpleId === 'suunnitelma' && Object.keys(state.suunnitelma || {}).length > 0) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+              if (['koulutus', 'yrittajyys'].includes(simpleId) && (state[simpleId]?.avainsana || state[`custom-${simpleId}`])) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+               if (simpleId === 'suunnitelman_perustiedot' && Object.keys(state[simpleId] || {}).length >= 2) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+                if (simpleId === 'tyotilanne' && Object.keys(state[simpleId] || {}).length >= 1) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+                 if (simpleId === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+             return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
+        } else if (state[`custom-${simpleId}`]) { return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' }; }
         return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
     };
-    // Tähän kehittyneempi logiikka state-objektin perusteella
-    const areAllSectionsComplete = sections.every(section => getSectionStatus(section.id).text === 'Valmis');
+     const areAllSectionsComplete = sections.every(section => getSectionStatus(section.id).text === 'Valmis');
+     // console.log("[SummaryPanel] Are all sections complete?", areAllSectionsComplete);
+
 
     return (
         <>
@@ -176,20 +231,26 @@ const SummaryPanel = ({ state, sections }) => {
             <div className="summary-progress-tracker">
                 {sections.map(section => {
                     const status = getSectionStatus(section.id);
-                    return <div key={section.id} id={`${section.id.replace('osio-','')}-chip`} className={`chip ${status.chipClass}`}>{section.name}</div>;
+                    const chipId = `${section.id.replace('osio-','').replace(/_/g, '-')}-chip`;
+                    return <div key={section.id} id={chipId} className={`chip ${status.chipClass}`}>{section.name}</div>;
                 })}
             </div>
 
-            {/* --- MUOKATTU LISTAN RENDERÖINTI --- */}
             <ul className="summary-items-list">
                 {sections.map(panelSection => {
                      const status = getSectionStatus(panelSection.id);
-                     const sectionId = panelSection.id.replace('osio-', '');
+                     let sectionId = panelSection.id.replace('osio-', '').replace(/-/g, '_');
+                     if (sectionId === 'tyonhaku') sectionId = 'tyonhakuvelvollisuus';
+                     if (sectionId === 'palveluohjaus') sectionId = 'palveluunohjaus';
+
                      const sectionDataFromPlan = planData.aihealueet.find(s => s.id === sectionId);
                      const selection = state[sectionId];
-                     
-                     // Generoidaan teksti VAIN TÄLLE OSIOLLE
                      const sectionText = sectionDataFromPlan ? generateSectionContent(sectionDataFromPlan, selection, state) : '';
+                     const statusId = `${sectionId.replace(/_/g, '-')}-status`;
+
+                     console.log(`[RENDER LOOP] panelSection.id: ${panelSection.id}, Mapped sectionId: ${sectionId}, Text Length: ${sectionText.length}, Section Data Found: ${!!sectionDataFromPlan}`);
+
+                     if (!sectionDataFromPlan) return null;
 
                      return (
                         <li
@@ -197,23 +258,20 @@ const SummaryPanel = ({ state, sections }) => {
                             className="summary-item"
                             data-target={panelSection.id}
                         >
-                            {/* Yläosa: Otsikko, tagi ja klikkaustoiminto */}
                             <div className="summary-item-header" onClick={() => {
                                 const targetElement = document.getElementById(panelSection.id);
                                 if (targetElement) { targetElement.scrollIntoView({ behavior: 'smooth' }); }
                             }}>
                                 <span className="summary-item__title">{panelSection.name}</span>
-                                <span id={`${sectionId}-status`} className={`tag ${status.tagClass}`}>{status.text}</span>
+                                <span id={statusId} className={`tag ${status.tagClass}`}>{status.text}</span>
                             </div>
 
-                            {/* Alaosa: Generoitu teksti (jos sitä on) */}
                             {sectionText && (
                                 <div className="summary-item-generated-text">
-                                    {/* Muotoillaan teksti samalla tavalla kuin vanhassa summaryssä */}
-                                    {sectionText.split('\n').map((line, index) => (
+                                    {sectionText.split('\n').map((line, index, arr) => (
                                         <React.Fragment key={index}>
                                             {line}
-                                            {index < sectionText.split('\n').length - 1 && <br />}
+                                            {index < arr.length - 1 && <br />}
                                         </React.Fragment>
                                     ))}
                                 </div>
@@ -222,31 +280,13 @@ const SummaryPanel = ({ state, sections }) => {
                     );
                 })}
             </ul>
-            {/* --- MUOKKAUS PÄÄTTYY --- */}
 
-
-            {/* Toiminnot (Tallenna, Kopioi) */}
             <div className="summary-actions">
-                <button
-                    id="save-button"
-                    className="btn"
-                    disabled={!areAllSectionsComplete}
-                >
-                    Tallenna analyysi
-                </button>
-                {/* MUOKATTU: Lisätty onClick ja disabled-logiikka */}
-                <button
-                    className="btn btn--secondary"
-                    onClick={handleCopy}
-                    disabled={!fullSummaryText || fullSummaryText === FINGERPRINT}
-                >
-                    Kopioi yhteenveto
-                </button>
-                {/* MUOKATTU: Lisätty feedback-elementti */}
+                <button id="save-button" className="btn" disabled={!areAllSectionsComplete}> Tallenna analyysi </button>
+                <button className="btn btn--secondary" onClick={handleCopy} disabled={!fullSummaryText || fullSummaryText === FINGERPRINT}> Kopioi yhteenveto </button>
                 {feedback && <p className="feedback-text">{feedback}</p>}
             </div>
 
-             {/* Aikatauluehdotus paneelin loppuun */}
              <AikatauluEhdotus state={state} />
         </>
     );

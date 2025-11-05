@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { messageTemplates } from '../data/messageTemplates';
 
-function MessageGenerator() {
+// 1. Ota 'state' vastaan propsina
+function MessageGenerator({ state }) {
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
     const [formData, setFormData] = useState({});
     const [generatedMessage, setGeneratedMessage] = useState('');
@@ -10,10 +11,17 @@ function MessageGenerator() {
     const [editMode, setEditMode] = useState('generated');
     const [customMessage, setCustomMessage] = useState('');
     const [addonData, setAddonData] = useState({});
-
-    // Tila pikasyöttökentälle
     const [combinedDateTime, setCombinedDateTime] = useState('');
 
+    // --- LISÄYS: Tilat tekoälytoiminnoille ---
+    const [isRefining, setIsRefining] = useState(false); // Vanha "Paranna"-nappi
+    const [aiError, setAiError] = useState('');
+    
+    // --- LISÄYS: Uudet tilat raakatekstille ---
+    const [rawTextInput, setRawTextInput] = useState('');
+    const [isGeneratingFromRaw, setIsGeneratingFromRaw] = useState(false); // Uusi "Muotoile"-nappi
+
+    // groupedTemplates pysyy ennallaan
     const groupedTemplates = useMemo(() => {
         const categoryOrder = ['Viralliset Kutsupohjat', 'Yleiset pohjat', 'Yhteydenotot ja tavoittelu', 'Muut ilmoitukset ja ohjeet'];
         const grouped = messageTemplates.reduce((acc, template) => {
@@ -37,77 +45,76 @@ function MessageGenerator() {
         return orderedGroups;
     }, []);
 
+    // currentTemplate pysyy ennallaan
     const currentTemplate = useMemo(() => {
         return messageTemplates.find(t => t.id === selectedTemplateId);
     }, [selectedTemplateId]);
 
+    // --- MUOKATTU useEffect: Esitäyttää sähköpostin ---
     useEffect(() => {
         if (currentTemplate) {
             const initialFormData = {};
             currentTemplate.fields.forEach(field => {
                 initialFormData[field.id] = field.defaultValue || ''; 
             });
-            setFormData(initialFormData);
             
+            // Yritetään esitäyttää joitain kenttiä, jos state on olemassa
+            if (state && state.perustiedot) {
+                if (initialFormData.hasOwnProperty('asiakkaan_nimi') && state.perustiedot.nimi) {
+                     initialFormData['asiakkaan_nimi'] = state.perustiedot.nimi;
+                }
+                // Voit lisätä tähän muita esitäyttöjä, esim. virkailijan nimi
+                 if (initialFormData.hasOwnProperty('expertName') && state.perustiedot.virkailija) {
+                     initialFormData['expertName'] = state.perustiedot.virkailija;
+                 }
+            }
+            
+            setFormData(initialFormData);
             setAddonData({});
         } else {
             setFormData({});
         }
-        setRecipientEmail('');
+        
+        // Esitäytä sähköposti state-objektista, jos löytyy
+        setRecipientEmail(state?.perustiedot?.sahkoposti || '');
+        
         setCopySuccess('');
         setEditMode('generated'); 
-        setCombinedDateTime(''); // Nollataan myös pikasyöttö
-    }, [currentTemplate]);
+        setCombinedDateTime('');
+    }, [currentTemplate, state]); // Lisätty 'state' tänne
     
-    // Logiikka, joka parsii pikasyöttökentän ja päivittää formDataa
+    // combinedDateTime useEffect pysyy ennallaan
     useEffect(() => {
         if (!combinedDateTime) return;
-
-        // Yritetään poimia pvm (DD.MM.YYYY) ja aika (HH:MM tai HH.MM)
         const match = combinedDateTime.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})[,\s]+(\d{1,2})[:.](\d{2})/);
-
         if (match) {
             const [, day, month, year, hour, minute] = match;
-            
-            // Muunnetaan HTML-inputeille sopivaan muotoon (YYYY-MM-DD ja HH:MM)
             const formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
             const formattedTime = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
-
-            setFormData(prev => ({
-                ...prev,
-                date: formattedDate,
-                time: formattedTime
-            }));
+            setFormData(prev => ({ ...prev, date: formattedDate, time: formattedTime }));
             setEditMode('generated');
         }
     }, [combinedDateTime]);
 
-
+    // generatedMessage useEffect pysyy ennallaan
     useEffect(() => {
         if (!currentTemplate) {
             setGeneratedMessage('');
             return;
         }
-
         let message = currentTemplate.template;
         const dataToRender = { ...formData };
-        
         if (dataToRender.location === 'Muu osoite') {
             dataToRender.location = dataToRender.location_custom || '';
         }
-
         for (const key in dataToRender) {
             let value = dataToRender[key] || `({${key}})`;
-            // Muotoillaan päivämäärä suomalaiseen muotoon vain viestiä varten
             if (key === 'date' && dataToRender[key]) {
                 const [year, month, day] = dataToRender[key].split('-');
-                if (year && month && day) {
-                    value = `${day}.${month}.${year}`;
-                }
+                if (year && month && day) value = `${day}.${month}.${year}`;
             }
             message = message.replace(new RegExp(`{${key}}`, 'g'), value);
         }
-
         let addonsText = '';
         if (currentTemplate.addons) {
              const activeAddons = currentTemplate.addons
@@ -118,39 +125,30 @@ function MessageGenerator() {
                     }
                     return addon.text;
                 });
-            
-            if (activeAddons.length > 0) {
-                addonsText = activeAddons.join('\n') + '\n';
-            }
+            if (activeAddons.length > 0) addonsText = activeAddons.join('\n') + '\n';
         }
         message = message.replace('{addons}', addonsText);
-
         setGeneratedMessage(message);
-
     }, [formData, currentTemplate, addonData]);
 
+    // handleInputChange pysyy ennallaan
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
         setEditMode('generated'); 
-
-        if (name === 'date' || name === 'time') {
-            setCombinedDateTime('');
-        }
+        if (name === 'date' || name === 'time') setCombinedDateTime('');
     };
 
+    // handleAddonChange pysyy ennallaan
     const handleAddonChange = (e) => {
         const { name, type, value, checked } = e.target;
-        
         setAddonData(prev => {
             const newState = { ...prev };
             if (type === 'checkbox') {
                 newState[name] = checked;
                 if (!checked) {
                     const addon = currentTemplate.addons.find(a => a.id === name);
-                    if (addon && addon.hasInput) {
-                        newState[addon.inputId] = '';
-                    }
+                    if (addon && addon.hasInput) newState[addon.inputId] = '';
                 }
             } else {
                 newState[name] = value;
@@ -160,6 +158,7 @@ function MessageGenerator() {
         setEditMode('generated');
     };
 
+    // handleCopy pysyy ennallaan
     const handleCopy = () => {
         const messageToCopy = editMode === 'custom' ? customMessage : generatedMessage;
         if (!messageToCopy) return;
@@ -169,6 +168,7 @@ function MessageGenerator() {
         });
     };
     
+    // handleClear pysyy ennallaan
     const handleClear = () => {
         if (currentTemplate) {
             const clearedFormData = {};
@@ -176,17 +176,18 @@ function MessageGenerator() {
                 clearedFormData[field.id] = field.defaultValue || '';
             });
             setFormData(clearedFormData);
-            setRecipientEmail('');
+            setRecipientEmail(state?.perustiedot?.sahkoposti || ''); // Palauta asiakkaan sähköposti
             setAddonData({});
             setEditMode('generated');
             setCombinedDateTime('');
+            setRawTextInput(''); // Tyhjennä myös raakateksti
         }
     };
 
+    // handleMailto pysyy ennallaan
     const handleMailto = () => {
         const messageToSend = editMode === 'custom' ? customMessage : generatedMessage;
         if (!currentTemplate || !messageToSend) return;
-
         let subject = currentTemplate.subject || 'Viesti Helsingin työllisyyspalveluista';
         const dataToRender = { ...formData };
         if (dataToRender.location === 'Muu osoite') {
@@ -197,29 +198,98 @@ function MessageGenerator() {
             let formattedValue = value;
             if (key === 'date' && dataToRender[key]) {
                 const [year, month, day] = dataToRender[key].split('-');
-                if(year && month && day) {
-                    formattedValue = `${day}.${month}.${year}`;
-                }
+                if(year && month && day) formattedValue = `${day}.${month}.${year}`;
             }
             subject = subject.replace(new RegExp(`{${key}}`, 'g'), formattedValue);
         }
-        
         const encodedSubject = encodeURIComponent(subject);
         const encodedBody = encodeURIComponent(messageToSend);
-
         const mailtoLink = `mailto:${recipientEmail}?subject=${encodedSubject}&body=${encodedBody}`;
         window.location.href = mailtoLink;
     };
 
+    // handlePreviewChange pysyy ennallaan
     const handlePreviewChange = (e) => {
         setEditMode('custom');
         setCustomMessage(e.target.value);
     };
 
+    // handleResetToTemplate pysyy ennallaan
     const handleResetToTemplate = () => {
         setEditMode('generated');
     };
 
+    // --- LISÄYS: Tekoälytoiminto 1 (Paranna olemassa olevaa) ---
+    const handleAiRefine = async () => {
+        setIsRefining(true);
+        setAiError('');
+        setCopySuccess('');
+        
+        const baseMessage = editMode === 'generated' ? generatedMessage : customMessage;
+
+        try {
+            const response = await fetch('/.netlify/functions/generateMessage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    baseMessage: baseMessage,
+                    customerState: state,
+                    templateId: selectedTemplateId
+                }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Tekoälypalvelu epäonnistui');
+            }
+
+            setCustomMessage(data.refinedMessage);
+            setEditMode('custom');
+
+        } catch (err) {
+            setAiError(err.message);
+        } finally {
+            setIsRefining(false);
+        }
+    };
+
+    // --- LISÄYS: Tekoälytoiminto 2 (Luo raakatekstistä) ---
+    const handleAiGenerateFromRaw = async () => {
+        if (!rawTextInput) {
+            setAiError('Raakatekstikenttä on tyhjä.');
+            return;
+        }
+        setIsGeneratingFromRaw(true);
+        setAiError('');
+        setCopySuccess('');
+
+        try {
+            const response = await fetch('/.netlify/functions/formatMessageFromRaw', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rawText: rawTextInput,
+                    customerState: state,
+                }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Tekoälyn muotoilu epäonnistui');
+            }
+
+            setCustomMessage(data.formattedMessage);
+            setEditMode('custom');
+            setRawTextInput(''); // Tyhjennä kenttä onnistumisen jälkeen
+
+        } catch (err) {
+            setAiError(err.message);
+        } finally {
+            setIsGeneratingFromRaw(false);
+        }
+    };
+
+    // renderField pysyy ennallaan
     const renderField = (field) => {
         const commonProps = {
             id: field.id,
@@ -228,7 +298,6 @@ function MessageGenerator() {
             onChange: handleInputChange,
             placeholder: field.placeholder || '',
         };
-
         const getDisplayValue = (opt) => {
             if (typeof opt === 'string' && opt.includes('Helsingin Työllisyyspalvelut,')) {
                 const parts = opt.split(',');
@@ -236,10 +305,8 @@ function MessageGenerator() {
             }
             return opt;
         };
-
         switch (field.type) {
-            case 'textarea':
-                return <textarea {...commonProps} rows="4" />;
+            case 'textarea': return <textarea {...commonProps} rows="4" />;
             case 'select':
                  const options = field.id === 'location' ? [...field.options, 'Muu osoite'] : field.options;
                 return (
@@ -258,18 +325,47 @@ function MessageGenerator() {
                         </datalist>
                     </>
                 );
-            default:
-                return <input type={field.type} {...commonProps} />;
+            default: return <input type={field.type} {...commonProps} />;
         }
     };
 
+    // hasDateTimeFields pysyy ennallaan
     const hasDateTimeFields = currentTemplate && 
                               currentTemplate.fields.some(f => f.id === 'date') && 
                               currentTemplate.fields.some(f => f.id === 'time');
 
+    // --- TÄMÄ ON PÄIVITETTY RENDERÖINTI ---
     return (
         <div className="section-container">
             <h2>Viestigeneraattori</h2>
+
+            {/* --- UUSI LOHKO: RAAKATEKSTI --- */}
+            <div className="raakateksti-container" style={{ marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid #ccc' }}>
+                <h3 style={{ marginTop: 0 }}>Luo viesti muistiinpanoista</h3>
+                <div className="form-row">
+                    <label htmlFor="raw-text-input">Syötä raakateksti (esim. "soita huomenna 14.30, asia: työkyky")</label>
+                    <textarea
+                        id="raw-text-input"
+                        value={rawTextInput}
+                        onChange={(e) => setRawTextInput(e.target.value)}
+                        rows="3"
+                        placeholder="Liitä tai kirjoita muistiinpanosi tähän..."
+                    />
+                </div>
+                <div className="button-container" style={{ justifyContent: 'flex-start', marginTop: '0.5rem' }}>
+                    <button 
+                        onClick={handleAiGenerateFromRaw} 
+                        disabled={isGeneratingFromRaw || !state} // Estä, jos asiakasdataa ei ole
+                        className="primary-button"
+                    >
+                        {isGeneratingFromRaw ? 'Muotoillaan...' : 'Muotoile viestiksi (AI)'}
+                    </button>
+                </div>
+                 {!state && <p className="error-message" style={{marginTop: '0.5rem'}}>Tekoälytoiminnot vaativat, että asiakasdata on ladattu "Suunnitelman rakennus" -välilehdellä.</p>}
+            </div>
+            {/* --- UUSI LOHKO PÄÄTTYY --- */}
+
+            <h3 style={{ marginTop: 0 }}>...tai käytä viestipohjaa</h3>
             <div className="form-grid">
                 <div className="form-row">
                     <label htmlFor="template-select">Valitse viestipohja</label>
@@ -349,7 +445,9 @@ function MessageGenerator() {
                     </div>
                 )}
             </div>
-            {currentTemplate && (
+            
+            {/* Esikatselulohko (sisältää nyt AI-napin) */}
+            {(currentTemplate || editMode === 'custom') && ( // Näytä tämä, jos pohja on valittu TAI jos AI on luonut sinne tekstiä
                 <div className="esikatselu-container">
                     <h3>Esikatselu</h3>
                     <div className="form-row">
@@ -365,7 +463,7 @@ function MessageGenerator() {
                     
                     {editMode === 'custom' && (
                         <p className="edit-mode-notice">
-                            Olet muokkaustilassa. Muutokset eivät päivity syöttökenttiin. 
+                            Olet muokkaustilassa. 
                             <button onClick={handleResetToTemplate} className="link-button">
                                 Palauta pohjaan
                             </button>
@@ -378,12 +476,21 @@ function MessageGenerator() {
                         rows="12"
                     />
 
+                    {/* --- TÄMÄ ON PÄIVITETTY NAPPIKONTTI --- */}
                     <div className="button-container">
                          <button onClick={handleCopy}>Kopioi viesti</button>
+                         <button 
+                            onClick={handleAiRefine} 
+                            disabled={isRefining || !state || editMode === 'generated' && !currentTemplate}
+                            className="primary-button"
+                         >
+                            {isRefining ? 'Parannellaan...' : 'Paranna (AI)'}
+                         </button>
                          <button onClick={handleMailto} className="secondary-button">Avaa sähköpostissa</button>
-                         <button onClick={handleClear} className="secondary-button">Tyhjennä kentät</button>
+                         <button onClick={handleClear} className="secondary-button">Tyhjennä</button>
                     </div>
                     {copySuccess && <p className="copy-success-message">{copySuccess}</p>}
+                    {aiError && <p className="error-message">{aiError}</p>}
                 </div>
             )}
         </div>

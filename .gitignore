@@ -1,1 +1,4 @@
 node_modules\ndist
+
+# Local Netlify folder
+.netlify

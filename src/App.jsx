@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import Summary from './components/Summary';
+// import Summary from './components/Summary'; // POISTETTU VANHA
+import SummaryPanel from './components/SummaryPanel'; // << UUSI PANEELI
 import Scraper from './components/Scraper';
 import MessageGenerator from './components/MessageGenerator';
 import SuunnitelmanTyyppi from './components/sections/SuunnitelmanTyyppi';
@@ -17,10 +18,11 @@ import AiAnalyysi from './components/AiAnalyysi';
 import { planData } from './data/planData';
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
-import './styles/espan2.css';
+import './styles/espan2.css'; // Varmista, että tämä ladataan
 
 // Deep merge function remains the same
 const deepMerge = (target, source) => {
+    // ... (koodi ennallaan) ...
     const output = { ...target };
     if (target && typeof target === 'object' && source && typeof source === 'object') {
         Object.keys(source).forEach(key => {
@@ -43,11 +45,12 @@ function App() {
     const [state, setState] = useState({});
     const [activeTab, setActiveTab] = useState('suunnitelma');
 
+    // --- Callback-funktiot (ennallaan) ---
     const handleScrape = useCallback((scrapedState) => {
         setState(currentState => deepMerge(currentState, scrapedState));
     }, []);
-
     const handleSelectPhrase = useCallback((sectionId, avainsana, isMultiSelect, updatedSelection = null) => {
+        // ... (koodi ennallaan) ...
         setState(currentState => {
             const newState = JSON.parse(JSON.stringify(currentState));
 
@@ -109,7 +112,7 @@ function App() {
                             if (config) {
                                 currentSelections.muuttujat[key] = config.oletus !== undefined ? config.oletus : (config.vaihtoehdot ? config.vaihtoehdot[0] : '');
                             } else {
-                                currentSelections.muuttujat[key] = '';
+                                initialVariables[key] = '';
                             }
                         });
                     }
@@ -119,8 +122,8 @@ function App() {
             return newState;
         });
     }, []);
-
     const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => {
+        // ... (koodi ennallaan) ...
         setState(currentState => {
             const newState = JSON.parse(JSON.stringify(currentState));
             const section = planData.aihealueet.find(s => s.id === sectionId);
@@ -142,14 +145,13 @@ function App() {
             return newState;
         });
     }, []);
-
-
     const handleUpdateCustomText = useCallback((sectionId, value) => {
+        // ... (koodi ennallaan) ...
         const customKey = sectionId === 'kielitaso' ? `custom-kielitaso` : `custom-${sectionId}`;
         setState(currentState => ({ ...currentState, [customKey]: value }));
     }, []);
-
     const handleUpdateTyokyky = useCallback((key, value) => {
+        // ... (koodi ennallaan) ...
         setState(prevState => {
             const newTyokykyState = { ...(prevState.tyokyky || {}) };
             if (key === 'togglePalveluohjaus') {
@@ -167,8 +169,8 @@ function App() {
             return { ...prevState, tyokyky: newTyokykyState };
         });
     }, []);
-
     const handleUpdatePalkkatuki = useCallback((key, value) => {
+        // ... (koodi ennallaan) ...
         setState(prevState => ({
             ...prevState,
             palkkatuki: {
@@ -177,8 +179,8 @@ function App() {
             }
         }));
     }, []);
-
     const handleUpdateTyottomyysturva = useCallback((key, value) => {
+        // ... (koodi ennallaan) ...
         setState(prevState => {
             const newTtState = { ...(prevState.tyottomyysturva || {}) };
 
@@ -197,8 +199,8 @@ function App() {
             return { ...prevState, tyottomyysturva: newTtState };
         });
     }, []);
-
     const handleUpdateKielitaso = useCallback((key, value) => {
+        // ... (koodi ennallaan) ...
         setState(prevState => {
             const currentKielitaso = prevState.kielitaso || { aidinkieli: '', muutKielet: [{ kieli: 'Suomi', taso: '' }] };
             let updatedKielitaso = JSON.parse(JSON.stringify(currentKielitaso));
@@ -217,7 +219,20 @@ function App() {
             return { ...prevState, kielitaso: updatedKielitaso };
         });
     }, []);
+    // --- LISÄTTY: handleUpdateSuunnitelma ---
+    const handleUpdateSuunnitelma = useCallback((phraseId, isChecked) => {
+        setState(prevState => {
+            const newSuunnitelmaState = { ...(prevState.suunnitelma || {}) };
+            if (isChecked) {
+                newSuunnitelmaState[phraseId] = true; // Tai tallenna { avainsana: phraseId } jos tarvitset enemmän tietoa
+            } else {
+                delete newSuunnitelmaState[phraseId];
+            }
+            return { ...prevState, suunnitelma: newSuunnitelmaState };
+        });
+    }, []);
 
+    // --- Actions-objekti päivitetyillä funktioilla ---
     const actions = {
         onSelect: handleSelectPhrase,
         onUpdateVariable: handleUpdateVariable,
@@ -226,7 +241,24 @@ function App() {
         onUpdatePalkkatuki: handleUpdatePalkkatuki,
         onUpdateTyottomyysturva: handleUpdateTyottomyysturva,
         onUpdateKielitaso: handleUpdateKielitaso,
+        onUpdateSuunnitelma: handleUpdateSuunnitelma, // LISÄTTY
+        handleScrape: handleScrape, // Lisätty handleScrape tänne
     };
+
+    // --- MUUTETTU: sectionsForPanel-taulukko on täydennetty ---
+    const sectionsForPanel = [
+        { id: 'osio-suunnitelman-tyyppi', name: 'Suunnitelman tyyppi' },
+        { id: 'osio-suunnitelman-perustiedot', name: 'Perustiedot' },
+        { id: 'osio-tyottomyysturva', name: 'Työttömyysturva' },
+        { id: 'osio-tyotilanne', name: 'Työtilanne' },
+        { id: 'osio-koulutus', name: 'Koulutus & Osaam.' },
+        { id: 'osio-tyokyky', name: 'Työkyky' },
+        { id: 'osio-palkkatuki', name: 'Palkkatuki' },
+        { id: 'osio-palveluohjaus', name: 'Palveluohjaus' },
+        { id: 'osio-suunnitelma', name: 'Suunnitelma' },
+        { id: 'osio-tyonhaku', name: 'Työnhakuvelv.' },
+    ];
+
 
     return (
         <div className="app-container">
@@ -249,33 +281,47 @@ function App() {
             </div>
             {activeTab === 'suunnitelma' && (
                 <div className="main-grid">
+                    {/* --- PÄÄSISÄLTÖ --- */}
                     <main className="sections-container">
-                        <Scraper onScrape={handleScrape} />
-                        <SuunnitelmanTyyppi state={state} actions={actions} />
-                        <Perustiedot state={state} actions={actions} />
-                        <Tyottomyysturva state={state} actions={actions} />
-                        <Tyotilanne state={state} actions={actions} />
-                        <KoulutusJaYrittajyys state={state} actions={actions} />
+                        <Scraper onScrape={handleScrape} /> {/* Käytetään handleScrapea */}
+
+                        {/* --- MUUTETTU: Lisätty ID:t puuttuville osioille --- */}
+                        <section id="osio-suunnitelman-tyyppi"><SuunnitelmanTyyppi state={state} actions={actions} /></section>
+                        <section id="osio-suunnitelman-perustiedot"><Perustiedot state={state} actions={actions} /></section>
+                        <section id="osio-tyottomyysturva"><Tyottomyysturva state={state} actions={actions} /></section>
+
+                        {/* --- Nämä olivat jo olemassa --- */}
+                        <section id="osio-tyotilanne"><Tyotilanne state={state} actions={actions} /></section>
+                        <section id="osio-koulutus"><KoulutusJaYrittajyys state={state} actions={actions} /></section>
                         <Kielitaso state={state} actions={actions} />
-                        <Tyokyky state={state} actions={actions} />
-                        <PalkkatukiCalculator state={state} actions={actions} />
-                        <Palveluunohjaus state={state} actions={actions} />
-                        <Suunnitelma state={state} actions={actions} />
-                        <Tyonhakuvelvollisuus state={state} actions={actions} />
+                        <section id="osio-tyokyky"><Tyokyky state={state} actions={actions} /></section>
+                        <section id="osio-palkkatuki"><PalkkatukiCalculator state={state} actions={actions} /></section>
+                        <section id="osio-palveluohjaus"><Palveluunohjaus state={state} actions={actions} /></section>
+                        <section id="osio-suunnitelma"><Suunnitelma state={state} actions={actions} /></section>
+                        <section id="osio-tyonhaku"><Tyonhakuvelvollisuus state={state} actions={actions} /></section>
+                        
                         <AiAnalyysi state={state} actions={actions} />
                     </main>
-                    <Summary state={state} />
+
+                    {/* --- SIVUPANEELI (Käyttää rakenteet.css:n käärettä) --- */}
+                    <div className="summary-sticky-container">
+                        <SummaryPanel state={state} sections={sectionsForPanel} />
+                    </div>
                 </div>
             )}
 
-            {activeTab === 'viestit' && (
-                 <div className="main-grid-single">
-                    <main className="sections-container">
-                        <MessageGenerator />
-                    </main>
-                </div>
-            )}
-        </div>
+         {activeTab === 'viestit' && (
+                 <div className="main-grid-single">
+                    <main className="sections-container">
+                        {/*
+                          TÄMÄ ON AINOA MUUTOS TÄSSÄ TIEDOSTOSSA:
+                          Lisätään state={state} propiksi MessageGeneratorille.
+                        */}
+                        <MessageGenerator state={state} />
+                    </main>
+                </div>
+            )}
+        </div>
     );
 }
 
