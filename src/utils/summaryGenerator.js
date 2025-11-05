@@ -1,14 +1,12 @@
 // --- src/utils/summaryGenerator.js ---
-// KORJATTU VERSIO (EI SISÄLLÄ JSX:ÄÄ)
+// KORJATTU VERSIO, PERUSTUU TOIMIVAAN Summary.js-TIEDOSTOON
 
 import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
-// Oletetaan, että constants.js on samassa data-kansiossa (tai korjaa polku)
 import { PALKKATUKI_LISAHUOMIOT } from '../data/constants.js';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
-// --- Apufunktiot (sisäiseen käyttöön) ---
-
+// Apufunktio fraasin käsittelyyn
 const processPhrase = (phraseData, specificSelectionState) => {
     if (!phraseData || !phraseData.teksti) return '';
     let text = phraseData.teksti;
@@ -29,12 +27,10 @@ const processPhrase = (phraseData, specificSelectionState) => {
     return text.replace(/\.$/, '').trim();
 };
 
-// --- EXPORT 1: generateSectionContent ---
-// Tätä käytetään SummaryPanelin listanäkymässä (yksittäisten osioiden näyttämiseen)
+// Apufunktio generointiin (Sama kuin vanhassa toimivassa Summary.js:ssä)
 export const generateSectionContent = (section, selection, state) => {
     let generated = '';
-    const sectionId = section?.id;
-    if (!sectionId) return '';
+    const sectionId = section.id;
 
     if (sectionId === 'tyokyky' && state.tyokyky) {
         const s = state.tyokyky;
@@ -47,10 +43,10 @@ export const generateSectionContent = (section, selection, state) => {
         if (s.omaArvio) { tyokykyParts.push(`Hän arvioi oman työkykynsä pistemääräksi ${s.omaArvio}/10`); }
         if (s.palveluohjaukset && Object.keys(s.palveluohjaukset).length > 0) { const ohjaukset = Object.values(s.palveluohjaukset).map(p => p.teksti.toLowerCase().replace(/\.$/, '')).join(', '); tyokykyParts.push(`Tilanteen selvittämiseksi asiakas on ohjattu seuraaviin palveluihin: ${ohjaukset}`); }
         let combinedSelectionsText = tyokykyParts.join('. ').trim();
-        if (s.koonti && s.koonti.trim()) { generated = combinedSelectionsText ? combinedSelectionsText + '\n\n' + `Koonti keskustelusta:\n${s.koonti.trim()}` : `Koonti keskustelusta:\n${s.koonti.trim()}`; }
+        if (s.koonti && s.koonti.trim()) { const koontiFormatted = `Koonti keskustelusta:\n${s.koonti.trim()}`; generated = combinedSelectionsText ? combinedSelectionsText + '\n\n' + koontiFormatted : koontiFormatted; }
         else { generated = combinedSelectionsText; }
     }
-    else if (sectionId === 'palkkatuki' && state.palkkatuki) {
+    else if (sectionId === 'palkkatuki' && state.palkkatuki) { // Muokattu state.palkkatuki
         generated = state.palkkatuki.puoltoKappale?.replace(/\.$/, '').trim() || '';
         if (state.palkkatuki.lisahuomiot && typeof PALKKATUKI_LISAHUOMIOT === 'object' && Object.values(state.palkkatuki.lisahuomiot).some(v => v)) {
             const lisahuomiotText = Object.entries(state.palkkatuki.lisahuomiot)
@@ -79,12 +75,11 @@ export const generateSectionContent = (section, selection, state) => {
             generated = koottuTeksti;
         }
     }
-    else if (sectionId === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
-        generated = state.tyottomyysturva.yhteenvetoFraasi.replace(/\.$/, '').trim();
-    }
+    // Yleinen käsittely (OHITTAA koulutus, ammattikortit, yrittajyys, kielitaso)
     else if (selection && typeof selection === 'object' && !['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
         let generatedParts = [];
         if (section.monivalinta) {
+            // TÄRKEÄ KORJAUS: Tarkistetaan, että selection ei ole null
             if (selection) { 
                 const selectedKeys = Object.keys(selection).filter(avainsana => 
                     avainsana !== 'syntymavuosi' && 
@@ -110,27 +105,13 @@ export const generateSectionContent = (section, selection, state) => {
             }
         }
     }
-    else if (['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
-        let generatedParts = [];
-         if (section.monivalinta) {
-             if (selection) {
-                const selectedKeys = Object.keys(selection).filter(avainsana => selection[avainsana] === true);
-                selectedKeys.forEach(avainsana => {
-                    const phraseData = section.fraasit?.find(f => f.avainsana === avainsana);
-                    if (phraseData?.teksti) generatedParts.push(phraseData.teksti);
-                });
-                generated = generatedParts.join('. ');
-             }
-        } else if (selection?.avainsana) {
-             const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
-             if (phraseData) { generated = processPhrase(phraseData, selection); }
-        }
-    }
 
-    const customKey = sectionId === 'kielitaso' ? 'custom-kielitaso' : `custom-${sectionId}`;
-    const customText = state[customKey]?.trim() || '';
-    if (customText) {
-        generated += (generated ? '\n\n' : '') + customText;
+    // Custom-tekstin lisäys (vain, jos osio EI ole koulutus/jne)
+    if (!['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
+        const customText = state[`custom-${section.id}`]?.trim() || '';
+        if (customText) {
+            generated += (generated ? '\n\n' : '') + customText;
+        }
     }
 
     return generated.trim();
@@ -138,11 +119,12 @@ export const generateSectionContent = (section, selection, state) => {
 
 
 // --- EXPORT 2: generateFullSummary ---
+// Tämä on vanhan Summary.js:n useMemo-logiikka
 export const generateFullSummary = (state) => {
     console.log("[generateFullSummary] Calculating full copy-text with state:", state);
     let textParts = [];
     let tyottomyysturvaFraasi = '';
-    let koulutusJaYrittajyysKoonti = '';
+    let koulutusJaYrittajyysCustomText = '';
 
     planData.aihealueet.forEach(section => {
         const selection = state[section.id];
@@ -155,26 +137,20 @@ export const generateFullSummary = (state) => {
             return;
         }
 
+        // Koulutus, ammattikortit, yrittäjyys, kielitaso - KÄSITELLÄÄN ERILLÄÄN (VAIN CUSTOM)
         if (['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
-             const generatedValinnat = generateSectionContent(section, selection, state);
-             let combinedText = generatedValinnat;
-            if (customText && !generatedValinnat.includes(customText)) {
-                combinedText += (combinedText ? '\n\n' : '') + customText;
+            if (customText) {
+                koulutusJaYrittajyysCustomText += (koulutusJaYrittajyysCustomText ? '\n\n' : '') + customText;
             }
-             if (combinedText) {
-                koulutusJaYrittajyysKoonti += (koulutusJaYrittajyysKoonti ? '\n\n' : '') + combinedText;
-             }
-            return;
+            return; 
         }
 
         // Muut osiot
         generatedContent = generateSectionContent(section, selection, state);
         
-        // Vanha Summary.js lisäsi customTextin tässä vain muille osioille
-        // (generateSectionContent hoitaa tämän jo, joten poistetaan duplikaatti)
-        // if (customText) {
-        //     generatedContent += (generatedContent ? '\n\n' : '') + customText;
-        // }
+        if (customText) {
+            generatedContent += (generatedContent ? '\n\n' : '') + customText;
+        }
         
         let finalContent = generatedContent;
         if (finalContent === '.') finalContent = '';
@@ -188,7 +164,7 @@ export const generateFullSummary = (state) => {
         }
     }); 
 
-    let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysKoonti.trim(); 
+    let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.trim(); 
     if (koulutusJaYrittajyysFinalContent) {
         const lastLine = koulutusJaYrittajyysFinalContent.split('\n').pop() || '';
         if (!/[.!?]$/.test(lastLine.trim()) && !koulutusJaYrittajyysFinalContent.endsWith('\n\n')) {
