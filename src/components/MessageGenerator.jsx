@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { messageTemplates } from '../data/messageTemplates';
 
+
 // 1. Ota 'state' vastaan propsina
 function MessageGenerator({ state }) {
     const [selectedTemplateId, setSelectedTemplateId] = useState('');
