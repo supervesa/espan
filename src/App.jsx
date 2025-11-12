@@ -15,6 +15,7 @@ import Suunnitelma from './components/sections/Suunnitelma';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
 import Kielitaso from './components/sections/Kielitaso';
 import AiAnalyysi from './components/AiAnalyysi';
+import Jalkimarkkinointi from './components/Jalkimarkkinointi'; // <-- 1. TUO UUSI KOMPONENTTI
 import { planData } from './data/planData';
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
@@ -301,6 +302,9 @@ function App() {
                         <section id="osio-tyonhaku"><Tyonhakuvelvollisuus state={state} actions={actions} /></section>
                         
                         <AiAnalyysi state={state} actions={actions} />
+                        <Jalkimarkkinointi state={state} />
+                        <hr className="section-divider" /> 
+                        {/* --- LISÄYS PÄÄTTYY --- */}
                     </main>
 
                     {/* --- SIVUPANEELI (Käyttää rakenteet.css:n käärettä) --- */}
