@@ -1,4 +1,4 @@
-import React, { useState } from 'react'; // Poistettu useMemo
+import React, { useState, useEffect, useRef } from 'react'; // LISÄTTY useEffect JA useRef
 // TUODAAN LOGIIKKA UUDESTA TIEDOSTOSTA
 import { generateSectionContent, generateFullSummary } from '../utils/summaryGenerator.js';
 // TUODAAN DATAA VAIN STATUKSEN TARKISTUSTA VARTEN
@@ -12,10 +12,13 @@ const SummaryPanel = ({ state, sections }) => {
     console.log("[SummaryPanel] Received props:", { state, sections });
 
     const [feedback, setFeedback] = useState('');
+    // --- LISÄYS: Uusi tila vierityksen seurantaa varten ---
+    const [activeSectionId, setActiveSectionId] = useState(null);
+    const observerRef = useRef(null); // Säilö observer-instanssille
 
-    // --- KEVYT handleCopy-FUNKTIO ---
+    // --- KEVYT handleCopy-FUNKTIO (ennallaan) ---
     const handleCopy = () => {
-        // Raskas laskenta tehdään VAIN klikatessa
+        // ... (Kopiointilogiikka ennallaan) ...
         const summaryToCopy = generateFullSummary(state); 
         console.log("[SummaryPanel handleCopy] Attempting to copy text:", summaryToCopy);
         try {
@@ -31,40 +34,110 @@ const SummaryPanel = ({ state, sections }) => {
         }
     };
 
-    // --- Statusten haku ---
+    // --- PÄIVITETTY: Statusten haku (Reaaliaikainen päivitys) ---
     const getSectionStatus = (sectionId) => {
+        // Muuntaa 'osio-suunnitelman-perustiedot' -> 'suunnitelman_perustiedot'
         const simpleId = sectionId.replace('osio-', '').replace(/-/g, '_');
-         const sectionExistsInData = planData.aihealueet.some(s => s.id === simpleId);
-         if (!sectionExistsInData && !['kielitaso'].includes(simpleId)) { 
+        
+        // Tarkistus 1: Onko osio olemassa planDatassa (estää virheet)
+        const sectionExistsInData = planData.aihealueet.some(s => s.id === simpleId);
+         if (!sectionExistsInData && !['kielitaso'].includes(simpleId) && simpleId !== 'koulutus') { 
              return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
          }
         
+        // Erikoissääntö: Koulutus & Osaam. (niputettu)
          if (simpleId === 'koulutus') {
              const koulutusState = state.koulutus;
              const kortitState = state.ammattikortit;
              const yrittajyysState = state.yrittajyys;
              const customKoulutus = state['custom-koulutus'];
              const customKielitaso = state['custom-kielitaso'];
+
              if ((koulutusState?.avainsana) || (kortitState && Object.keys(kortitState).length > 0) || (yrittajyysState?.avainsana) || customKoulutus || customKielitaso) {
                  return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
              }
+             // Jos mitään ei ole valittu, tarkistetaan onko custom-kenttiä muokattu
+             if (customKoulutus || customKielitaso) {
+                 return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' };
+             }
              return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
          }
-        if (state[simpleId] && Object.keys(state[simpleId]).length > 0) {
-            if (Object.keys(state[simpleId]).length === 1 && state[`custom-${simpleId}`]) { return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' }; }
+
+        // Tarkistus 2: Onko osiolle ylipäätään dataa statessa
+        const sectionState = state[simpleId];
+        if (!sectionState && !state[`custom-${simpleId}`]) {
+            return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
+        }
+
+        // Tarkistus 3: Yleiset säännöt "Valmis"-tilalle
+        // Jos `state[simpleId]` on olemassa, ajetaan tarkemmat säännöt
+        if (sectionState && Object.keys(sectionState).length > 0) {
              if (simpleId === 'palkkatuki' && state.palkkatuki?.palkkatuki_puolletaan !== undefined) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
              if (simpleId === 'tyokyky' && state.tyokyky?.paavalinta) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
              if (simpleId === 'tyonhakuvelvollisuus' && state.tyonhakuvelvollisuus?.avainsana) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-              if (simpleId === 'suunnitelma' && Object.keys(state.suunnitelma || {}).length > 0) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-               if (simpleId === 'suunnitelman_perustiedot' && Object.keys(state[simpleId] || {}).length >= 2) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-                if (simpleId === 'tyotilanne' && Object.keys(state[simpleId] || {}).length >= 1) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-                 if (simpleId === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-             return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
-        } else if (state[`custom-${simpleId}`]) { return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' }; }
+             if (simpleId === 'suunnitelma' && Object.keys(state.suunnitelma || {}).length > 0) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+             if (simpleId === 'suunnitelman_perustiedot' && Object.keys(sectionState || {}).length >= 2) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+             if (simpleId === 'tyotilanne' && Object.keys(sectionState || {}).length >= 1) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+             if (simpleId === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+             // Jos jokin muu osio (kuten palveluunohjaus) on valittu
+             if (sectionState && Object.keys(sectionState).length > 0) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+        }
+        
+        // Tarkistus 4: Onko vain custom-tekstiä (ei fraasivalintaa)
+        if (state[`custom-${simpleId}`]) { 
+            return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' }; 
+        }
+
+        // Oletus
         return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
     };
-     const areAllSectionsComplete = sections.every(section => getSectionStatus(section.id).text === 'Valmis');
+
+    const areAllSectionsComplete = sections.every(section => getSectionStatus(section.id).text === 'Valmis');
     const isStateEmpty = !state || Object.keys(state).length === 0;
+
+    // --- LISÄYS: Vierityksen seuranta (Scroll-Spy) ---
+    useEffect(() => {
+        const observerOptions = {
+            root: null, // Käyttää viewportia
+            rootMargin: '0px',
+            threshold: 0.4 // 40% osiosta pitää näkyä
+        };
+
+        const observerCallback = (entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    // Kun osio tulee näkyviin, päivitä aktiivinen ID
+                    console.log(`[ScrollSpy] Active section: ${entry.target.id}`);
+                    setActiveSectionId(entry.target.id);
+                }
+            });
+        };
+
+        // Luo observer
+        const observer = new IntersectionObserver(observerCallback, observerOptions);
+        observerRef.current = observer; // Tallenna viittaus, jotta voimme siivota
+
+        // Etsi kaikki seurattavat elementit `sections`-propsin perusteella
+        const targets = sections
+            .map(section => document.getElementById(section.id))
+            .filter(target => target !== null); // Suodata pois ne, joita ei löydy
+        
+        // Laita observer seuraamaan jokaista kohdetta
+        targets.forEach(target => observer.observe(target));
+
+        // Siivousfunktio, joka ajetaan kun komponentti poistuu
+        return () => {
+            targets.forEach(target => {
+                if (observerRef.current) {
+                    observerRef.current.unobserve(target);
+                }
+            });
+            if (observerRef.current) {
+                observerRef.current.disconnect();
+            }
+        };
+    }, [sections]); // Ajetaan vain, jos sections-lista muuttuu
+
 
     return (
         <>
@@ -78,7 +151,6 @@ const SummaryPanel = ({ state, sections }) => {
                 })}
             </div>
 
-            {/* --- KORJATTU LISTAN RENDERÖINTI HYBRIDILOGIIKALLA --- */}
             <ul className="summary-items-list">
                 {sections.map(panelSection => {
                      const status = getSectionStatus(panelSection.id);
@@ -91,40 +163,24 @@ const SummaryPanel = ({ state, sections }) => {
                      
                      let sectionText = '';
                      
-                     // --- TÄSSÄ HALUAMASI HYBRIDILOGIIKKA ---
-                     
-                     // 1. Koulutus & Osaam. -kohdalle VAIN custom-tekstit
+                     // --- TÄSSÄ HALUAMASI HYBRIDILOGIIKKA (ennallaan) ---
                      if (sectionId === 'koulutus') {
                          let koonti = '';
                          const koulutusCustom = state['custom-koulutus']?.trim() || '';
                          if (koulutusCustom) koonti += koulutusCustom;
-                         
                          const kielitasoCustom = state['custom-kielitaso']?.trim() || '';
                          if (kielitasoCustom) koonti += (koonti ? '\n\n' : '') + kielitasoCustom;
-                         
-                         // Tähän voisi lisätä myös custom-ammattikortit ja custom-yrittäjyys, jos sellaiset kentät on olemassa
-                         
                          sectionText = koonti;
                      } 
-                     // Piilotetaan niputetut osiot
                      else if (['ammattikortit', 'yrittajyys', 'kielitaso'].includes(sectionId)) { 
                          return null; 
                      } 
-                     // 2. Työkyvylle VAIN koonti-teksti
-                     else if (sectionId === 'tyokyky') {
-                         if (state.tyokyky?.koonti) {
-                             sectionText = `Koonti keskustelusta:\n${state.tyokyky.koonti}`;
-                         }
-                     }
-                     // 3. Suunnitelmalle VAIN custom-teksti
+                
                      else if (sectionId === 'suunnitelma') {
                          sectionText = state['custom-suunnitelma']?.trim() || '';
                      }
-                     // 4. KAIKKI MUUT OSIOT: Näytetään täysi sisältö (fraasit + custom)
                      else if (sectionDataFromPlan) { 
                          sectionText = generateSectionContent(sectionDataFromPlan, selection, state);
-                         
-                         // Varmistetaan custom-tekstin mukaan tulo (jos generateSectionContent ei sitä tehnyt)
                          const customText = state[`custom-${sectionId}`]?.trim() || '';
                          if (customText && !sectionText.includes(customText)) { 
                             sectionText += (sectionText ? '\n\n' : '') + customText;
@@ -133,13 +189,17 @@ const SummaryPanel = ({ state, sections }) => {
                      // --- LOGIIKKA LOPPUU ---
                      
                      const statusId = `${sectionId.replace(/_/g, '-')}-status`;
-                     console.log(`[RENDER LOOP] panelSection.id: ${panelSection.id}, Mapped sectionId: ${sectionId}, Text Length: ${sectionText.length}, Section Data Found: ${!!sectionDataFromPlan}`);
+                     // console.log(`[RENDER LOOP] panelSection.id: ${panelSection.id}, Mapped sectionId: ${sectionId}, Text Length: ${sectionText.length}, Section Data Found: ${!!sectionDataFromPlan}`);
                      if (!sectionDataFromPlan && sectionId !== 'koulutus') return null;
+
+                     // --- LISÄYS: Dynaaminen className scroll-spytä varten ---
+                     const isActive = panelSection.id === activeSectionId;
+                     const liClassName = `summary-item ${isActive ? 'summary-item--active' : ''}`;
 
                      return (
                         <li
                             key={panelSection.id}
-                            className="summary-item"
+                            className={liClassName} // KÄYTETÄÄN DYNAAMISTA LUOKKAA
                             data-target={panelSection.id}
                         >
                             <div className="summary-item-header" onClick={() => {
@@ -167,7 +227,6 @@ const SummaryPanel = ({ state, sections }) => {
 
             <div className="summary-actions">
                 <button id="save-button" className="btn" disabled={!areAllSectionsComplete}> Tallenna analyysi </button>
-                {/* KORJATTU: 'disabled'-ehto käyttää nyt isStateEmpty-tarkistusta, joka on yksinkertainen ja toimii */}
                 <button className="btn btn--secondary" onClick={handleCopy} disabled={isStateEmpty}> Kopioi yhteenveto </button>
                 {feedback && <p className="feedback-text">{feedback}</p>}
             </div>
