@@ -1,8 +1,8 @@
 // --- src/utils/summaryGenerator.js ---
-// KORJATTU VERSIO, PERUSTUU TOIMIVAAN Summary.js-TIEDOSTOON
+// PERUSTUU TOIMIVAAN Summary.js-TIEDOSTOON
 
 import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
-import { PALKKATUKI_LISAHUOMIOT } from '../data/constants.js';
+import { PALKKATUKI_LISAHUOMIOT, YLEISET_SUUNNITELMA_FRAASIT } from '../data/constants.js';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
@@ -27,7 +27,8 @@ const processPhrase = (phraseData, specificSelectionState) => {
     return text.replace(/\.$/, '').trim();
 };
 
-// Apufunktio generointiin (Sama kuin vanhassa toimivassa Summary.js:ssä)
+// Apufunktio generointiin (Perustuu TOIMIVAAN Summary.js-logiikkaan)
+// Tämä generoi VAIN fraasit, EI customTextiä (paitsi erikoistapauksissa kuten Työkyky)
 export const generateSectionContent = (section, selection, state) => {
     let generated = '';
     const sectionId = section.id;
@@ -46,19 +47,21 @@ export const generateSectionContent = (section, selection, state) => {
         if (s.koonti && s.koonti.trim()) { const koontiFormatted = `Koonti keskustelusta:\n${s.koonti.trim()}`; generated = combinedSelectionsText ? combinedSelectionsText + '\n\n' + koontiFormatted : koontiFormatted; }
         else { generated = combinedSelectionsText; }
     }
-    else if (sectionId === 'palkkatuki' && state.palkkatuki) { // Muokattu state.palkkatuki
+    else if (sectionId === 'palkkatuki' && state.palkkatuki) {
         generated = state.palkkatuki.puoltoKappale?.replace(/\.$/, '').trim() || '';
+        // Lisätään lisähuomiot (kuten vanhassa logiikassa)
         if (state.palkkatuki.lisahuomiot && typeof PALKKATUKI_LISAHUOMIOT === 'object' && Object.values(state.palkkatuki.lisahuomiot).some(v => v)) {
             const lisahuomiotText = Object.entries(state.palkkatuki.lisahuomiot)
                 .filter(([key, value]) => value && PALKKATUKI_LISAHUOMIOT[key])
-                .map(([key]) => PALKKATUKI_LISAHUOMIOT[key].label)
-                .join('\n- ');
+                .map(([key]) => PALKKATUKI_LISAHUOMIOT[key].teksti) // Käytetään .teksti
+                .join('\n\n');
              if(lisahuomiotText) {
-                 generated += (generated ? '\n\n' : '') + `Lisähuomiot:\n- ${lisahuomiotText}`;
+                 generated += (generated ? '\n\n' : '') + lisahuomiotText;
              }
         }
     }
     else if (sectionId === 'tyonhakuvelvollisuus' && selection) {
+        // KORJATTU: Haetaan fraasi section.fraasit-taulukosta
         const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
         if (phraseData) {
             let koottuTeksti = processPhrase(phraseData, selection);
@@ -69,11 +72,22 @@ export const generateSectionContent = (section, selection, state) => {
                 if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
                 koottuTeksti += alennusTeksti;
             }
-            if (TYONHAKUVELVOLLISUUS_LOPPUTEKSTI) {
+            if (TYONHAKUVELVOLLISUUS_LOPPUTEKSTI && !koottuTeksti.includes("Oikeudet ja velvollisuudet")) {
                  koottuTeksti += `\n\n${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI.trim()}`;
             }
             generated = koottuTeksti;
         }
+    }
+    // LISÄYS: Suunnitelma-osion käsittely (kuten vanhassa Summary.js:ssä)
+    else if (section.id === 'suunnitelma' && state.suunnitelma) {
+         Object.values(YLEISET_SUUNNITELMA_FRAASIT).forEach(phrase => {
+             if (state.suunnitelma[phrase.id]) {
+                 generated += (generated ? '\n' : '') + phrase.teksti;
+             }
+         });
+    }
+    else if (sectionId === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
+        generated = state.tyottomyysturva.yhteenvetoFraasi.replace(/\.$/, '').trim();
     }
     // Yleinen käsittely (OHITTAA koulutus, ammattikortit, yrittajyys, kielitaso)
     else if (selection && typeof selection === 'object' && !['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
@@ -106,13 +120,7 @@ export const generateSectionContent = (section, selection, state) => {
         }
     }
 
-    // Custom-tekstin lisäys (vain, jos osio EI ole koulutus/jne)
-    if (!['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
-        const customText = state[`custom-${section.id}`]?.trim() || '';
-        if (customText) {
-            generated += (generated ? '\n\n' : '') + customText;
-        }
-    }
+    // --- customText-LISÄYS POISTETTU TÄSTÄ (se hoidetaan generateFullSummary-funktiossa) ---
 
     return generated.trim();
 };
@@ -124,7 +132,7 @@ export const generateFullSummary = (state) => {
     console.log("[generateFullSummary] Calculating full copy-text with state:", state);
     let textParts = [];
     let tyottomyysturvaFraasi = '';
-    let koulutusJaYrittajyysCustomText = '';
+    let koulutusJaYrittajyysCustomText = ''; // Tähän kerätään vain customText
 
     planData.aihealueet.forEach(section => {
         const selection = state[section.id];
@@ -148,6 +156,7 @@ export const generateFullSummary = (state) => {
         // Muut osiot
         generatedContent = generateSectionContent(section, selection, state);
         
+        // LISÄTÄÄN customText TÄÄLLÄ (kuten vanhassa Summary.js:ssä)
         if (customText) {
             generatedContent += (generatedContent ? '\n\n' : '') + customText;
         }
@@ -164,10 +173,11 @@ export const generateFullSummary = (state) => {
         }
     }); 
 
+    // Kootaan Koulutus ja yrittäjyys -osio
     let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.trim(); 
     if (koulutusJaYrittajyysFinalContent) {
         const lastLine = koulutusJaYrittajyysFinalContent.split('\n').pop() || '';
-        if (!/[.!?]$/.test(lastLine.trim()) && !koulutusJaYrittajyysFinalContent.endsWith('\n\n')) {
+        if (!/[.!?]$/.test(lastLine.trim()) && !finalContent.endsWith('\n\n')) {
             koulutusJaYrittajyysFinalContent += '.';
         }
         let tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
@@ -175,10 +185,12 @@ export const generateFullSummary = (state) => {
             tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
         }
         const insertIndex = tyotilanneIndex > -1 ? tyotilanneIndex + 1 : 0;
-        const koulutusOtsikko = planData.aihealueet.find(s => s.id === 'koulutus')?.otsikko || 'Koulutus ja yrittäjyys';
+        // Käytetään geneeristä otsikkoa
+        const koulutusOtsikko = 'Koulutus ja yrittäjyys'; 
         textParts.splice(insertIndex, 0, `**${koulutusOtsikko}**\n${koulutusJaYrittajyysFinalContent}`);
     }
 
+    // Sijoitetaan Työttömyysturva
     if (tyottomyysturvaFraasi) {
         const formattedTtFraasi = tyottomyysturvaFraasi.endsWith('.') ? tyottomyysturvaFraasi : tyottomyysturvaFraasi + '.';
         const perustiedotIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));

@@ -1,6 +1,8 @@
 export const TYONHAKUVELVOLLISUUS_LOPPUTEKSTI = `
 Oikeudet ja velvollisuudet
-Asiakkaalle on kerrottu julkisesta työvoima- ja yrityspalvelusta annetun lain (2 luku 13 §) mukaisista työnhakijan yleisistä oikeuksista ja velvollisuuksista. Asiakas on valmis ottamaan vastaan työtä ja koulutusta.
+Asiakkaalle on kerrottu työvoimapalveluiden järjestämisestä annetun lain (380/2023, 2 luku 13 §) mukaisista työnhakijan yleisistä oikeuksista ja velvollisuuksista. Asiakas on valmis ottamaan vastaan työtä ja koulutusta.
+
+Osana asiakkaan työllistymisen edistämistä on sovittu työnhakukeskusteluista sekä täydentävistä työnhakukeskusteluista (Laki työvoimapalveluiden järjestämisestä 380/2023, 4 luku 32 §). Asiakas ymmärtää, että näihin tämän suunnitelman perusteella järjestettäviin ja erikseen ilmoitettaviin keskusteluihin osallistuminen on velvoittavaa.
 
 Työnhakuvelvollisuuden toteuttaminen ja seuranta
 Asiakkaan tulee toteuttaa suunnitelmassa sovittua työnhakua ja merkitä haetut työpaikat sekä muut tehtävät kuukausittain toteutuneiksi Työmarkkinatorin asiointipalvelussa tai puhelimitse (Helsingin työllisyyspalvelut, p. 09 310 36107). Työnhakuvelvollisuutta voi täyttää hakemalla avoimia tai tarjottuja työpaikkoja, piilotyöpaikkoja tai julkaisemalla työnhakuprofiilin Työmarkkinatorilla.
@@ -199,8 +201,15 @@ export const planData = {
         {
           avainsana: "ei_velvoitetta_tyokyky",
           lyhenne: "Ei velvoitetta (Työkyky)",
-          teksti: `Lukumäärällistä työnhakuvelvoitetta ei asetettu. Lain 48 §:n mukaisesti edellytyksenä on luotettava lääketieteellinen selvitys työkyvyttömyydestä sekä se, että asiakas noudattaa suunnitelmaa esimerkiksi työkyvyttömyysetuuden hakemiseksi tai kuntoutukseen hakeutumiseksi.`,
+          teksti: `Asiakkaalle ei aseteta työnhakuvelvollisuutta (Laki työvoimapalveluiden järjestämisestä 380/2023, 4 luku 34 §). Edellytyksenä on luotettava lääketieteellinen selvitys työkyvyttömyydestä sekä se, että asiakas noudattaa suunnitelmaa esimerkiksi työkyvyttömyysetuuden hakemiseksi tai kuntoutukseen hakeutumiseksi.`,
           selite: "Työkyvyn selvittäminen tai todettu alentuma on peruste jättää velvoite asettamatta, kun asiakas noudattaa suunnitelmaa.",
+          ehdot: { tyokyky: ["tyokyky_selvityksessa"] }
+        },
+            {
+          avainsana: "ei_velvoitetta_tyokyky_selvityksessä",
+          lyhenne: "Ei velvoitetta (Työkyky selvityksessä)",
+          teksti: `Asiakkaalle ei aseteta työnhakuvelvollisuutta (Laki työvoimapalveluiden järjestämisestä 380/2023, 4 luku 34 §). Perusteena on asiakkaan työkyvyn selvittäminen, joka vastaa työttömyysturvalain (1290/2002, 2 a luku 10 §) mukaista perustetta olla asettamatta työnhakuvelvollisuutta työkyvyttömyyden vuoksi.`,
+          selite: "Työkyvyn selvittäminen",
           ehdot: { tyokyky: ["tyokyky_selvityksessa"] }
         },
         {
