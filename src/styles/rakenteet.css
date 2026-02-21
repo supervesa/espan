@@ -262,3 +262,94 @@
 .next-meeting-container { margin-top: 1.5rem; }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; }
 .modal-content { position: relative; padding: 2rem; max-width: 800px; width: 90%; }
+
+/* =========================================
+   ADMIN WORKSPACE (Jaettu ruutu & Modaalit)
+   ========================================= */
+
+/* Pääasettelu (Split-Pane) */
+.admin-workspace-grid {
+    display: grid;
+    grid-template-columns: 1fr; /* Mobiilissa allekkain */
+    gap: 2rem;
+    align-items: start;
+    margin-top: 1.5rem;
+}
+
+/* Työpöytänäkymässä jaetaan sarakkeisiin */
+@media (min-width: 1024px) {
+    .admin-workspace-grid {
+        /* Vasen valikko 350px, oikea esikatselu loput tilasta */
+        grid-template-columns: 350px 1fr; 
+        /* Rajoitetaan korkeus näyttöön sopivaksi, jotta sisäinen skrollaus toimii */
+        height: calc(100vh - 200px); 
+    }
+}
+
+/* Vasen navigaatiosarake (Skrollaava) */
+.admin-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-height: 100%;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+/* Oikea esikatselusarake (Skrollaava) */
+.admin-preview {
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+/* =========================================
+   ADMIN MODAALI (Kaksikanavainen)
+   ========================================= */
+.admin-modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 2rem;
+}
+
+.admin-modal-content {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 1000px; /* Leveä kaksikanavaista varten */
+    max-height: 90vh;
+}
+
+.admin-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 1.5rem 2rem;
+}
+
+.admin-modal-body {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    padding: 2rem;
+    overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+    .admin-modal-body {
+        grid-template-columns: 1fr 1fr; /* Kaksi saraketta leveillä näytöillä */
+    }
+}
+
+.admin-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+}

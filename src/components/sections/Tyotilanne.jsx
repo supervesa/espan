@@ -1,21 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { planData } from '../../data/planData';
 import { PhraseOption } from '../PhraseOption';
-// --- IMPORT THE NEW GUIDE DATA ---
-import { aTmtGuide } from '../../data/guide';
 
-// Helper function to parse Finnish date string (dd.mm.yyyy)
 const parseFinnishDate = (dateString) => {
     if (!dateString || typeof dateString !== 'string') return null;
     const parts = dateString.split('.');
     if (parts.length === 3) {
-        // Note: Month is 0-indexed in JavaScript Date
         return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
     }
     return null;
 };
 
-// Helper function to calculate duration in months
 const calculateMonthsDifference = (startDate) => {
     if (!startDate) return 0;
     const start = parseFinnishDate(startDate);
@@ -24,32 +18,42 @@ const calculateMonthsDifference = (startDate) => {
     const yearsDifference = now.getFullYear() - start.getFullYear();
     const monthsDifference = now.getMonth() - start.getMonth();
     const totalMonths = yearsDifference * 12 + monthsDifference;
-    // Adjust if the current day is before the start day in the month
     if (now.getDate() < start.getDate()) {
         return Math.max(0, totalMonths - 1);
     }
     return Math.max(0, totalMonths);
 };
 
-
-const Tyotilanne = ({ state, actions }) => {
-    // Voit pitää tämän logiikan, jos haluat nähdä renderöinnit
-    // console.log("Tyotilanne component rendering. Current state.tyotilanne:", state.tyotilanne);
-
+// Ota propsina myös planData ja knowledgeData
+const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
     const sectionData = planData.aihealueet.find(s => s.id === 'tyotilanne');
     const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
 
-    // --- LOCAL STATE FOR ADDITIONAL INFO (A-TMT GUIDANCE ONLY) ---
     const [additionalInfo, setAdditionalInfo] = useState({});
     const handleAdditionalInfoChange = (key, value) => {
         setAdditionalInfo(prev => ({ ...prev, [key]: value }));
     };
 
-    // --- ANALYSIS LOGIC using useMemo (DEBUG LOGS REMOVED) ---
+    // Muutetaan Tietopankin A-TMT -ohjeet takaisin vanhan aTmtGuide-objektin muotoon!
+    const aTmtGuide = useMemo(() => {
+        const guide = {};
+        if (knowledgeData) {
+            knowledgeData.filter(k => k.category === 'A-TMT Ohjeet').forEach(item => {
+                guide[item.title] = {
+                    aTmtStatus: item.metadata?.aTmtStatus,
+                    description: item.content_text,
+                    legalNotes: item.metadata?.legalNotes,
+                    requiredInfo: item.metadata?.requiredInfo || null,
+                    priority: item.metadata?.priority || 0
+                };
+            });
+        }
+        return guide;
+    }, [knowledgeData]);
+
     const aTmtRecommendation = useMemo(() => {
         const selectedAvainsanas = state.tyotilanne ? Object.keys(state.tyotilanne) : [];
 
-        // Get unemployment start date and calculate duration
         const tyonhakuAlkanut = state.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.PÄIVÄMÄÄRÄ;
         const unemploymentMonths = calculateMonthsDifference(tyonhakuAlkanut);
 
@@ -69,7 +73,6 @@ const Tyotilanne = ({ state, actions }) => {
         let requiredInfos = new Set();
         let conflict = false;
 
-        // 1. Determine highest priority status
         selectedAvainsanas.forEach(key => {
             const guide = aTmtGuide[key];
             if (guide && guide.priority > highestPriority) {
@@ -78,7 +81,6 @@ const Tyotilanne = ({ state, actions }) => {
             }
         });
 
-        // 2. Collect justifications and potential required info from ALL selected
         selectedAvainsanas.forEach(key => {
             const guide = aTmtGuide[key];
             if (guide) {
@@ -90,7 +92,6 @@ const Tyotilanne = ({ state, actions }) => {
             }
         });
 
-        // 3. Refine requiredInfo based on the highest priority and specific selections
         const finalNeedsInfo = new Set();
         const recommendedGuide = recommendedAvainsana ? aTmtGuide[recommendedAvainsana] : null;
 
@@ -122,12 +123,13 @@ const Tyotilanne = ({ state, actions }) => {
             conflict: conflict,
             unemploymentDuration: unemploymentMonths
         };
-    }, [state.tyotilanne, state.suunnitelman_perustiedot]);
+    }, [state.tyotilanne, state.suunnitelman_perustiedot, aTmtGuide]); // Lisätty aTmtGuide dependencyyn
+
+    if (!sectionData) return null; // Varmistus renderöinnille
 
     return (
         <section className="section-container">
             <h2 className="section-title">{sectionData.otsikko}</h2>
-            {/* --- Phrase Selection --- */}
             <div className="options-container">
                 {sectionData.fraasit.map(phrase => {
                     const isSelected = state[sectionData.id]?.[phrase.avainsana];
@@ -144,7 +146,6 @@ const Tyotilanne = ({ state, actions }) => {
                     );
                 })}
             </div>
-            {/* --- Custom Text Area --- */}
              <div className="custom-text-container">
                 <label htmlFor={`custom-text-${sectionData.id}`}>Lisätiedot tai omat muotoilut:</label>
                 <textarea
@@ -156,7 +157,6 @@ const Tyotilanne = ({ state, actions }) => {
                 />
             </div>
 
-            {/* --- A-TMT GUIDANCE BOX --- */}
             <div className="guidance-box a-tmt-guidance">
                 <h3>Ohje A-TMT-statuksen kirjaamiseen</h3>
                  <p className='info-note'>(Työttömyyden kesto n. {aTmtRecommendation.unemploymentDuration} kk)</p>

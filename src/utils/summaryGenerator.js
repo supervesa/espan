@@ -126,13 +126,11 @@ export const generateSectionContent = (section, selection, state) => {
 };
 
 
-// --- EXPORT 2: generateFullSummary ---
-// Tämä on vanhan Summary.js:n useMemo-logiikka
 export const generateFullSummary = (state) => {
     console.log("[generateFullSummary] Calculating full copy-text with state:", state);
     let textParts = [];
     let tyottomyysturvaFraasi = '';
-    let koulutusJaYrittajyysCustomText = ''; // Tähän kerätään vain customText
+    let koulutusJaYrittajyysCustomText = ''; 
 
     planData.aihealueet.forEach(section => {
         const selection = state[section.id];
@@ -145,7 +143,6 @@ export const generateFullSummary = (state) => {
             return;
         }
 
-        // Koulutus, ammattikortit, yrittäjyys, kielitaso - KÄSITELLÄÄN ERILLÄÄN (VAIN CUSTOM)
         if (['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
             if (customText) {
                 koulutusJaYrittajyysCustomText += (koulutusJaYrittajyysCustomText ? '\n\n' : '') + customText;
@@ -153,10 +150,8 @@ export const generateFullSummary = (state) => {
             return; 
         }
 
-        // Muut osiot
         generatedContent = generateSectionContent(section, selection, state);
         
-        // LISÄTÄÄN customText TÄÄLLÄ (kuten vanhassa Summary.js:ssä)
         if (customText) {
             generatedContent += (generatedContent ? '\n\n' : '') + customText;
         }
@@ -166,6 +161,7 @@ export const generateFullSummary = (state) => {
         
         if (finalContent) {
             const lastLine = finalContent.split('\n').pop() || '';
+            // KORJATTU: Silmukan sisällä käytetään finalContent-muuttujaa
             if (!/[.!?]$/.test(lastLine.trim()) && !finalContent.endsWith('\n\n')) {
                 finalContent += '.';
             }
@@ -173,11 +169,11 @@ export const generateFullSummary = (state) => {
         }
     }); 
 
-    // Kootaan Koulutus ja yrittäjyys -osio
     let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.trim(); 
     if (koulutusJaYrittajyysFinalContent) {
         const lastLine = koulutusJaYrittajyysFinalContent.split('\n').pop() || '';
-        if (!/[.!?]$/.test(lastLine.trim()) && !finalContent.endsWith('\n\n')) {
+        // KORJATTU: Silmukan ulkopuolella käytetään koulutusJaYrittajyysFinalContent-muuttujaa
+        if (!/[.!?]$/.test(lastLine.trim()) && !koulutusJaYrittajyysFinalContent.endsWith('\n\n')) {
             koulutusJaYrittajyysFinalContent += '.';
         }
         let tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
@@ -185,12 +181,10 @@ export const generateFullSummary = (state) => {
             tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
         }
         const insertIndex = tyotilanneIndex > -1 ? tyotilanneIndex + 1 : 0;
-        // Käytetään geneeristä otsikkoa
         const koulutusOtsikko = 'Koulutus ja yrittäjyys'; 
         textParts.splice(insertIndex, 0, `**${koulutusOtsikko}**\n${koulutusJaYrittajyysFinalContent}`);
     }
 
-    // Sijoitetaan Työttömyysturva
     if (tyottomyysturvaFraasi) {
         const formattedTtFraasi = tyottomyysturvaFraasi.endsWith('.') ? tyottomyysturvaFraasi : tyottomyysturvaFraasi + '.';
         const perustiedotIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
@@ -209,3 +203,4 @@ export const generateFullSummary = (state) => {
     console.log("[generateFullSummary] Final fullSummaryText for copy:", finalText);
     return finalText;
 };
+export { generateHybridSummary, generateHybridSectionContent } from './hybridSummaryGenerator.js';

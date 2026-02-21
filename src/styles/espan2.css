@@ -1358,3 +1358,217 @@ div[style*="margin-top: 1rem"] > label input[type="checkbox"] {
   font-weight: 500 !important;
   font-size: 0.875rem !important;
 }
+
+/* =========================================
+   ADMIN UI VÄRIT JA TYYLIT
+   ========================================= */
+
+/* Vasemman valikon klikattava rivi */
+.admin-menu-item {
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-left 0.2s ease;
+    border-left: 3px solid transparent; /* Piilotettu korostusraita oletuksena */
+    margin-bottom: 0.25rem;
+    font-size: 0.9rem;
+    color: var(--color-text-primary);
+}
+
+.admin-menu-item:hover {
+    background-color: rgba(0,0,0,0.03);
+}
+
+/* Vasemman valikon AKTIIVINEN rivi (kun klikattu) */
+.admin-menu-item--active {
+    background-color: rgba(255,107,0,0.05); /* Pääväri todella haaleana taustalla */
+    border-left: 3px solid var(--color-primary); /* Oranssi korostusraita */
+    font-weight: 600;
+    color: var(--color-primary);
+}
+
+/* Oikean sarakkeen "Tyhjä tila" (kun mitään ei ole valittu) */
+.admin-empty-state {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    min-height: 300px;
+    color: var(--color-text-secondary);
+    font-style: italic;
+    background-color: var(--color-background);
+    border-radius: var(--border-radius);
+    border: 2px dashed var(--color-border);
+}
+
+/* Oikean sarakkeen varsinainen tietokortti */
+.admin-preview-card {
+    background-color: var(--color-surface);
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    border: 1px solid var(--color-border);
+}
+
+/* Oikean sarakkeen esikatselutekstin laatikko */
+.admin-preview-text {
+    white-space: pre-wrap; /* Säilyttää rivinvaihdot, tärkeä viestipohjille! */
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    color: var(--color-text-primary);
+    background-color: var(--color-background);
+    padding: 1.5rem;
+    border-radius: calc(var(--border-radius) / 2);
+    border: 1px solid var(--color-border);
+    margin-top: 1rem;
+}
+
+/* --- Modaalin pintatyylit (yhdistetään rakenteet.css luokkiin) --- */
+.admin-modal-overlay {
+    background-color: rgba(0, 0, 0, 0.6); /* Tummennus ruudulle */
+}
+
+.admin-modal-content {
+    background-color: var(--color-surface);
+    border-radius: var(--border-radius);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+
+.admin-modal-header {
+    border-bottom: 1px solid var(--color-border);
+}
+
+.admin-modal-footer {
+    border-top: 1px solid var(--color-border);
+    background-color: var(--color-background);
+    border-bottom-left-radius: var(--border-radius);
+    border-bottom-right-radius: var(--border-radius);
+}
+
+/* =========================================
+   MODERNIT YLEISKOMPONENTIT (Select & Checkbox)
+   ========================================= */
+
+/* Moderni Alasvetovalikko */
+.modern-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 0.5rem 2.5rem 0.5rem 0.75rem; /* Tilaa oikealla nuolelle */
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    color: var(--color-text-primary);
+    width: 100%;
+    cursor: pointer;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    
+    /* Kustomoitu SVG-nuoli (Lucide chevron-down) upotettuna suoraan CSS:ään! */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236b7785' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1.2rem;
+}
+
+.modern-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-focus-ring);
+}
+
+.modern-select:hover {
+    border-color: var(--color-primary);
+}
+
+/* Kääre modernille Checkboxille ja sen tekstiin */
+.modern-checkbox-label {
+    display: flex;
+    align-items: flex-start; /* Teksti voi mennä monelle riville nätisti */
+    gap: 0.75rem;
+    cursor: pointer;
+    margin-bottom: 0.5rem;
+    color: var(--color-text-primary);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    transition: color 0.2s ease;
+}
+.modern-checkbox-label:hover {
+    color: var(--color-primary);
+}
+
+/* Täysin kustomoitu animoitu valintaruutu */
+.modern-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--color-surface);
+    margin: 0;
+    margin-top: 0.15rem; /* Hienosäätö tekstin linjaukseen */
+    font: inherit;
+    color: currentColor;
+    width: 1.15rem;
+    height: 1.15rem;
+    border: 2px solid var(--color-text-secondary); /* Harmaa reuna oletuksena */
+    border-radius: 4px;
+    display: grid;
+    place-content: center;
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+    flex-shrink: 0; /* Estää litistymisen */
+}
+
+/* V-merkki piirretään näkymättömäksi laatikon sisään CSS:llä */
+.modern-checkbox::before {
+    content: "";
+    width: 0.65em;
+    height: 0.65em;
+    transform: scale(0); /* Piilotettu oletuksena */
+    transition: 120ms transform ease-in-out;
+    box-shadow: inset 1em 1em white;
+    background-color: white;
+    transform-origin: center;
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%); /* Täydellinen check-ikoni */
+}
+
+/* Tila kun checkbox on valittu */
+.modern-checkbox:checked {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+}
+/* Animaatio valinnalle */
+.modern-checkbox:checked::before {
+    transform: scale(1);
+}
+
+.modern-checkbox:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus-ring);
+}
+
+/* Lisätietojen sisennys (Addons) */
+.addon-child-container {
+    padding-left: 2rem;
+    margin-top: 0.25rem;
+    margin-bottom: 1.25rem;
+    position: relative;
+    animation: slideDownFade 0.2s ease-out; /* Pehmeä ilmestyminen */
+}
+
+/* Pieni korostusviiva vasemmalla yhdistämään kenttä ylempään ruksiin */
+.addon-child-container::before {
+    content: "";
+    position: absolute;
+    left: 0.5rem;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: rgba(255, 107, 0, 0.2);
+    border-radius: 2px;
+}
+
+@keyframes slideDownFade {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
