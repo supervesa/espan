@@ -1,11 +1,15 @@
+// --- src/components/admin/AdminWorkspace.jsx ---
+
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import AdminModal from './AdminModal';
 import ImportPanel from './ImportPanel';
+import ServicesAdmin from './ServicesAdmin'; // <-- UUSI TUONTI
 import { createNewItem } from './adminSupabaseService';
 
 const AdminWorkspace = () => {
-    const [activeTab, setActiveTab] = useState('workspace');
+    // Asetetaan oletukseksi 'services' kehityksen ajaksi, jotta näet sen heti
+    const [activeTab, setActiveTab] = useState('services');
     const [loading, setLoading] = useState(true);
     
     // Tietokannan data
@@ -18,11 +22,9 @@ const AdminWorkspace = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     useEffect(() => {
-        // Ensimmäisellä kerralla näytetään latausruutu
         fetchAllData(true);
     }, []);
 
-    // Parametri isInitialLoad estää "Ladataan..." -välähdyksen taustapäivityksissä
     const fetchAllData = async (isInitialLoad = false) => {
         if (isInitialLoad) setLoading(true);
         try {
@@ -36,7 +38,6 @@ const AdminWorkspace = () => {
             if (msgRes.data) setMessages(msgRes.data);
             if (knowRes.data) setKnowledge(knowRes.data);
 
-            // Päivitetään valitun kohteen esikatselu tuoreimpaan dataan taustahaun jälkeen
             setSelectedItem(prev => {
                 if (!prev) return null;
                 
@@ -78,12 +79,9 @@ const AdminWorkspace = () => {
 
     const handleSaveComplete = () => {
         setIsModalOpen(false);
-        // Haetaan data hiljaisesti taustalla (isInitialLoad = false)
         fetchAllData(false); 
-        // setSelectedItem(null) poistettu: kohde pysyy valittuna ja esikatselu päivittyy
     };
 
-    // --- UNIVERSAALI UUDEN KOHTEEN LUONTI ---
     const handleAddNewItem = async (type, parentIdOrCategory) => {
         let tableName = '';
         let defaultData = {};
@@ -115,7 +113,6 @@ const AdminWorkspace = () => {
 
         const newItem = await createNewItem(tableName, defaultData);
         if (newItem) {
-            // Päivitetään listat taustalla
             await fetchAllData(false);
             setSelectedItem({ type, data: newItem });
             setIsModalOpen(true);
@@ -143,9 +140,20 @@ const AdminWorkspace = () => {
                 >
                     Massatuonti (Import)
                 </button>
+                {/* UUSI VÄLILEHTI */}
+                <button
+                    className={`tab-button ${activeTab === 'services' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('services')}
+                >
+                    Palveluohjaukset (AI)
+                </button>
             </div>
 
+            {/* VÄLILEHTIEN SISÄLLÖT */}
             {activeTab === 'import' && <div className="main-grid-single"><ImportPanel /></div>}
+            
+            {/* TÄHÄN RENDERÖIDÄÄN UUSI AI-KOMPONENTTI */}
+            {activeTab === 'services' && <ServicesAdmin />}
 
             {activeTab === 'workspace' && (
                 <div className="admin-workspace-grid">

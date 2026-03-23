@@ -2023,3 +2023,117 @@ div[style*="margin-top: 1rem"] > label input[type="checkbox"] {
     align-items: center;
     gap: 0.5rem;
 }
+
+/* --- LISÄYS: Palveluohjaus-komponentin tyylit --- */
+
+/* Haku- ja suodatinkentän kääre */
+.service-filter-container {
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+}
+
+/* Palvelukorttien Grid-asettelu */
+.service-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+/* Yksittäinen palvelukortti */
+.service-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.2s ease;
+}
+
+.service-card:hover {
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.service-card--selected {
+    background-color: #eff6ff; /* Vaaleansininen korostus, kuten phrase-option */
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.service-card-header {
+    margin-bottom: 0.75rem;
+}
+
+.service-card-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0 0 1rem 0;
+    line-height: 1.4;
+    flex-grow: 1; /* Työntää napit aina kortin alareunaan */
+}
+
+/* Kortin napit ja ikonit */
+.service-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: auto;
+}
+
+.btn-icon {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-icon:hover {
+    background-color: var(--color-background);
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+}
+
+.thv-action-button.btn-selected {
+    background-color: var(--color-success); /* Vaihtuu vihreäksi kun valittu */
+}
+
+/* Laajennettu näkymä (AI-kuvaus) */
+.service-card-details {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--color-border);
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.service-card-plan-text {
+    background-color: var(--color-background);
+    padding: 0.75rem;
+    border-radius: 4px;
+    border-left: 3px solid var(--color-primary);
+    margin: 1rem 0;
+}
+
+.service-card-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: 500;
+    margin-top: 0.5rem;
+}
+
+.service-card-link:hover {
+    text-decoration: underline;
+}

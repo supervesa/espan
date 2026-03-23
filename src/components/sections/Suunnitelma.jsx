@@ -2,10 +2,12 @@
 
 import React, { useMemo } from 'react';
 import { Zap, CheckSquare, FileText, Activity, Briefcase, GraduationCap, HeartPulse, ArrowDownCircle } from 'lucide-react';
+import Palveluohjaus from './Palveluohjaus'; // <-- Poista { DUMMY_SERVICES } tästä!
 
 const Suunnitelma = ({ state, actions, planData }) => {
     const sectionData = planData?.aihealueet?.find(s => s.id === 'suunnitelma');
     const dbPhrases = sectionData?.fraasit || [];
+    const [loadedServices, setLoadedServices] = React.useState([]);
 
     const rawValinnat = state.suunnitelma || {}; 
     const isArray = Array.isArray(rawValinnat);
@@ -49,20 +51,21 @@ const Suunnitelma = ({ state, actions, planData }) => {
             return scoreB - scoreA;
         });
 
-        // Haetaan vain työkokeilun kesto laskurista
         const tyokokeiluKesto = state.palkkatuki?.tyokokeilu_kesto_kk || 'X';
-
-        return activePhrases.map(phrase => {
+        const phraseTexts = activePhrases.map(phrase => {
             let teksti = phrase.teksti;
-            
-            // Korvataan Työkokeilun kesto
-            if (teksti.includes('[KESTO_KK]')) {
-                teksti = teksti.replace(/\[KESTO_KK\]/g, tyokokeiluKesto);
-            }
-            
+            if (teksti.includes('[KESTO_KK]')) teksti = teksti.replace(/\[KESTO_KK\]/g, tyokokeiluKesto);
             return teksti;
-        }).join('\n\n');
-    }, [dbPhrases, rawValinnat, isArray, state.palkkatuki]);
+        });
+
+        // KORVATTU KOHTA: Haetaan valitut Palveluohjaukset NYT DYNAMISESTA TILASTA
+        const activeServices = loadedServices.filter(service => isSelected(service.id));
+        const serviceTexts = activeServices.map(service => service.plan_text);
+
+        const allTexts = [...phraseTexts, ...serviceTexts];
+        return allTexts.join('\n\n');
+        
+    }, [dbPhrases, rawValinnat, isArray, state.palkkatuki, loadedServices]); // <-- Lisää loadedServices dependency-arrayhyn!
 
     // UUSI FUNKTIO: Siirtää esikatselutekstin muokattavaksi lisätietokenttään
     const handleMoveText = () => {
@@ -251,7 +254,13 @@ const Suunnitelma = ({ state, actions, planData }) => {
                         </button>
                     )}
                 </div>
-                
+       {/* --- 1. PALVELUOHJAUS --- */}
+<Palveluohjaus 
+    state={state} 
+    actions={actions} 
+    onServicesLoaded={setLoadedServices} 
+/>
+
                 <div className="thv-locked-text-body">
                     {generatedText ? generatedText : <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Valitse toimenpiteitä yläpuolelta nähdäksesi suunnitelman luonnoksen...</span>}
                 </div>
