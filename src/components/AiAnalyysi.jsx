@@ -1,100 +1,101 @@
 import React, { useState } from 'react';
 
+/**
+ * Tämä komponentti hakee tekoälyltä ehdotuksen ja välittää sen
+ * 'Suunnitelma'-osion lisätietokenttään.
+ */
 const AiAnalyysi = ({ state, actions }) => {
     const [isLoading, setIsLoading] = useState(false);
-    const [suggestions, setSuggestions] = useState(null);
+    const [aiSuggestion, setAiSuggestion] = useState('');
     const [error, setError] = useState('');
 
-    const handleAnalyze = async () => {
+    // Otetaan 'actions'-objektista tarvitsemamme funktio
+    const { onUpdateCustomText } = actions;
+
+    const handleGenerateSuggestion = async () => {
         setIsLoading(true);
         setError('');
-        setSuggestions(null);
+        setAiSuggestion('');
 
         try {
-            const response = await fetch('/api/analysoi', {
+            const response = await fetch('/.netlify/functions/generatePlan', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(state)
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(state), 
             });
 
+            const data = await response.json();
+
             if (!response.ok) {
-                throw new Error(`Palvelinvirhe: ${response.statusText}`);
+                throw new Error(data.error || 'Palvelimella tapahtui virhe');
             }
 
-            const data = await response.json();
-            setSuggestions(data.suggestions);
+            if (data.suggestion) {
+                const suggestionText = data.suggestion;
+                
+                // 1. Näytä ehdotus väliaikaisesti myös tässä komponentissa
+                setAiSuggestion(suggestionText);
+
+                // --- TÄMÄ KOHTA ON NYT MUUTETTU ---
+                // 2. Hae nykyinen teksti 'Suunnitelma'-osion lisätietokentästä
+                const currentCustomText = state['custom-suunnitelma'] || '';
+                
+                // 3. Yhdistä vanha teksti ja uusi ehdotus (ILMAN "AI-EHDOITUS" -TEKSTIÄ)
+                const newCustomText = currentCustomText
+                    ? `${currentCustomText}\n\n${suggestionText}` // Lisää perään rivinvaihdoilla
+                    : suggestionText; // Aseta suoraan, jos kenttä oli tyhjä
+
+                // 4. Kutsu App.js:n actionia ja päivitä 'suunnitelma'-osion kenttä
+                onUpdateCustomText('suunnitelma', newCustomText);
+                // --- MUUTOS LOPPUU ---
+
+            } else {
+                throw new Error('Vastaus ei sisältänyt ehdotusta.');
+            }
 
         } catch (err) {
-            setError(`Analyysi epäonnistui: ${err.message}`);
+            setError(err.message);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const addSuggestionToActionPlan = (suggestion) => {
-        // Lisätään ehdotus Suunnitelma-osioon
-        actions.onSelect('suunnitelma', suggestion.avainsana, true);
-        // Poistetaan ehdotus näkyvistä, kun se on lisätty
-        setSuggestions(prev => ({
-            ...prev,
-            suunnitelma: prev.suunnitelma.filter(s => s.avainsana !== suggestion.avainsana)
-        }));
-    };
-    
-    const addSuggestionToServices = (suggestion) => {
-        // Tässä pitäisi olla oma action palveluohjausten lisäämiseksi,
-        // mutta käytetään custom-textiä yksinkertaisuuden vuoksi.
-        const customText = state['custom-palveluunohjaus'] || '';
-        actions.onUpdateCustomText('palveluunohjaus', customText + '\n- ' + suggestion.teksti);
-        setSuggestions(prev => ({
-            ...prev,
-            palveluohjaukset: prev.palveluohjaukset.filter(s => s.avainsana !== suggestion.avainsana)
-        }));
-    };
-
     return (
-        <section className="section-container ai-container">
-            <h2 className="section-title">Vaihe 3: Tekoälyanalyysi</h2>
-            <div className="analysis-controls">
-                <button onClick={handleAnalyze} disabled={isLoading} className="analysis-button">
-                    {isLoading ? 'Analysoidaan...' : 'Analysoi tilanne tekoälyllä'}
+        <section className="section-container ai-analyysi-section">
+            <h2 className="section-title">Tekoälyanalyysi</h2>
+            <div className="options-container">
+                <p>Hae tekoälyltä ehdotus tärkeimmäksi palveluohjaukseksi. Ehdotus kopioidaan automaattisesti Suunnitelma-osion lisätietokenttään.</p>
+                <button 
+                    onClick={handleGenerateSuggestion} 
+                    disabled={isLoading}
+                    className="button-primary"
+                >
+                    {isLoading ? 'Analysoidaan...' : 'Luo ehdotus'}
                 </button>
             </div>
 
-            {error && <p className="error-text">{error}</p>}
-
-            {suggestions && (
-                <div className="suggestions-container">
-                    <h3>Tekoälyn ehdotukset:</h3>
-                    {suggestions.palveluohjaukset.length > 0 && (
-                        <div>
-                            <h4>Palveluohjaukset:</h4>
-                            <ul>
-                                {suggestions.palveluohjaukset.map(s => (
-                                    <li key={s.avainsana}>
-                                        <span>{s.teksti}</span>
-                                        <button onClick={() => addSuggestionToServices(s)}>+ Lisää</button>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                    {suggestions.suunnitelma.length > 0 && (
-                        <div>
-                            <h4>Toimenpiteet suunnitelmaan:</h4>
-                            <ul>
-                                {suggestions.suunnitelma.map(s => (
-                                    <li key={s.avainsana}>
-                                        <span>{s.teksti}</span>
-                                        <button onClick={() => addSuggestionToActionPlan(s)}>+ Lisää</button>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                    {suggestions.palveluohjaukset.length === 0 && suggestions.suunnitelma.length === 0 && (
-                        <p>Tekoäly ei löytänyt erityisiä ehdotuksia annettujen tietojen perusteella.</p>
-                    )}
+            {error && (
+                <div className="error-message" style={{ marginTop: '1rem' }}>
+                    <strong>Virhe:</strong> {error}
+                </div>
+            )}
+            
+            {/* Päivitin myös tämän kuittauksen:
+                - Poistin lainausmerkit.
+                - Lisäsin 'whiteSpace: 'pre-wrap'', jotta se näyttää
+                  AI:n luomat rivinvaihdot oikein.
+            */}
+            {aiSuggestion && !isLoading && (
+                <div className="ai-response-container" style={{ marginTop: '1rem' }}>
+                    <strong>Ehdotus kopioitu suunnitelmaan:</strong>
+                    <p 
+                        className="ai-suggestion-text" 
+                        style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }}
+                    >
+                        {aiSuggestion}
+                    </p>
                 </div>
             )}
         </section>

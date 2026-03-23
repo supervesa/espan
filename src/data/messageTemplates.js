@@ -40,6 +40,18 @@ export const messageTemplates = [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ]
     },
+    {
+        id: 'ajanvaraus-peruttu-uusi-tulossa',
+        category: 'Yleiset pohjat',
+        title: 'Ajanvaraus peruttu (uusi varataan)',
+        subject: 'Ajanvarauksesi on peruttu - uusi aika varataan',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nAiemmin sovittu aika {meetingType} on peruttu.\n\nSinulle varataan uusi aika {meetingType}. Saat siitä ilmoituksen Suomi.fi-viestipalveluun, mikäli olet ottanut sähköisen asioinnin käyttöön. Muussa tapauksessa ilmoitus toimitetaan sinulle postitse.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        fields: [
+            { id: 'meetingType', label: 'Tapaamisen tyyppi', type: 'select', options: ['alkuhaastattelulle', 'työnhakukeskustelulle', 'täydentävälle työnhakukeskustelulle'] },
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ]
+    },
+
     // --- Kategoria: Yhteydenotot ja tavoittelu ---
     {
         id: 'tavoitteluyritys-syylla',
@@ -49,6 +61,16 @@ export const messageTemplates = [
         template: `Tervehdys Helsingin työllisyyspalveluista!\n\nYritin tavoitella sinua puhelimitse. Asia koskee: {reason}.\n\nSoitan sinulle uudelleen myöhemmin. Puhelu tulee 09 310 -alkuisesta numerosta.\n\nVaihtoehtoisesti voit jättää meille yhteydenottopyynnön Työmarkkinatorilla.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'reason', label: 'Yhteydenoton syy', type: 'datalist', options: ['työnhaun aloittamista', 'työllistymissuunnitelman päivitystä', 'jättämääsi yhteydenottopyyntöä', 'oman tilanteesi tarkastamista', 'selvityspyyntöäsi', 'yhteystietojesi päivittämistä'] },
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ]
+    },
+    {
+        id: 'yhteystiedot-vanhentuneet',
+        category: 'Yhteydenotot ja tavoittelu',
+        title: 'Yhteystiedot vanhentuneet',
+        subject: 'Yhteystietojesi päivityspyyntö',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nHuomasimme, että puhelinnumerosi ei ole enää käytössä. Jotta voimme tavoittaa sinut tärkeissä asioissa, pyydämme sinua ystävällisesti päivittämään yhteystietosi Oma asiointi -palvelussa osoitteessa tyomarkkinatori.fi.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        fields: [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ]
     },
@@ -87,7 +109,7 @@ export const messageTemplates = [
         fields: [
             { id: 'date', label: 'Päivämäärä', type: 'date' },
             { id: 'time', label: 'Kellonaika', type: 'time' },
-            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
+            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 3. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 4. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ],
         addons: [
@@ -104,7 +126,7 @@ export const messageTemplates = [
         subject: 'Kutsu alkuhaastatteluun',
         template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu aika alkuhaastatteluun, jossa kartoitamme yhdessä tilannettasi ja laadimme henkilökohtaisen työllistymissuunnitelman. Keskustelemme mahdollisista työpaikoista, koulutustarpeista ja muista työllistymistäsi edistävistä toimista.\n\nPaikka: {location}\nAsiantuntija: {expertName}\n\n{addons}\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
-            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
+            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 3. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 4. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ],
         addons: [
@@ -123,7 +145,7 @@ export const messageTemplates = [
         fields: [
             { id: 'date', label: 'Päivämäärä', type: 'date' },
             { id: 'time', label: 'Kellonaika', type: 'time' },
-            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
+            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 3. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 4. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ],
         addons: [
@@ -140,7 +162,7 @@ export const messageTemplates = [
         subject: 'Kutsu työnhakukeskusteluun',
         template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu aika työnhakukeskusteluun, jossa saat tukea työnhakuusi ja tarkistamme yhdessä työllistymissuunnitelmasi toteutumista. Päivitämme suunnitelmasi ja ohjaamme sinut tarvittaessa eteenpäin sopiviin palveluihin.\n\nPaikka: {location}\nAsiantuntija: {expertName}\n\n{addons}\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
-            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
+            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 3. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 4. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ],
         addons: [
@@ -159,7 +181,7 @@ export const messageTemplates = [
         fields: [
             { id: 'date', label: 'Päivämäärä', type: 'date' },
             { id: 'time', label: 'Kellonaika', type: 'time' },
-            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
+            { id: 'location', label: 'Toimipiste', type: 'select', options: ['Helsingin Työllisyyspalvelut, Viipurinkatu 2 (6 krs.), 00510 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 3. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Malminkatu 34, 4. krs, 00100 Helsinki', 'Helsingin Työllisyyspalvelut, Asiakkaankatu 3A, 00930 Helsinki'] },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ],
         addons: [
@@ -175,11 +197,17 @@ export const messageTemplates = [
         category: 'Viralliset Kutsupohjat',
         title: 'Puhelinaika: Alkuhaastattelu (Aika määritelty)',
         subject: 'Puhelinaika alkuhaastatteluun',
-        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika alkuhaastatteluun, jossa kartoitamme yhdessä tilannettasi ja laadimme henkilökohtaisen työllistymissuunnitelman. Keskustelemme mahdollisista työpaikoista, koulutustarpeista ja muista työllistymistäsi edistävistä toimista.\n\nAika: {date} klo {time}\nAsiantuntija: {expertName}\n\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika alkuhaastatteluun, jossa kartoitamme yhdessä tilannettasi ja laadimme henkilökohtaisen työllistymissuunnitelman. Keskustelemme mahdollisista työpaikoista, koulutustarpeista ja muista työllistymistäsi edistävistä toimista.\n\nAika: {date} klo {time}\nAsiantuntija: {expertName}\n\n{addons}\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'date', label: 'Päivämäärä', type: 'date' },
             { id: 'time', label: 'Kellonaika', type: 'time' },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ],
+        addons: [
+            { id: 'tulkki_tarve', label: 'Ilmoita jos tarvitset puheluun tulkkia.', text: 'Ilmoita jos tarvitset puheluun tulkkia.' },
+            { id: 'tulkki_osallistuu', label: 'Puheluun osallistuu tulkki.', text: 'Puheluun osallistuu tulkki.' },
+            { id: 'sostyo_osallistuu', label: 'Puheluun osallistuu sosiaalityöntekijä.', text: 'Puheluun osallistuu sosiaalityöntekijä.' },
+            { id: 'muu_osallistuu', label: 'Puheluun osallistuu:', text: 'Puheluun osallistuu {muu_input}.', hasInput: true, inputId: 'muu_input' }
         ]
     },
     {
@@ -187,9 +215,15 @@ export const messageTemplates = [
         category: 'Viralliset Kutsupohjat',
         title: 'Puhelinaika: Alkuhaastattelu (Yleinen)',
         subject: 'Puhelinaika alkuhaastatteluun',
-        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika alkuhaastatteluun, jossa kartoitamme yhdessä tilannettasi ja laadimme henkilökohtaisen työllistymissuunnitelman. Keskustelemme mahdollisista työpaikoista, koulutustarpeista ja muista työllistymistäsi edistävistä toimista.\n\nAsiantuntija: {expertName}\n\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika alkuhaastatteluun, jossa kartoitamme yhdessä tilannettasi ja laadimme henkilökohtaisen työllistymissuunnitelman. Keskustelemme mahdollisista työpaikoista, koulutustarpeista ja muista työllistymistäsi edistävistä toimista.\n\nAsiantuntija: {expertName}\n\n{addons}\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ],
+        addons: [
+            { id: 'tulkki_tarve', label: 'Ilmoita jos tarvitset puheluun tulkkia.', text: 'Ilmoita jos tarvitset puheluun tulkkia.' },
+            { id: 'tulkki_osallistuu', label: 'Puheluun osallistuu tulkki.', text: 'Puheluun osallistuu tulkki.' },
+            { id: 'sostyo_osallistuu', label: 'Puheluun osallistuu sosiaalityöntekijä.', text: 'Puheluun osallistuu sosiaalityöntekijä.' },
+            { id: 'muu_osallistuu', label: 'Puheluun osallistuu:', text: 'Puheluun osallistuu {muu_input}.', hasInput: true, inputId: 'muu_input' }
         ]
     },
     {
@@ -197,11 +231,17 @@ export const messageTemplates = [
         category: 'Viralliset Kutsupohjat',
         title: 'Puhelinaika: Työnhakukeskustelu (Aika määritelty)',
         subject: 'Puhelinaika työnhakukeskusteluun',
-        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika työnhakukeskusteluun, jossa saat tukea työnhakuusi ja tarkistamme yhdessä työllistymissuunnitelmasi toteutumista. Päivitämme suunnitelmasi ja ohjaamme sinut tarvittaessa eteenpäin sopiviin palveluihin.\n\nAika: {date} klo {time}\nAsiantuntija: {expertName}\n\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika työnhakukeskusteluun, jossa saat tukea työnhakuusi ja tarkistamme yhdessä työllistymissuunnitelmasi toteutumista. Päivitämme suunnitelmasi ja ohjaamme sinut tarvittaessa eteenpäin sopiviin palveluihin.\n\nAika: {date} klo {time}\nAsiantuntija: {expertName}\n\n{addons}\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'date', label: 'Päivämäärä', type: 'date' },
             { id: 'time', label: 'Kellonaika', type: 'time' },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ],
+        addons: [
+            { id: 'tulkki_tarve', label: 'Ilmoita jos tarvitset puheluun tulkkia.', text: 'Ilmoita jos tarvitset puheluun tulkkia.' },
+            { id: 'tulkki_osallistuu', label: 'Puheluun osallistuu tulkki.', text: 'Puheluun osallistuu tulkki.' },
+            { id: 'sostyo_osallistuu', label: 'Puheluun osallistuu sosiaalityöntekijä.', text: 'Puheluun osallistuu sosiaalityöntekijä.' },
+            { id: 'muu_osallistuu', label: 'Puheluun osallistuu:', text: 'Puheluun osallistuu {muu_input}.', hasInput: true, inputId: 'muu_input' }
         ]
     },
     {
@@ -209,9 +249,15 @@ export const messageTemplates = [
         category: 'Viralliset Kutsupohjat',
         title: 'Puhelinaika: Työnhakukeskustelu (Yleinen)',
         subject: 'Puhelinaika työnhakukeskusteluun',
-        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika työnhakukeskusteluun, jossa saat tukea työnhakuusi ja tarkistamme yhdessä työllistymissuunnitelmasi toteutumista. Päivitämme suunnitelmasi ja ohjaamme sinut tarvittaessa eteenpäin sopiviin palveluihin.\n\nAsiantuntija: {expertName}\n\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika työnhakukeskusteluun, jossa saat tukea työnhakuusi ja tarkistamme yhdessä työllistymissuunnitelmasi toteutumista. Päivitämme suunnitelmasi ja ohjaamme sinut tarvittaessa eteenpäin sopiviin palveluihin.\n\nAsiantuntija: {expertName}\n\n{addons}\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nHuomioithan, että asioimatta jättäminen on laiminlyönti, jolla voi olla seuraamuksia työnhaun voimassaoloon (Laki julkisesta työvoima- ja yrityspalvelusta (916/2012) 2 luku 2 §).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ],
+        addons: [
+            { id: 'tulkki_tarve', label: 'Ilmoita jos tarvitset puheluun tulkkia.', text: 'Ilmoita jos tarvitset puheluun tulkkia.' },
+            { id: 'tulkki_osallistuu', label: 'Puheluun osallistuu tulkki.', text: 'Puheluun osallistuu tulkki.' },
+            { id: 'sostyo_osallistuu', label: 'Puheluun osallistuu sosiaalityöntekijä.', text: 'Puheluun osallistuu sosiaalityöntekijä.' },
+            { id: 'muu_osallistuu', label: 'Puheluun osallistuu:', text: 'Puheluun osallistuu {muu_input}.', hasInput: true, inputId: 'muu_input' }
         ]
     },
     {
@@ -219,11 +265,17 @@ export const messageTemplates = [
         category: 'Viralliset Kutsupohjat',
         title: 'Puhelinaika: Täydentävä (Aika määritelty)',
         subject: 'Puhelinaika täydentävään työnhakukeskusteluun',
-        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika täydentävään työnhakukeskusteluun. Keskustelussa saat henkilökohtaista tukea työnhakuusi, arvioimme työllistymissuunnitelmasi edistymistä ja etsimme yhdessä ratkaisuja mahdollisiin työllistymisen esteisiin.\n\nAika: {date} klo {time}\nAsiantuntija: {expertName}\n\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika täydentävään työnhakukeskusteluun. Keskustelussa saat henkilökohtaista tukea työnhakuusi, arvioimme työllistymissuunnitelmasi edistymistä ja etsimme yhdessä ratkaisuja mahdollisiin työllistymisen esteisiin.\n\nAika: {date} klo {time}\nAsiantuntija: {expertName}\n\n{addons}\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'date', label: 'Päivämäärä', type: 'date' },
             { id: 'time', label: 'Kellonaika', type: 'time' },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ],
+        addons: [
+            { id: 'tulkki_tarve', label: 'Ilmoita jos tarvitset puheluun tulkkia.', text: 'Ilmoita jos tarvitset puheluun tulkkia.' },
+            { id: 'tulkki_osallistuu', label: 'Puheluun osallistuu tulkki.', text: 'Puheluun osallistuu tulkki.' },
+            { id: 'sostyo_osallistuu', label: 'Puheluun osallistuu sosiaalityöntekijä.', text: 'Puheluun osallistuu sosiaalityöntekijä.' },
+            { id: 'muu_osallistuu', label: 'Puheluun osallistuu:', text: 'Puheluun osallistuu {muu_input}.', hasInput: true, inputId: 'muu_input' }
         ]
     },
     {
@@ -231,19 +283,61 @@ export const messageTemplates = [
         category: 'Viralliset Kutsupohjat',
         title: 'Puhelinaika: Täydentävä (Yleinen)',
         subject: 'Puhelinaika täydentävään työnhakukeskusteluun',
-        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika täydentävään työnhakukeskusteluun. Keskustelussa saat henkilökohtaista tukea työnhakuusi, arvioimme työllistymissuunnitelmasi edistymistä ja etsimme yhdessä ratkaisuja mahdollisiin työllistymisen esteisiin.\n\nAsiantuntija: {expertName}\n\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle on varattu puhelinaika täydentävään työnhakukeskusteluun. Keskustelussa saat henkilökohtaista tukea työnhakuusi, arvioimme työllistymissuunnitelmasi edistymistä ja etsimme yhdessä ratkaisuja mahdollisiin työllistymisen esteisiin.\n\nAsiantuntija: {expertName}\n\n{addons}\nAsiantuntija soittaa sinulle sovittuna aikana. Olethan tavoitettavissa puhelimitse.\n\nMikäli aika ei sovi, ilmoitathan siitä mahdollisimman pian Työmarkkinatorin Asiointi-palvelussa: https://tyomarkkinatori.fi/henkiloasiakkaat/asiointi tai neuvontapuhelimeemme 09 310 36107 (klo 9-15).\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ],
+        addons: [
+            { id: 'tulkki_tarve', label: 'Ilmoita jos tarvitset puheluun tulkkia.', text: 'Ilmoita jos tarvitset puheluun tulkkia.' },
+            { id: 'tulkki_osallistuu', label: 'Puheluun osallistuu tulkki.', text: 'Puheluun osallistuu tulkki.' },
+            { id: 'sostyo_osallistuu', label: 'Puheluun osallistuu sosiaalityöntekijä.', text: 'Puheluun osallistuu sosiaalityöntekijä.' },
+            { id: 'muu_osallistuu', label: 'Puheluun osallistuu:', text: 'Puheluun osallistuu {muu_input}.', hasInput: true, inputId: 'muu_input' }
         ]
     },
 
     // --- Kategoria: Muut ilmoitukset ja ohjeet ---
     {
-        id: 'vastaus-yhteydenottopyyntoon-varaus',
+        id: 'vastaus-yhteydenottopyyntoon',
         category: 'Muut ilmoitukset ja ohjeet',
-        title: 'Vastaus yhteydenottopyyntöön (Ajanvaraus tulossa)',
+        title: 'Vastaus yhteydenottopyyntöön (Yleinen)',
         subject: 'Vastaus yhteydenottopyyntöösi',
-        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nOlet jättänyt yhteydenottopyynnön Helsingin työllisyyspalveluihin. Sinulle varataan aika työnhakukeskusteluun. Saat siitä ilmoituksen Suomi.fi-viestipalveluun, mikäli olet ottanut sähköisen asioinnin käyttöön. Muussa tapauksessa ilmoitus toimitetaan sinulle postitse.\n\nTerveisin,\n{expertName}\nHelsingin työllisyyspalvelut`,
+        template: `Hei,\n\nKiitos yhteydenotostasi. {message}\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        fields: [
+            { id: 'message', label: 'Viesti', type: 'textarea', placeholder: 'Olen vastaanottanut työtodistuksesi...' },
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ]
+    },
+    {
+        id: 'vastaus-yhteydenottopyyntoon-varaus-tiedustelu',
+        category: 'Muut ilmoitukset ja ohjeet',
+        title: 'Vastaus yhteydenottoon (Ajanvaraus + tiedusteluohje)',
+        subject: 'Vastaus yhteydenottopyyntöösi',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nOlet jättänyt yhteydenottopyynnön Helsingin työllisyyspalveluihin. Sinulle varataan aika työnhakukeskusteluun. Saat siitä ilmoituksen Suomi.fi-viestipalveluun, mikäli olet ottanut sähköisen asioinnin käyttöön. Muussa tapauksessa ilmoitus toimitetaan sinulle postitse.\n\nVoit myös laittaa kirjallisia tiedusteluja Työmarkkinatorin asiointipalvelussa yhteydenottopyynnöllä.\n\nTerveisin,\n{expertName}\nHelsingin työllisyyspalvelut`,
+        fields: [
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ]
+    },
+    { 
+        id: 'infoa-palveluista-links',
+        category: 'Muut ilmoitukset ja ohjeet',
+        title: 'Infoa palveluista (Palkkatuki/Työkokeilu)',
+        subject: 'Tietoa työllisyyden palveluista',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nKiitos yhteydenottopyynnöstä. Tässä on pyytämäsi lisätiedot:\n\n{addons}\nToivottavasti näistä linkeistä on apua!\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        fields: [
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ],
+        addons: [
+            { id: 'link_palkkatuki_henkilo', label: 'Lisää info: Palkkatuki (henkilöasiakas)', text: 'Tietoa palkkatuesta henkilöasiakkaalle:\nhttps://tyollisyys.palvelumanuaali.fi/palvelu/palkkatuki-henkiloasiakkaalle' },
+            { id: 'link_palkkatuki_tyonantaja', label: 'Lisää info: Palkkatuki (työnantaja)', text: 'Tietoa työnantajille palkkatuesta löytyy ja sen hakemisesta löytyy täältä:\nhttps://tyollisyys.palvelumanuaali.fi/palvelu/palkkatuki-henkiloasiakkaalle' },
+            { id: 'link_tyokokeilu', label: 'Lisää info: Työkokeilu', text: 'Tietoa työkokeilusta on saatavilla tässä osoitteessa:\nhttps://tyollisyys.palvelumanuaali.fi/palvelu/tyokokeilu' }
+        ]
+    },
+    { 
+        id: 'tyonhaun-tilanne-tarkistus',
+        category: 'Muut ilmoitukset ja ohjeet',
+        title: 'Työnhaun tilanteen tarkistus',
+        subject: 'Työnhakusi tilanne',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nHuomasin, että sinulla on työnhaku edelleen voimassa. Olisin kiinnostunut kuulemaan, mikä on tämänhetkinen työllisyystilanteesi. Onko sinulla esimerkiksi töitä tällä hetkellä, tai oletko työllistynyt yrittäjänä?\n\nTämän tiedon avulla voimme arvioida, onko tarvetta pitää työnhakuasi edelleen voimassa.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ]
@@ -253,7 +347,7 @@ export const messageTemplates = [
         category: 'Muut ilmoitukset ja ohjeet',
         title: 'Ohje dokumenttien toimittamiseen (Turvaposti)',
         subject: 'Dokumenttien toimittaminen Helsingin työllisyyspalveluihin',
-        template: `Hei,\n\nPyydämme teitä toimittamaan seuraavat dokumentit: {dokumentit}.\n\nVoitte toimittaa ne turvallisesti käyttämällä Helsingin kaupungin turvasähköpostia osoitteessa securemail.hel.fi.\n\nValitkaa vastaanottajaksi kirjaamo.tyollisyyspalvelut@hel.fi ja mainitkaa viestissä nimenne sekä henkilötunnuksenne.\n\nTerveisin,\n{expertName}`,
+        template: `Hei,\n\nPyydän sinua toimittamaan seuraavat dokumentit: {dokumentit}.\n\nVoit toimittaa ne turvallisesti käyttämällä Helsingin kaupungin turvasähköpostia osoitteessa securemail.hel.fi.\n\nValitkaa vastaanottajaksi vesa.nessling@hel.fi ja mainitse viestissä nimi.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
         fields: [
             { id: 'dokumentit', label: 'Pyydettävät dokumentit', type: 'textarea', placeholder: 'esim. työsopimus ja viimeisin palkkalaskelma' },
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
@@ -270,17 +364,28 @@ export const messageTemplates = [
             { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
         ]
     },
-{
-    id: 'suunnitelman-paivitys-kaksiosainen',
-    category: 'Muut ilmoitukset ja ohjeet',
-    title: 'Kehotus päivittämään työllistymissuunnitelma (2-osainen)',
-    subject: 'Työllistymissuunnitelmasi päivitys',
-    template: `Tervehdys Helsingin työllisyyspalveluista!\n\nOn aika päivittää työllistymissuunnitelmasi.\n\n1. JOS TILANTEESI EI OLE MUUTTUNUT ja olet edelleen työtön työnhakija, pyydämme sinua vahvistamaan tämän vastaamalla tähän viestiin sanalla OK. Tämän jälkeen päivitämme suunnitelmasi.\n\n2. JOS TILANTEESSASI ON TAPAHTUNUT MUUTOKSIA (esim. opinnot, osa-aikatyö), pyydämme sinua ilmoittamaan siitä vastaamalla tähän viestiin sanalla MUUTOS. Tämän jälkeen asiantuntija ottaa sinuun yhteyttä uuden ajan varaamiseksi.\n\nTerveisin,\n{expertName}\nHelsingin työllisyyspalvelut`,
-    fields: [
-        { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
-    ]
-},
- {
+    {
+        id: 'muistutus-suunnitelman-hyvaksyminen (aika mennyt)',
+        category: 'Muut ilmoitukset ja ohjeet',
+        title: 'Muistutus suunnitelman hyväksymisestä, aika mennyt',
+        subject: 'Muistutus työllistymissuunnitelman hyväksymisestä',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nSinulle laadittu työllistymissuunnitelma odottaa vielä hyväksyntääsi. Pyydän sinua vahvistamaan suunnitelman vastaamalla tähän viestiin (esimerkiksi "Hyväksyn suunnitelman", muista myös mainita nimesi).\n\nMikäli en saa vahvistusta hyväksymisestä, avaan asiasta selvityspyynnön ja varaan uuden tapaamisajan.\n\nTerveisin,\n{expertName}, Helsingin työllisyyspalvelut`,
+        fields: [
+            { id: 'date', label: 'Määräaika', type: 'date' },
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ]
+    },
+    {
+        id: 'suunnitelman-paivitys-kaksiosainen',
+        category: 'Muut ilmoitukset ja ohjeet',
+        title: 'Kehotus päivittämään työllistymissuunnitelma (2-osainen)',
+        subject: 'Työllistymissuunnitelmasi päivitys',
+        template: `Tervehdys Helsingin työllisyyspalveluista!\n\nOn aika päivittää työllistymissuunnitelmasi.\n\n1. JOS TILANTEESI EI OLE MUUTTUNUT ja olet edelleen työtön työnhakija, pyydämme sinua vahvistamaan tämän vastaamalla tähän viestiin sanalla OK. Tämän jälkeen päivitämme suunnitelmasi.\n\n2. JOS TILANTEESSASI ON TAPAHTUNUT MUUTOKSIA (esim. opinnot, osa-aikatyö), pyydämme sinua ilmoittamaan siitä vastaamalla tähän viestiin sanalla MUUTOS. Tämän jälkeen asiantuntija ottaa sinuun yhteyttä uuden ajan varaamiseksi.\n\nTerveisin,\n{expertName}\nHelsingin työllisyyspalvelut`,
+        fields: [
+            { id: 'expertName', label: 'Asiantuntija', type: 'text', defaultValue: 'Vesa Nessling' }
+        ]
+    },
+    {
         id: 'suunnitelma-paivitetty-hyvaksy',
         category: 'Muut ilmoitukset ja ohjeet',
         title: 'Ilmoitus päivitetystä suunnitelmasta (Hyväksy)',

@@ -1,5 +1,13 @@
-import React, { useState, useCallback } from 'react';
-import Summary from './components/Summary';
+// --- src/App.js ---
+
+import React, { useState, useEffect } from 'react';
+import { useAppData } from './hooks/useAppData';
+import { usePlanState } from './hooks/usePlanState';
+
+// UUSI: Kirjautumiskomponentti
+import LoginScreen from './components/LoginScreen';
+
+import SummaryPanel from './components/SummaryPanel';
 import Scraper from './components/Scraper';
 import MessageGenerator from './components/MessageGenerator';
 import SuunnitelmanTyyppi from './components/sections/SuunnitelmanTyyppi';
@@ -14,219 +22,107 @@ import Suunnitelma from './components/sections/Suunnitelma';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
 import Kielitaso from './components/sections/Kielitaso';
 import AiAnalyysi from './components/AiAnalyysi';
-import { planData } from './data/planData';
+import Jalkimarkkinointi from './components/Jalkimarkkinointi';
+import AdminWorkspace from './components/admin/AdminWorkspace';
+import PuzzleGenerator from './components/PuzzleGenerator';
+import SignalPanel from './components/signals/SignalPanel';
+
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
 import './styles/espan2.css';
 
-// Deep merge function remains the same
-const deepMerge = (target, source) => {
-    const output = { ...target };
-    if (target && typeof target === 'object' && source && typeof source === 'object') {
-        Object.keys(source).forEach(key => {
-            if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-                if (!(key in target) || target[key] === null) {
-                    Object.assign(output, { [key]: source[key] });
-                } else {
-                    output[key] = deepMerge(target[key], source[key]);
-                }
-            } else {
-                Object.assign(output, { [key]: source[key] });
-            }
-        });
-    }
-    return output;
-};
-
-
 function App() {
-    const [state, setState] = useState({});
-    const [activeTab, setActiveTab] = useState('suunnitelma');
+    // --- 1. LISÄTTY KIRJAUTUMISLOGIIKKA ---
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
-    const handleScrape = useCallback((scrapedState) => {
-        setState(currentState => deepMerge(currentState, scrapedState));
-    }, []);
-
-    const handleSelectPhrase = useCallback((sectionId, avainsana, isMultiSelect, updatedSelection = null) => {
-        setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-
-            const section = planData.aihealueet.find(s => s.id === sectionId);
-            if (!section || !section.fraasit) {
-                console.error(`Section data not found for id: ${sectionId}`);
-                return currentState;
-            }
-
-            const phrase = section.fraasit.find(f => f.avainsana === avainsana);
-            if (!phrase) {
-                 console.error(`Phrase not found for avainsana: ${avainsana} in section: ${sectionId}`);
-                 return currentState;
-            }
-
-            if (updatedSelection) {
-                newState[sectionId] = updatedSelection;
-                return newState;
-            }
-
-            if (!newState[sectionId]) {
-                newState[sectionId] = {};
-            }
-            const currentSelections = newState[sectionId];
-
-            if (isMultiSelect) {
-                // TÄMÄ LOHKO KORJATTU "suunnitelman_perustiedot" -osion KÄSITTELYÄ VARTEN
-                if (currentSelections[avainsana]) {
-                    // Poista valinta (jos klikataan uudelleen)
-                    delete currentSelections[avainsana];
-                } else {
-                    // Lisää valinta. TALLENNETAAN OBJEKTINA, JOTTA VOIDAAN LIITTÄÄ MUUTTUJAT.
-                    const initialVariables = {};
-                    if (phrase.muuttujat) {
-                        Object.entries(phrase.muuttujat).forEach(([key, config]) => {
-                            if (config) {
-                                initialVariables[key] = config.oletus !== undefined ? config.oletus : (config.vaihtoehdot ? config.vaihtoehdot[0] : '');
-                            } else {
-                                initialVariables[key] = '';
-                            }
-                        });
+    // Tarkistetaan localStorage heti latauksessa
+    useEffect(() => {
+        const checkAuth = () => {
+            const authDataStr = localStorage.getItem('auth_expiry');
+            if (authDataStr) {
+                try {
+                    const authData = JSON.parse(authDataStr);
+                    // Jos nykyhetki on pienempi kuin vanhentumisaika, istunto on voimassa
+                    if (authData.expiry > Date.now()) {
+                        setIsAuthenticated(true);
+                    } else {
+                        localStorage.removeItem('auth_expiry'); // Vanhentunut
                     }
-                    currentSelections[avainsana] = {
-                        avainsana: avainsana, // Tallenna myös avainsana tunnistusta varten
-                        muuttujat: initialVariables // Alustetaan muuttujat tähän
-                    };
-                }
-
-            } else { // Yksivalinta (esim. Koulutus, Yrittäjyys)
-                if (currentSelections.avainsana === avainsana) {
-                    delete currentSelections.avainsana;
-                    delete currentSelections.muuttujat;
-                } else {
-                    currentSelections.avainsana = phrase.avainsana;
-                    currentSelections.muuttujat = {};
-
-                    if (phrase.muuttujat) {
-                        Object.entries(phrase.muuttujat).forEach(([key, config]) => {
-                            if (config) {
-                                currentSelections.muuttujat[key] = config.oletus !== undefined ? config.oletus : (config.vaihtoehdot ? config.vaihtoehdot[0] : '');
-                            } else {
-                                currentSelections.muuttujat[key] = '';
-                            }
-                        });
-                    }
+                } catch (e) {
+                    localStorage.removeItem('auth_expiry'); // Virheellinen data
                 }
             }
-
-            return newState;
-        });
+            setIsCheckingAuth(false);
+        };
+        checkAuth();
     }, []);
 
-    const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => {
-        setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            const section = planData.aihealueet.find(s => s.id === sectionId);
-            if (!section) return currentState;
+    const handleLogin = (password, duration) => {
+        // Luetaan salasana turvallisesti Vite-ympäristöstä
+        let correctPassword = import.meta.env.VITE_ACCESS_PASSWORD;
 
-            let target;
-            if (section.monivalinta) {
-                // Monivalinnoissa, kuten "suunnitelman_perustiedot", kohde on avainsanan alla
-                target = newState[sectionId]?.[avainsana];
-            } else {
-                // Yksivalinnoissa kohde on suoraan sectionId:n alla
-                target = newState[sectionId];
+        // Fallback: Jos .env puuttuu tai muuttujaa ei löydy, käytetään oletusta
+        if (!correctPassword) {
+            console.warn("VITE_ACCESS_PASSWORD puuttuu. Käytetään oletusta 'admin'.");
+            correctPassword = "admin";
+        }
+
+        if (password === correctPassword) {
+            if (duration > 0) {
+                const expiry = Date.now() + duration;
+                localStorage.setItem('auth_expiry', JSON.stringify({ expiry }));
             }
-
-            if (target) {
-                if (!target.muuttujat) target.muuttujat = {};
-                target.muuttujat[variableKey] = value;
-            }
-            return newState;
-        });
-    }, []);
-
-
-    const handleUpdateCustomText = useCallback((sectionId, value) => {
-        const customKey = sectionId === 'kielitaso' ? `custom-kielitaso` : `custom-${sectionId}`;
-        setState(currentState => ({ ...currentState, [customKey]: value }));
-    }, []);
-
-    const handleUpdateTyokyky = useCallback((key, value) => {
-        setState(prevState => {
-            const newTyokykyState = { ...(prevState.tyokyky || {}) };
-            if (key === 'togglePalveluohjaus') {
-                const currentOhjaukset = { ...(newTyokykyState.palveluohjaukset || {}) };
-                if (currentOhjaukset[value.avainsana]) delete currentOhjaukset[value.avainsana];
-                else currentOhjaukset[value.avainsana] = value;
-                newTyokykyState.palveluohjaukset = currentOhjaukset;
-            } else if (key === 'updateKeskustelutieto') {
-                 const currentTiedot = { ...(newTyokykyState.keskustelunTiedot || {}) };
-                 currentTiedot[value.id] = value.value;
-                 newTyokykyState.keskustelunTiedot = currentTiedot;
-            } else {
-                newTyokykyState[key] = value;
-            }
-            return { ...prevState, tyokyky: newTyokykyState };
-        });
-    }, []);
-
-    const handleUpdatePalkkatuki = useCallback((key, value) => {
-        setState(prevState => ({
-            ...prevState,
-            palkkatuki: {
-                ...(prevState.palkkatuki || {}),
-                [key]: value
-            }
-        }));
-    }, []);
-
-    const handleUpdateTyottomyysturva = useCallback((key, value) => {
-        setState(prevState => {
-            const newTtState = { ...(prevState.tyottomyysturva || {}) };
-
-            if (key === 'updateKysymys') {
-                const currentAnswers = { ...(newTtState.answers || {}) };
-                currentAnswers[value.id] = value.value;
-                newTtState.answers = currentAnswers;
-            } else if (key === 'updateSummaries') {
-                newTtState.koonti = value.koonti;
-                newTtState.yhteenvetoFraasi = value.yhteenvetoFraasi;
-            } else if (key === 'updateYhteenveto') {
-                newTtState.yhteenvetoFraasi = value;
-            } else {
-                newTtState[key] = value;
-            }
-            return { ...prevState, tyottomyysturva: newTtState };
-        });
-    }, []);
-
-    const handleUpdateKielitaso = useCallback((key, value) => {
-        setState(prevState => {
-            const currentKielitaso = prevState.kielitaso || { aidinkieli: '', muutKielet: [{ kieli: 'Suomi', taso: '' }] };
-            let updatedKielitaso = JSON.parse(JSON.stringify(currentKielitaso));
-
-            if (key === 'updateAidinkieli') {
-                updatedKielitaso.aidinkieli = value;
-            } else if (key === 'updateMuuKieli') {
-                const { index, field, value: langValue } = value;
-                if (!updatedKielitaso.muutKielet) updatedKielitaso.muutKielet = [];
-                while (updatedKielitaso.muutKielet.length <= index) {
-                     updatedKielitaso.muutKielet.push({ kieli: index === 0 ? 'Suomi' : '', taso: ''});
-                }
-                updatedKielitaso.muutKielet[index] = { ...updatedKielitaso.muutKielet[index], [field]: langValue };
-            }
-
-            return { ...prevState, kielitaso: updatedKielitaso };
-        });
-    }, []);
-
-    const actions = {
-        onSelect: handleSelectPhrase,
-        onUpdateVariable: handleUpdateVariable,
-        onUpdateCustomText: handleUpdateCustomText,
-        onUpdateTyokyky: handleUpdateTyokyky,
-        onUpdatePalkkatuki: handleUpdatePalkkatuki,
-        onUpdateTyottomyysturva: handleUpdateTyottomyysturva,
-        onUpdateKielitaso: handleUpdateKielitaso,
+            setIsAuthenticated(true);
+            return true;
+        }
+        return false;
     };
+    // ----------------------------------------
+
+    const [activeTab, setActiveTab] = useState('suunnitelma');
+    
+    // 1. Ladataan data tietokannasta uudella Hookilla
+    const { dbPlanData, dbMessages, dbKnowledge, isLoadingData } = useAppData();
+    
+    // 2. Alustetaan sääntölogiikka ja tila toisella Hookilla
+    const { state, setState, actions } = usePlanState(dbPlanData);
+
+    const sectionsForPanel = [
+        { id: 'osio-suunnitelman-tyyppi', name: 'Suunnitelman tyyppi' },
+        { id: 'osio-suunnitelman-perustiedot', name: 'Perustiedot' },
+        { id: 'osio-tyottomyysturva', name: 'Työttömyysturva' },
+        { id: 'osio-tyotilanne', name: 'Työtilanne' },
+        { id: 'osio-koulutus', name: 'Koulutus & Osaam.' },
+        { id: 'osio-tyokyky', name: 'Työkyky' },
+        { id: 'osio-palkkatuki', name: 'Palkkatuki' },
+        { id: 'osio-palveluohjaus', name: 'Palveluohjaus' },
+        { id: 'osio-suunnitelma', name: 'Suunnitelma' },
+        { id: 'osio-tyonhaku', name: 'Työnhakuvelv.' },
+    ];
+
+    // --- 3. RENDERÖINNIN EHDOT (Auth & Loading) ---
+
+    if (isCheckingAuth) {
+        return null; // Odotetaan auth-tarkistusta
+    }
+
+    if (!isAuthenticated) {
+        return <LoginScreen onLogin={handleLogin} />;
+    }
+
+    if (isLoadingData) {
+        return (
+            <div className="app-container">
+                <header className="app-header"><h1>Työllisyyssuunnitelman rakennustyökalu</h1></header>
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                    <h2>Ladataan järjestelmää tietokannasta...</h2>
+                </div>
+            </div>
+        );
+    }
+
+    // --- 4. ALKUPERÄINEN APP UI ---
 
     return (
         <div className="app-container">
@@ -234,44 +130,73 @@ function App() {
                 <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
             </header>
             <div className="tab-navigation">
-                <button
-                    className={`tab-button ${activeTab === 'suunnitelma' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('suunnitelma')}
-                >
-                    Suunnitelman rakennus
-                </button>
-                <button
-                    className={`tab-button ${activeTab === 'viestit' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('viestit')}
-                >
-                    Viestigeneraattori
-                </button>
+                <button className={`tab-button ${activeTab === 'suunnitelma' ? 'active' : ''}`} onClick={() => setActiveTab('suunnitelma')}>Suunnitelman rakennus</button>
+                <button className={`tab-button ${activeTab === 'viestit' ? 'active' : ''}`} onClick={() => setActiveTab('viestit')}>Viestigeneraattori</button>
+                <button className={`tab-button ${activeTab === 'hallinta' ? 'active' : ''}`} onClick={() => setActiveTab('hallinta')}>Hallinta</button>
             </div>
+            
             {activeTab === 'suunnitelma' && (
                 <div className="main-grid">
                     <main className="sections-container">
-                        <Scraper onScrape={handleScrape} />
-                        <SuunnitelmanTyyppi state={state} actions={actions} />
-                        <Perustiedot state={state} actions={actions} />
-                        <Tyottomyysturva state={state} actions={actions} />
-                        <Tyotilanne state={state} actions={actions} />
-                        <KoulutusJaYrittajyys state={state} actions={actions} />
+                        <Scraper onScrape={actions.handleScrape} />
+
+                        <section id="osio-suunnitelman-tyyppi"><SuunnitelmanTyyppi state={state} actions={actions} /></section>
+                        <section id="osio-suunnitelman-perustiedot"><Perustiedot state={state} actions={actions} planData={dbPlanData} /></section>
+                        <section id="osio-tyottomyysturva"><Tyottomyysturva state={state} actions={actions} /></section>
+                        <section id="osio-tyotilanne"><Tyotilanne state={state} actions={actions} planData={dbPlanData} knowledgeData={dbKnowledge} /></section>
+                        <section id="osio-koulutus"><KoulutusJaYrittajyys state={state} actions={actions} /></section>
                         <Kielitaso state={state} actions={actions} />
-                        <Tyokyky state={state} actions={actions} />
-                        <PalkkatukiCalculator state={state} actions={actions} />
-                        <Palveluunohjaus state={state} actions={actions} />
-                        <Suunnitelma state={state} actions={actions} />
-                        <Tyonhakuvelvollisuus state={state} actions={actions} />
+                        <section id="osio-tyokyky"><Tyokyky state={state} actions={actions} /></section>
+                        <section id="osio-palkkatuki"><PalkkatukiCalculator state={state} actions={actions} /></section>
+                        <section id="osio-palveluohjaus"><Palveluunohjaus state={state} actions={actions} /></section>
+           <section id="osio-suunnitelma"><Suunnitelma state={state} actions={actions} planData={dbPlanData} /></section>
+                        <section id="osio-tyonhaku"><Tyonhakuvelvollisuus state={state} actions={actions} /></section>
+                        
                         <AiAnalyysi state={state} actions={actions} />
+                        <Jalkimarkkinointi state={state} />
+                        <hr className="section-divider" /> 
                     </main>
-                    <Summary state={state} />
+
+                    <div className="summary-sticky-container">
+                        <SignalPanel 
+                            activeSignals={state.signals || {}} 
+                            dbPlanData={dbPlanData} 
+                            actions={actions} 
+                        />
+                        <SummaryPanel state={state} sections={sectionsForPanel} dbPlanData={dbPlanData} dbKnowledge={dbKnowledge} />
+                    </div>
                 </div>
             )}
 
             {activeTab === 'viestit' && (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '2rem' }}>
+                        <button 
+                            className={`btn ${!state.usePuzzleMode ? '' : 'btn--secondary'}`} 
+                            onClick={() => setState(prev => ({ ...prev, usePuzzleMode: false }))}
+                        >
+                            Klassinen generaattori
+                        </button>
+                        <button 
+                            className={`btn ${state.usePuzzleMode ? '' : 'btn--secondary'}`} 
+                            onClick={() => setState(prev => ({ ...prev, usePuzzleMode: true }))}
+                        >
+                            🧩 Kokeile uutta Puzzle-generaattoria
+                        </button>
+                    </div>
+
+                    {state.usePuzzleMode ? (
+                        <PuzzleGenerator state={state} />
+                    ) : (
+                        <MessageGenerator state={state} templates={dbMessages} />
+                    )}
+                </div>
+            )}
+
+            {activeTab === 'hallinta' && (
                  <div className="main-grid-single">
                     <main className="sections-container">
-                        <MessageGenerator />
+                        <AdminWorkspace />
                     </main>
                 </div>
             )}

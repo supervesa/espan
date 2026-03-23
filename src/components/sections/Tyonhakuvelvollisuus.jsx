@@ -1,59 +1,71 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { planData } from '../../data/planData';
-import { PhraseOption } from '../PhraseOption';
+// --- src/components/sections/Tyonhakuvelvollisuus.jsx ---
 
-const Alennustyokalu = ({ sectionData, selection, onUpdate, onCancel }) => {
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { supabase } from '../../utils/supabaseClient';
+import { PhraseOption } from '../PhraseOption';
+import THVSmartAnalysisBox from './THV-smart-analysis-box';
+import { ChevronDown, ChevronUp, Lock, AlertCircle, Info, FileText } from 'lucide-react';
+
+// --- 1. ALENNUSTYÖKALU ---
+const Alennustyokalu = ({ alennusPhrases, selection, onUpdate, onCancel }) => {
     const [perustelut, setPerustelut] = useState(selection.alentamisenPerustelut || {});
     const [vapaaTeksti, setVapaaTeksti] = useState(selection.alentamisenVapaaTeksti || '');
 
-    const handlePerusteluChange = (perustelu) => {
-        const newPerustelut = { ...perustelut, [perustelu]: !perustelut[perustelu] };
-        setPerustelut(newPerustelut);
+    const handlePerusteluChange = (phraseKey) => {
+        setPerustelut(prev => ({ ...prev, [phraseKey]: !prev[phraseKey] }));
     };
     
-    const handleVapaaTekstiChange = (e) => {
-        setVapaaTeksti(e.target.value);
-    };
+    const esikatselu = useMemo(() => {
+        const valitutTekstit = Object.entries(perustelut)
+            .filter(([, valittu]) => valittu)
+            .map(([key]) => {
+                const phrase = alennusPhrases.find(p => p.phrase_key === key);
+                return phrase ? phrase.base_text : key;
+            });
+
+        let teksti = '';
+        if (valitutTekstit.length > 0) teksti += valitutTekstit.join(' ');
+        if (vapaaTeksti) teksti += ` ${vapaaTeksti}`;
+        return teksti.trim();
+    }, [perustelut, vapaaTeksti, alennusPhrases]);
 
     const handleSave = () => {
         onUpdate({ 
             ...selection, 
             alentamisenPerustelut: perustelut,
-            alentamisenVapaaTeksti: vapaaTeksti 
+            alentamisenVapaaTeksti: vapaaTeksti,
+            alentamisenValmisTeksti: esikatselu 
         });
     };
 
-    const esikatselu = useMemo(() => {
-        const valitut = Object.entries(perustelut).filter(([, valittu]) => valittu).map(([key]) => key);
-        let teksti = '';
-        if (valitut.length > 0) {
-            // Muotoilu: "Perusteet: [perustelu1], [perustelu2]."
-            teksti += `Perusteet: ${valitut.join(', ')}.`;
-        }
-        if (vapaaTeksti) {
-            teksti += ` ${vapaaTeksti}`;
-        }
-        return teksti.trim();
-    }, [perustelut, vapaaTeksti]);
-
     return (
         <div className="alennus-tyokalu">
-            <h4>Alentamisen perustelut</h4>
+            <h4 className="alennus-header">
+                <Info size={18} color="var(--color-primary)" /> Alentamisen viralliset perustelut
+            </h4>
             <div className="perustelut-valinnat">
-                {sectionData.alentamisenPerustelut.map(p => (
-                    <div key={p} className="checkbox-wrapper">
-                        <input type="checkbox" id={`perustelu-${p}`} checked={!!perustelut[p]} onChange={() => handlePerusteluChange(p)} />
-                        <label htmlFor={`perustelu-${p}`}>{p}</label>
+                {alennusPhrases.map(p => (
+                    <div key={p.id} className="checkbox-wrapper">
+                        <input 
+                            type="checkbox" 
+                            id={`perustelu-${p.phrase_key}`} 
+                            checked={!!perustelut[p.phrase_key]} 
+                            onChange={() => handlePerusteluChange(p.phrase_key)} 
+                            className="modern-checkbox"
+                        />
+                        <label htmlFor={`perustelu-${p.phrase_key}`} className="modern-checkbox-label" style={{ margin: 0 }}>
+                            {p.short_title}
+                        </label>
                     </div>
                 ))}
             </div>
             <div className="vapaa-teksti-container">
                 <label htmlFor="vapaa-teksti-alennus">Tarkemmat perustelut (vapaa sana):</label>
-                <textarea id="vapaa-teksti-alennus" rows="3" value={vapaaTeksti} onChange={handleVapaaTekstiChange} />
+                <textarea id="vapaa-teksti-alennus" className="form-input" rows="3" value={vapaaTeksti} onChange={(e) => setVapaaTeksti(e.target.value)} />
             </div>
             <div className="esikatselu-laatikko">
-                <strong>Esikatselu:</strong>
-                <p>{esikatselu || "Ei perusteluja valittu."}</p>
+                <strong>Esikatselu valmiista tekstistä:</strong>
+                <p className="esikatselu-teksti">{esikatselu || "Ei perusteluja valittu."}</p>
             </div>
             <div className="alennus-tyokalu-actions">
                 <button onClick={handleSave} className="btn">Tallenna perustelut</button>
@@ -63,171 +75,331 @@ const Alennustyokalu = ({ sectionData, selection, onUpdate, onCancel }) => {
     );
 };
 
+// --- 2. VAKIOTEKSTITYÖKALU (UUSI ÄLYKÄS LAKITEKSTIEN HALLINTA) ---
+const VakiotekstiTyokalu = ({ vakiotekstit, selection, onUpdate }) => {
+    const prevLkmRef = useRef(selection?.muuttujat?.LKM);
 
-const Tyonhakuvelvollisuus = ({ state, actions }) => {
-    const sectionData = planData.aihealueet.find(s => s.id === 'tyonhakuvelvollisuus');
-    const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
-    const [alennusToolVisible, setAlennusToolVisible] = useState(false);
-    
-    const previousThvText = state.previousThvText;
-    const selection = state[sectionData.id];
-
-    // UUSI SÄÄNTÖMOOTTORI PRIORITEETILLA JA DATAVEToisilla selitteillä
-    const analysis = useMemo(() => {
-        const tilanneAvainsanat = state.tyotilanne ? Object.keys(state.tyotilanne).filter(key => state.tyotilanne[key]) : [];
-        const tyokykyAvainsana = state.tyokyky?.paavalinta?.avainsana;
-
-        const findRecommendation = () => {
-            if (tilanneAvainsanat.length === 0 && !tyokykyAvainsana) return null;
-
-            // Prioriteettijärjestys: vahvin sääntö ensin
-            const priorityOrder = [
-                "ei_velvoitetta_lomautus", 
-                "ei_velvoitetta_palvelu",
-                "alennettu_osa_aikainen",
-                "ei_velvoitetta_tyokyky",
-                "paasaanto"
-            ];
-            
-            const sortedPhrases = [...sectionData.fraasit].sort((a, b) => {
-                const aIndex = priorityOrder.indexOf(a.avainsana);
-                const bIndex = priorityOrder.indexOf(b.avainsana);
-                // Jos ei löydy, pidetään lopussa
-                if (aIndex === -1) return 1;
-                if (bIndex === -1) return -1;
-                return aIndex - bIndex;
-            });
-
-            for (const phrase of sortedPhrases) {
-                if (!phrase.ehdot) continue;
-
-                const tyotilanneEhtoOk = phrase.ehdot.tyotilanne 
-                    ? phrase.ehdot.tyotilanne.some(ehto => tilanneAvainsanat.includes(ehto)) 
-                    : true;
-
-                const tyokykyEhtoOk = phrase.ehdot.tyokyky 
-                    ? phrase.ehdot.tyokyky.includes(tyokykyAvainsana) 
-                    : true;
-
-                if (tyotilanneEhtoOk && tyokykyEhtoOk) {
-                    return phrase;
-                }
-            }
-            return null;
-        };
-
-        const recommendation = findRecommendation();
+    useEffect(() => {
+        if (!selection || vakiotekstit.length === 0) return;
         
-        const detectedConditions = [];
-        if (tilanneAvainsanat.length > 0) detectedConditions.push(`Asiakkaan työtilanne: ${tilanneAvainsanat.join(', ')}`);
-        if (tyokykyAvainsana) detectedConditions.push(`Työkyky: ${tyokykyAvainsana.replace('tyokyky_', '')}`);
+        const currentLkm = selection.muuttujat?.LKM;
+        const currentSelected = selection.valitutVakiotekstit || {};
+        let newSelected = { ...currentSelected };
+        let hasChanges = false;
 
-        return {
-            conditions: detectedConditions,
-            ruleText: recommendation?.selite || "Ei automaattista sääntöä. Valitse manuaalisesti.",
-            proposalText: recommendation ? `Ehdotus: ${recommendation.lyhenne}` : "Tarkista aiemmat valinnat tai valitse manuaalisesti.",
-            recommendedKeyword: recommendation?.avainsana || null
+        // 1. Alustus: Jos valintoja ei ole vielä tehty ollenkaan
+        if (Object.keys(currentSelected).length === 0) {
+            vakiotekstit.forEach(vt => {
+                if (vt.title.includes('Oikeudet ja velvollisuudet') || vt.title.includes('Täydentävät- ja Työnhakukeskustelut')) {
+                    newSelected[vt.id] = true;
+                } else if (vt.title.includes('toteuttaminen ja seuranta')) {
+                    newSelected[vt.id] = Number(currentLkm) > 0;
+                } else {
+                    newSelected[vt.id] = false;
+                }
+            });
+            hasChanges = true;
+        } 
+        // 2. Dynaaminen reagointi: Jos LKM muuttuu asiantuntijan tai automaation toimesta
+        else if (currentLkm !== prevLkmRef.current) {
+             vakiotekstit.forEach(vt => {
+                 if (vt.title.includes('toteuttaminen ja seuranta')) {
+                     const shouldBeOn = Number(currentLkm) > 0;
+                     if (newSelected[vt.id] !== shouldBeOn) {
+                         newSelected[vt.id] = shouldBeOn;
+                         hasChanges = true;
+                     }
+                 }
+             });
+        }
+
+        if (hasChanges) {
+            const combined = vakiotekstit
+                .filter(vt => newSelected[vt.id])
+                .map(vt => vt.content_text)
+                .join('\n\n');
+            onUpdate({ ...selection, valitutVakiotekstit: newSelected, vakiotekstitYhdistetty: combined });
+        }
+        
+        prevLkmRef.current = currentLkm;
+    }, [selection?.muuttujat?.LKM, vakiotekstit, selection, onUpdate]);
+
+    const handleToggle = (vtId, isChecked) => {
+        const newSelected = { ...(selection?.valitutVakiotekstit || {}), [vtId]: isChecked };
+        const combined = vakiotekstit
+            .filter(vt => newSelected[vt.id])
+            .map(vt => vt.content_text)
+            .join('\n\n');
+        onUpdate({ ...selection, valitutVakiotekstit: newSelected, vakiotekstitYhdistetty: combined });
+    };
+
+    return (
+        <div className="thv-locked-text-container">
+            <div className="thv-locked-text-header">
+                <Lock size={16} /> Lakisääteiset vakiotekstit ja ehdot
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                {vakiotekstit.map(vt => (
+                    <div key={vt.id} className="checkbox-wrapper" style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <input 
+                            type="checkbox" 
+                            id={`vt-${vt.id}`}
+                            checked={!!selection?.valitutVakiotekstit?.[vt.id]}
+                            onChange={(e) => handleToggle(vt.id, e.target.checked)}
+                            className="modern-checkbox"
+                            style={{ marginTop: '0.2rem' }}
+                        />
+                        <label htmlFor={`vt-${vt.id}`} className="modern-checkbox-label" style={{ margin: 0, fontWeight: '500' }}>
+                            {vt.title}
+                        </label>
+                    </div>
+                ))}
+            </div>
+            
+            <strong style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>Esikatselu asiakirjaan tulostuvasta tekstistä:</strong>
+            <div className="thv-locked-text-body" style={{ backgroundColor: '#fff', padding: '1rem', border: '1px solid #dee2e6', borderRadius: '6px', marginTop: '0.5rem' }}>
+                {selection?.vakiotekstitYhdistetty || 'Ei valittuja vakiotekstejä.'}
+            </div>
+        </div>
+    );
+};
+
+
+// --- 3. PÄÄKOMPONENTTI ---
+const Tyonhakuvelvollisuus = ({ state, actions }) => {
+    const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
+    
+    const [phrases, setPhrases] = useState([]);
+    const [alennusPhrases, setAlennusPhrases] = useState([]);
+    const [variables, setVariables] = useState([]);
+    const [rules, setRules] = useState([]);
+    const [vakiotekstit, setVakiotekstit] = useState([]); // UUSI: Lista vakioteksteille
+    
+    const [loading, setLoading] = useState(true);
+    const [alennusToolVisible, setAlennusToolVisible] = useState(false);
+    const [showAllOptions, setShowAllOptions] = useState(false);
+
+    const selection = state['tyonhakuvelvollisuus']; 
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                const [phrasesRes, alennusRes, varsRes, rulesRes, kbRes] = await Promise.all([
+                    supabase.from('phrases').select('*').eq('section_id', '5db6c713-639a-4124-8236-7f72a6f9e32e').order('priority_score', { ascending: true }),
+                    supabase.from('phrases').select('*').eq('grouping_key', 'alennusperustelu').order('short_title'),
+                    supabase.from('variables').select('*'),
+                    supabase.from('business_rules').select('*'),
+                    // HAETAAN KAIKKI VAKIOTEKSTIT KATEGORIAN PERUSTEELLA
+                    supabase.from('knowledge_base').select('*').eq('category', 'Vakiotekstit')
+                ]);
+
+                if (phrasesRes.data) setPhrases(phrasesRes.data);
+                if (alennusRes.data) setAlennusPhrases(alennusRes.data);
+                if (varsRes.data) setVariables(varsRes.data);
+                if (rulesRes.data) setRules(rulesRes.data);
+                
+                if (kbRes.data) {
+                    // Suodatetaan pois vanha pitkä "THV Lopputeksti" -möhkäle, jos se on yhä tietokannassa
+                    const filteredVt = kbRes.data.filter(kb => kb.title !== 'THV Lopputeksti');
+                    
+                    // Järjestetään tekstit loogiseen järjestykseen
+                    const order = ['Oikeudet ja velvollisuudet', 'Täydentävät- ja Työnhakukeskustelut', 'Työnhakuvelvollisuuden toteuttaminen ja seuranta (todennettava)'];
+                    filteredVt.sort((a, b) => {
+                        const indexA = order.indexOf(a.title);
+                        const indexB = order.indexOf(b.title);
+                        // Jos otsikkoa ei löydy order-listalta, laitetaan se loppuun
+                        return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+                    });
+                    
+                    setVakiotekstit(filteredVt);
+                }
+
+            } catch (error) {
+                console.error("Virhe tiedonhaussa:", error);
+            }
+            setLoading(false);
         };
+        fetchData();
+    }, []);
 
-    }, [state.tyotilanne, state.tyokyky, sectionData.fraasit]);
+    const evaluateRule = (conditionStr, currentState) => {
+        if (!conditionStr) return true;
+        try {
+            const condition = typeof conditionStr === 'string' ? JSON.parse(conditionStr) : conditionStr;
+            const { section, operator, value } = condition;
+            const stateValue = currentState[section];
 
-    // ALENNUSTYÖKALUN AUTOMAATTINEN AVAAMINEN
+            if (operator === 'contains') {
+                if (!stateValue) return false;
+                if (typeof stateValue === 'object' && !Array.isArray(stateValue)) return !!stateValue[value];
+                if (Array.isArray(stateValue)) return stateValue.includes(value);
+                if (typeof stateValue === 'string') return stateValue.includes(value);
+            }
+            if (operator === 'exists') {
+                if (!stateValue) return false;
+                if (typeof stateValue === 'object') return Object.values(stateValue).some(v => v);
+                return !!stateValue;
+            }
+            if (operator === 'equals') return stateValue === value;
+            return false;
+        } catch (e) {
+            return false;
+        }
+    };
+
+    const { displayPhrases } = useMemo(() => {
+        if (loading) return { displayPhrases: [] };
+
+        const visiblePhrases = [];
+
+        for (const phrase of phrases) {
+            const phraseRules = rules.filter(r => r.target_id === phrase.id);
+            const phraseVars = variables.filter(v => v.phrase_id === phrase.id);
+            
+            const muuttujatObj = {};
+            const isThisPhraseSelected = selection?.avainsana === phrase.phrase_key;
+
+            phraseVars.forEach(v => { 
+                const savedValue = isThisPhraseSelected && selection?.muuttujat ? selection.muuttujat[v.variable_key] : undefined;
+                muuttujatObj[v.variable_key] = { 
+                    oletus: v.default_value,
+                    arvo: savedValue !== undefined ? savedValue : v.default_value,
+                    value: savedValue !== undefined ? savedValue : v.default_value
+                }; 
+            });
+            
+            const enrichedPhrase = { 
+                ...phrase, 
+                avainsana: phrase.phrase_key, 
+                lyhenne: phrase.short_title, 
+                selite: phrase.base_text,
+                otsikko: phrase.short_title, 
+                teksti: phrase.base_text,    
+                title: phrase.short_title,   
+                content: phrase.base_text,   
+                muuttujat: muuttujatObj 
+            };
+
+            const visibilityRules = phraseRules.filter(r => r.rule_type === 'visibility');
+            const isVisible = visibilityRules.every(rule => evaluateRule(rule.condition_json, state));
+            
+            if (!isVisible) continue; 
+            visiblePhrases.push(enrichedPhrase);
+        }
+
+        return { displayPhrases: visiblePhrases };
+    }, [phrases, variables, rules, state, selection, loading]);
+
+    const primaryPhrase = useMemo(() => {
+        if (displayPhrases.length === 0) return null;
+        const selected = displayPhrases.find(p => p.phrase_key === selection?.avainsana);
+        return selected || displayPhrases[0];
+    }, [displayPhrases, selection]);
+
+    const phrasesToRender = showAllOptions ? displayPhrases : (primaryPhrase ? [primaryPhrase] : []);
+
     const handleVariableUpdate = (sectionId, phraseKeyword, variableName, newValue) => {
-        // 1. Päivitä globaali state
         onUpdateVariable(sectionId, phraseKeyword, variableName, newValue);
-
-        // 2. Tarkista, pitäisikö alennustyökalu avata
-        const phrase = sectionData.fraasit.find(p => p.avainsana === phraseKeyword);
+        
+        const phrase = displayPhrases.find(p => p.phrase_key === phraseKeyword);
         if (phrase && variableName === 'LKM') {
             const defaultValue = phrase.muuttujat?.LKM?.oletus;
-            if (typeof defaultValue === 'number' && newValue < defaultValue) {
+            if (defaultValue !== undefined && Number(newValue) < Number(defaultValue)) {
                 setAlennusToolVisible(true);
             }
         }
     };
 
-    return (
-        <section className="section-container">
-            <h2 className="section-title">{sectionData.otsikko}</h2>
-            
-            {previousThvText && (
-                <div className="context-box">
-                    <h3>Edellisessä suunnitelmassa asetettu:</h3>
-                    <p>{previousThvText}</p>
-                </div>
-            )}
+    if (loading) return <div className="section-container"><p>Ladataan työnhakuvelvollisuuden aivoja...</p></div>;
 
-            <div className="analysis-box">
-                <div className="analysis-header">Analyysi ja ehdotus</div>
-                <div className="analysis-content">
-                    {analysis.conditions.length > 0 && (
-                        <>
-                            <h4>Havaittu tila:</h4>
-                            <ul>{analysis.conditions.map((cond, i) => <li key={i}>{cond}</li>)}</ul>
-                        </>
-                    )}
-                    <h4>Sovellettu sääntö:</h4>
-                    <p><i>{analysis.ruleText}</i></p>
-                    <p className="ehdotus">{analysis.proposalText}</p>
-                </div>
-            </div>
+    const dummySection = { id: 'tyonhakuvelvollisuus', otsikko: 'Työnhakuvelvollisuus' };
+
+    return (
+        <section className="section-container" style={{ position: 'relative' }}>
+            <h2 className="section-title thv-section-title">
+                <FileText size={22} color="var(--color-primary)" /> Työnhakuvelvollisuus
+            </h2>
             
-            <div className="options-container">
-                {sectionData.fraasit.map(phrase => (
+            {/* ÄLYKÄS RATKAISUKESKUS */}
+            <THVSmartAnalysisBox state={state} actions={actions} />
+            
+            {/* VAIHTOEHTOJEN LISTAUS */}
+            <div className="options-container" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {phrasesToRender.map(phrase => (
                     <PhraseOption 
-                        key={phrase.avainsana}
+                        key={phrase.id}
                         phrase={phrase} 
-                        section={sectionData} 
-                        isSelected={selection?.avainsana === phrase.avainsana} 
+                        section={dummySection} 
+                        isSelected={selection?.avainsana === phrase.phrase_key} 
                         onSelect={onSelect} 
-                        // Käytetään uutta, älykkäämpää käsittelijää
                         onUpdateVariable={handleVariableUpdate} 
-                        isRecommended={phrase.avainsana === analysis.recommendedKeyword}
                     />
                 ))}
             </div>
+
+            {/* NÄYTÄ LISÄÄ -NAPPI */}
+            {displayPhrases.length > 1 && (
+                <div className="thv-show-more-container">
+                    <button 
+                        onClick={() => setShowAllOptions(!showAllOptions)} 
+                        className="btn btn--secondary thv-show-more-btn"
+                    >
+                        {showAllOptions ? <><ChevronUp size={16} /> Piilota ylimääräiset vaihtoehdot</> : <><ChevronDown size={16} /> Näytä muut vaihtoehdot ({displayPhrases.length - 1} kpl)</>}
+                    </button>
+                </div>
+            )}
             
+            {/* ALENNUSTYÖKALUN AVAUSNAPPI */}
             {selection && (
                  <div className="alennus-nappi-container">
-                    <button onClick={() => setAlennusToolVisible(!alennusToolVisible)}>
-                        {alennusToolVisible ? 'Piilota perustelut' : 'Alenna velvollisuutta / Kirjaa perustelut'}
+                    <button 
+                        onClick={() => setAlennusToolVisible(!alennusToolVisible)}
+                        className="btn btn--secondary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    >
+                        {alennusToolVisible ? <ChevronUp size={16}/> : <AlertCircle size={16}/>}
+                        {alennusToolVisible ? 'Piilota alennusperustelut' : 'Alenna velvollisuutta / Kirjaa perustelut lakia varten'}
                     </button>
                  </div>
             )}
             
+            {/* ITSE ALENNUSTYÖKALU */}
             {alennusToolVisible && selection && (
                 <Alennustyokalu 
-                    sectionData={sectionData} 
+                    alennusPhrases={alennusPhrases} 
                     selection={selection}
                     onUpdate={(updatedSelection) => {
-                        // Käytetään onSelect-funktiota päivittämään koko valinta kerralla
-                        onSelect(sectionData.id, updatedSelection.avainsana, false, updatedSelection);
+                        onSelect('tyonhakuvelvollisuus', updatedSelection.avainsana, false, updatedSelection);
                         setAlennusToolVisible(false);
                     }}
                     onCancel={() => setAlennusToolVisible(false)}
                 />
             )}
 
-            {state.tyonhakuvelvollisuus && (
-                <div className="next-steps-box">
-                    <h4>Ehdotetut seuraavat askeleet:</h4>
-                    <ul>
-                        <li>Varmista, että asiakas ymmärtää velvoitteen ehdot ja seuraukset.</li>
-                        <li>Jos velvoitteen täyttäminen vaatii tukea, siirry Palveluunohjaus-osioon.</li>
-                    </ul>
-                </div>
-            )}
-
+            {/* LISÄTIEDOT */}
             <div className="custom-text-container">
-                <label htmlFor={`custom-text-${sectionData.id}`}>Lisätiedot tai omat muotoilut:</label>
+                <label htmlFor={`custom-text-tyonhakuvelvollisuus`} className="custom-text-label">Lisätiedot tai omat muotoilut:</label>
                 <textarea 
-                    id={`custom-text-${sectionData.id}`} 
+                    id={`custom-text-tyonhakuvelvollisuus`} 
+                    className="form-input"
                     rows="3" 
                     placeholder="Kirjoita tähän vapaata tekstiä..." 
-                    value={state[`custom-${sectionData.id}`] || ''} 
-                    onChange={(e) => onUpdateCustomText(sectionData.id, e.target.value)} 
+                    value={state[`custom-tyonhakuvelvollisuus`] || ''} 
+                    onChange={(e) => onUpdateCustomText('tyonhakuvelvollisuus', e.target.value)} 
                 />
             </div>
+
+            {/* UUSI: LAKISÄÄTEISTEN VAKIOTEKSTIEN HALLINTA */}
+            {vakiotekstit.length > 0 && (
+                <VakiotekstiTyokalu 
+                    vakiotekstit={vakiotekstit}
+                    selection={selection}
+                    onUpdate={(updatedSelection) => {
+                        onSelect('tyonhakuvelvollisuus', updatedSelection.avainsana, false, updatedSelection);
+                    }}
+                />
+            )}
         </section>
     );
 };

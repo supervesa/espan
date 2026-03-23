@@ -1,10 +1,12 @@
 import React from 'react';
-import { planData } from '../../data/planData';
 import { PhraseOption } from '../PhraseOption';
 
-const Perustiedot = ({ state, actions }) => {
-    const sectionData = planData.aihealueet.find(s => s.id === 'suunnitelman_perustiedot');
+// HUOM! Vastaanottaa planData-propsin App.jsx:ltä
+const Perustiedot = ({ state, actions, planData }) => {
+    const sectionData = planData?.aihealueet?.find(s => s.id === 'suunnitelman_perustiedot');
     const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
+
+    if (!sectionData) return null; // Varmistus, ettei kaadu ennen datan latautumista
 
     return (
         <section className="section-container">

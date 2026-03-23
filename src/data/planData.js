@@ -1,11 +1,15 @@
 export const TYONHAKUVELVOLLISUUS_LOPPUTEKSTI = `
 Oikeudet ja velvollisuudet
-Asiakkaalle on kerrottu julkisesta työvoima- ja yrityspalvelusta annetun lain (2 luku 13 §) mukaisista työnhakijan yleisistä oikeuksista ja velvollisuuksista. Asiakas on valmis ottamaan vastaan työtä ja koulutusta.
+Asiakkaalle on kerrottu työvoimapalveluiden järjestämisestä annetun lain (380/2023, 2 luku 13 §) mukaisista työnhakijan yleisistä oikeuksista ja velvollisuuksista. Asiakas on ilmoittanut olevansa valmis ottamaan vastaan työtä ja koulutusta.
+
+Osana asiakkaan työllistymisen edistämistä on sovittu työnhakukeskusteluista (380/2023, 4 luku 32 §) sekä täydentävistä työnhakukeskusteluista (380/2023, 4 luku 33 §). Asiakas ymmärtää, että näihin tämän suunnitelman perusteella järjestettäviin ja erikseen ilmoitettaviin keskusteluihin osallistuminen on lakisääteinen velvollisuus.
 
 Työnhakuvelvollisuuden toteuttaminen ja seuranta
-Asiakkaan tulee toteuttaa suunnitelmassa sovittua työnhakua ja merkitä haetut työpaikat sekä muut tehtävät kuukausittain toteutuneiksi Työmarkkinatorin asiointipalvelussa tai puhelimitse (Helsingin työllisyyspalvelut, p. 09 310 36107). Työnhakuvelvollisuutta voi täyttää hakemalla avoimia tai tarjottuja työpaikkoja, piilotyöpaikkoja tai julkaisemalla työnhakuprofiilin Työmarkkinatorilla.
+Asiakkaan tulee toteuttaa suunnitelmassa sovittua työnhakuvelvollisuutta (380/2023, 4 luku 35 §) ja ilmoittaa sen toteutumisesta (4 luku 36 §) kuukausittain Työmarkkinatorin asiointipalvelussa tai muulla sovitulla tavalla (esim. Helsingin työllisyyspalvelut, p. 09 310 36107). 
 
-Pyydettäessä asiakkaan on todennettava työnhakunsa, ja selvitys voidaan tarvittaessa pyytää myös työnantajalta. Asiakkaan vastuulla on ilmoittaa työnhaun tilanteessa tapahtuvista muutoksista ja noudattaa sovittuja määräaikoja. Asiakas on tietoinen, että suunnitelman noudattamatta jättämisellä voi olla vaikutusta oikeuteen saada työttömyysetuutta.
+Työnhakuvelvollisuutta voi täyttää hakemalla avoimia työpaikkoja, olemalla suoraan yhteydessä työnantajiin, julkaisemalla työnhakuprofiilin Työmarkkinatorilla tai muilla vastaavilla tavoilla, jotka tähtäävät työllistymiseen avoimille työmarkkinoille.
+
+Asiakkaan on pyydettäessä todennettava työnhakunsa (esim. kopio hakemuksesta tai työnantajan vastaus). Asiakkaan vastuulla on ilmoittaa työnhaun ja olosuhteiden muutoksista viipymättä ja noudattaa annettuja määräaikoja. Asiakas on tietoinen, että suunnitelman laiminlyönnillä tai työnhakuvelvollisuuden täyttämättä jättämisellä on vaikutusta oikeuteen saada työttömyysetuutta työttömyysturvalain (1290/2002, 2 a luku) mukaisesti.
 `;
 
 export const planData = {
@@ -154,78 +158,98 @@ export const planData = {
       ]
     },
     {
-      otsikko: "Työnhakuvelvollisuus",
-      id: "tyonhakuvelvollisuus",
-      monivalinta: false,
-      alentamisenPerustelut: [
-        "Työnhakuvelvollisuutta alennettu huomioiden työmarkkinatilanne.",
-        "Työnhakuvelvollisuutta alennettu huomioiden asiakkaan työkyky ja vallitseva työmarkkinatilanne.",
-        "Asiakkaan koulutus ja/tai työkokemus rajaa merkittävästi soveltuvia työmahdollisuuksia alueella.",
-        "Asiakkaan puutteellinen kielitaito rajaa merkittävästi soveltuvia työmahdollisuuksia.",
-        "Ammattitaitosuojan aikana asiakkaan ammattia vastaavia työmahdollisuuksia on vähän tarjolla.",
-        "Asiakkaan osaamisessa (esim. digitaitojen tai lupakorttien puute) on puutteita, jotka rajaavat työmahdollisuuksia.",
-        "Työnhakuvelvoitetta ei asetettu. Asiakkaan työttömyys on pitkittynyt ja hänellä on tarve sosiaali-, terveys- ja kuntoutuspalveluille. Henkilön tilanne on tosiasiallisesti sellainen, ettei työllistyminen avoimille työmarkkinoille ole mahdollista. (Laki työvoimapalveluiden järjestämisestä 48§)",
+      "otsikko": "Työnhakuvelvollisuus",
+      "id": "tyonhakuvelvollisuus",
+      "monivalinta": false,
+      "alentamisenPerustelut": [
+        "Työnhakuvelvollisuutta kevennetty huomioiden työssäkäyntialueen työmarkkinatilanne (380/2023 35 §).",
+        "Työnhakuvelvollisuutta kevennetty huomioiden asiakkaan työkyky (380/2023 35 §).",
+        "Asiakkaan koulutus, työkokemus tai puutteelliset digitaitot/lupakortit rajaavat soveltuvia työmahdollisuuksia (380/2023 35 §).",
+        "Asiakkaan puutteellinen kielitaito rajaa merkittävästi soveltuvia työmahdollisuuksia (380/2023 35 §).",
+        "Ammattitaitosuojan aikana asiakkaan ammattia vastaavia työmahdollisuuksia on vähän tarjolla (380/2023 35 §).",
+        "Työnhakuvelvollisuutta ei aseteta: Työssäkäyntialueella ei ole haettavissa soveltuvia työmahdollisuuksia (380/2023 34 § 1 mom. 1 kohta).",
+        "Työnhakuvelvollisuutta ei aseteta: Osa-aikatyö ja terveydentila, joka estää muun työn vastaanottamisen (380/2023 34 § 1 mom. 3 kohta).",
+        "Työnhakuvelvollisuutta ei aseteta: Työttömyys päättyy tai perhevapaa/varusmiespalvelus alkaa kuukauden kuluessa (380/2023 34 § 1 mom. 7 kohta).",
+        "Työnhakuvelvollisuutta ei aseteta: Asiakas on ohjattu monialaiseen palvelutarpeen arviointiin (Laki 381/2023 5 §).",
         "Muu syy (tarkennetaan alla)"
       ],
-      fraasit: [
+      "fraasit": [
         {
-          avainsana: "paasaanto",
-          lyhenne: "Pääsääntö (esim. 4 hakua/kk)",
-          teksti: `Palvelumallin mukaisesti asiakkaan suunnitelmaan on kirjattu työnhakuvelvollisuus. Asiakkaan tulee hakea vähintään [LKM] työmahdollisuutta [AIKAJAKSO].`,
-          selite: "Asiakas on työtön ja työkyky on normaali, joten sovelletaan palvelumallin mukaista pääsääntöä.",
-          ehdot: { tyokyky: ["tyokyky_normaali"], tyotilanne: ["tyoton", "irtisanottu", "alle_6kk_tyossa"] },
-          muuttujat: { LKM: { tyyppi: "numero", oletus: 4 }, AIKAJAKSO: { tyyppi: "valinta", vaihtoehdot: ["kuukaudessa", "kolmen kuukauden aikana"], oletus: "kuukaudessa" } }
+          "avainsana": "paasaanto",
+          "lyhenne": "Pääsääntö (esim. 4 hakua/kk)",
+          "teksti": "Lain (380/2023 32–33 §) mukaisesti asiakkaan suunnitelmaan on kirjattu työnhakuvelvollisuus. Asiakkaan tulee hakea vähintään [LKM] työmahdollisuutta [AIKAJAKSO].",
+          "selite": "Asiakas on työtön ja työkyky on normaali, joten sovelletaan palvelumallin mukaista pääsääntöä.",
+          "ehdot": { "tyokyky": ["tyokyky_normaali"], "tyotilanne": ["tyoton", "irtisanottu"] },
+          "muuttujat": { "LKM": { "tyyppi": "numero", "oletus": 4 }, "AIKAJAKSO": { "tyyppi": "valinta", "vaihtoehdot": ["kuukaudessa", "kolmen kuukauden aikana"], "oletus": "kuukaudessa" } }
         },
         {
-          avainsana: "alennettu_osa_aikainen",
-          lyhenne: "Alennettu (Osa-aikatyö)",
-          teksti: `Asiakkaalle asetettu työnhakuvelvollisuus osa-aikatyöntekijän mukaisesti. Koska hakija on osa-aikaisessa työssä, hänen tulee hakea vähintään yhtä työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.`,
-          selite: "Lain mukaan osa-aikatyössä olevalle voidaan asettaa alennettu työnhakuvelvollisuus.",
-          ehdot: { tyotilanne: ["osa-aikainen"] }
+          "avainsana": "ei_velvoitetta_tyomahdollisuudet",
+          "lyhenne": "Ei velvoitetta (Ei työmahdollisuuksia)",
+          "teksti": "Työnhakuvelvollisuutta ei aseteta (Laki 380/2023 34 § 1 mom. 1 kohta). Työvoimaviranomaisen arvion mukaan asiakkaan työssäkäyntialueella ei ole haettavissa sellaisia työmahdollisuuksia, joihin hän voisi työllistyä huomioiden työkokemuksen, koulutuksen, muun osaamisen ja työkyvyn.",
+          "selite": "Uusi peruste: Velvoitetta ei aseteta, jos haettavaa työtä ei tosiasiallisesti ole alueella."
         },
         {
-          avainsana: "alennettu_opiskelija",
-          lyhenne: "Alennettu (Omaehtoinen opiskelu)",
-          teksti: `Koska asiakas opiskelee omaehtoisia opintoja työttömyysetuudella tuettuna, hänen tulee hakea vähintään kolmea työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.`,
-          selite: "Omaehtoisia opintoja työttömyysetuudella suorittavalle koulutusta vailla olevalle voidaan asettaa alennettu velvollisuus."
+          "avainsana": "ei_velvoitetta_osa_aikainen_terveys",
+          "lyhenne": "Ei velvoitetta (Osa-aikatyö + Terveys)",
+          "teksti": "Työnhakuvelvollisuutta ei aseteta (Laki 380/2023 34 § 1 mom. 3 kohta). Asiakas on osa-aikaisessa työssä, eikä muun työn vastaanottaminen samanaikaisesti ole mahdollista hänen työkykynsä tai terveydentilansa vuoksi.",
+          "selite": "Uusi peruste: Osa-aikatyössä oleva, jonka terveys estää lisätyön tekemisen.",
+          "ehdot": { "tyotilanne": ["osa-aikainen"] }
         },
         {
-          avainsana: "ei_velvoitetta_palvelu",
-          lyhenne: "Ei velvoitetta (Palvelun aikana)",
-          teksti: `Asiakkaalle ei aseteta työnhakuvelvollisuutta palvelun aikana. Työnhakuvelvollisuus tarkastellaan seuraavassa työnhakukeskustelussa.`,
-          selite: "Työnhakuvelvollisuutta ei aseteta työkokeilun tai palkkatukityön kaltaisen palvelun aikana.",
-          ehdot: { tyotilanne: ["palkkatuki", "tyokokeilu"] }
+          "avainsana": "kevennetty_osa_aikainen",
+          "lyhenne": "Kevennetty (Osa-aikatyö)",
+          "teksti": "Asiakkaalle asetettu kevennetty työnhakuvelvollisuus (Laki 380/2023 35 §). Koska hakija on osa-aikaisessa työssä, hänen tulee hakea vähintään yhtä työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.",
+          "selite": "Osa-aikatyössä olevalle asetetaan kevennetty velvollisuus, jos terveys ei estä lisätyötä.",
+          "ehdot": { "tyotilanne": ["osa-aikainen"] }
         },
         {
-          avainsana: "ei_velvoitetta_tyokyky",
-          lyhenne: "Ei velvoitetta (Työkyky)",
-          teksti: `Lukumäärällistä työnhakuvelvoitetta ei asetettu. Lain 48 §:n mukaisesti edellytyksenä on luotettava lääketieteellinen selvitys työkyvyttömyydestä sekä se, että asiakas noudattaa suunnitelmaa esimerkiksi työkyvyttömyysetuuden hakemiseksi tai kuntoutukseen hakeutumiseksi.`,
-          selite: "Työkyvyn selvittäminen tai todettu alentuma on peruste jättää velvoite asettamatta, kun asiakas noudattaa suunnitelmaa.",
-          ehdot: { tyokyky: ["tyokyky_selvityksessa"] }
+          "avainsana": "kevennetty_opiskelija",
+          "lyhenne": "Kevennetty (Omaehtoinen opiskelu)",
+          "teksti": "Asiakkaalle asetettu kevennetty työnhakuvelvollisuus (Laki 380/2023 35 §). Koska asiakas suorittaa työttömyysetuudella tuettuja omaehtoisia opintoja, hänen tulee hakea vähintään kolmea työmahdollisuutta kolmen kuukauden tarkastelujakson aikana.",
+          "selite": "Omaehtoisia opintoja suorittavalle (muu kuin luku/kirjoitustaito) voidaan asettaa kevennetty velvollisuus."
         },
         {
-          avainsana: "ei_velvoitetta_lomautus",
-          lyhenne: "Ei velvoitetta (Lomautus)",
-          teksti: `Asiakkaalle ei aseteta työnhakuvelvollisuutta, koska asiakas on lomautettu. Työnhakuvelvollisuus alkaa, kun lomautuksen alkamisesta on kulunut kolme kuukautta ja asiakkaalle on järjestetty työnhakukeskustelu.`,
-          selite: "Lain mukaan lomautetulle ei aseteta työnhakuvelvoitetta ensimmäisen kolmen kuukauden aikana.",
-          ehdot: { tyotilanne: ["lomautettu"] }
+          "avainsana": "ei_velvoitetta_tym",
+          "lyhenne": "Ei velvoitetta (Monialainen TYM)",
+          "teksti": "Työnhakuvelvollisuutta ei sisällytetä tähän suunnitelmaan. Asiakas on ohjattu monialaiseen palvelutarpeen arviointiin, ja työnhakuvelvollisuudesta sovitaan monialaisessa työllistymissuunnitelmassa (Laki 381/2023 5 §).",
+          "selite": "TYM-asiakkaiden kohdalla velvoite siirtyy monialaiseen suunnitelmaan."
         },
         {
-            avainsana: "ei_velvoitetta_lyhytaikainen",
-            lyhenne: "Ei velvoitetta (Lyhyt työttömyys ennen poissaoloa)",
-            teksti: `Työnhakuvelvollisuutta ei asetettu, koska asiakkaan työttömyyden arvioidaan päättyvän alle kolmen kuukauden kuluessa alkavaan, yli kolme kuukautta kestävään [SYY (esim. perhevapaa, varusmiespalvelus)].`,
-            selite: "Velvollisuutta ei tarvitse asettaa, jos työttömyys on lyhytaikainen ja tiedossa on pidempi poissaolo työmarkkinoilta.",
-            muuttujat: { SYY: { tyyppi: "teksti" } }
+          "avainsana": "ei_velvoitetta_tyokyky",
+          "lyhenne": "Ei velvoitetta (Työkyvyttömyys)",
+          "teksti": "Työnhakuvelvollisuutta ei aseteta (Laki 380/2023 34 § 1 mom. 2 kohta). Perusteena on luotettava lääketieteellinen selvitys työkyvyttömyydestä. Asiakas noudattaa suunnitelmaa työkyvyttömyysetuuden hakemiseksi tai kuntoutukseen hakeutumiseksi.",
+          "selite": "Työkyvyn alentuma on peruste jättää velvoite asettamatta, kun prosessi on käynnissä.",
+          "ehdot": { "tyokyky": ["tyokyky_selvityksessa", "tyokyky_alentunut"] }
         },
         {
-          avainsana: "manuaalinen",
-          lyhenne: "Manuaalinen asetus",
-          teksti: `Manuaalinen asetus: Asiakkaan tulee hakea vähintään [LKM] työmahdollisuutta [AIKAJAKSO].`,
-          selite: "Sääntöehdotus ei vastaa tilannetta. Asiantuntija asettaa velvollisuuden manuaalisesti.",
-          muuttujat: { LKM: { tyyppi: "numero", oletus: 0 }, AIKAJAKSO: { tyyppi: "valinta", vaihtoehdot: ["kuukaudessa", "kolmen kuukauden aikana"], oletus: "kuukaudessa" } }
+          "avainsana": "ei_velvoitetta_lomautus",
+          "lyhenne": "Ei velvoitetta (Lomautus < 3kk)",
+          "teksti": "Asiakkaalle ei aseteta työnhakuvelvollisuutta (Laki 380/2023 34 § 3 mom.). Työnhakuvelvollisuus alkaa vasta, kun lomautuksen alkamisesta on kulunut kolme kuukautta.",
+          "selite": "Lomautetulla ei ole velvoitetta ensimmäisen 3 kk aikana.",
+          "ehdot": { "tyotilanne": ["lomautettu"] }
+        },
+        {
+          "avainsana": "ei_velvoitetta_lyhytaikainen",
+          "lyhenne": "Ei velvoitetta (Päättyy 1kk sisällä)",
+          "teksti": "Työnhakuvelvollisuutta ei aseteta tarkastelujaksolle, koska asiakkaan työttömyys päättyy kuukauden kuluessa kokoaikaisen työn alkamiseen tai hän aloittaa kuukauden kuluessa varusmies-/siviilipalveluksen tai perhevapaan (Laki 380/2023 34 § 1 mom. 7 kohta).",
+          "selite": "Aikaraja on uuden lain mukaan 1 kuukausi (aiemmin käytäntö usein 3 kk).",
+          "muuttujat": { "SYY": { "tyyppi": "valinta", "vaihtoehdot": ["työn alkaminen", "perhevapaa", "varusmiespalvelus"], "oletus": "työn alkaminen" } }
+        },
+        {
+          "avainsana": "ei_velvoitetta_opiskelu_erityinen",
+          "lyhenne": "Ei velvoitetta (Luku- ja kirjoitustaito/Yhteishankinta)",
+          "teksti": "Työnhakuvelvollisuutta ei aseteta, koska asiakas opiskelee päätoimisia luku- ja kirjoitustaidon opintoja tai osallistuu yhteishankintana järjestettyyn työvoimakoulutukseen (Laki 380/2023 34 § 1 mom. 4-5 kohta).",
+          "selite": "Tietyt koulutusmuodot vapauttavat hausta kokonaan."
+        },
+        {
+          "avainsana": "manuaalinen",
+          "lyhenne": "Manuaalinen asetus (Kevennetty)",
+          "teksti": "Asiantuntijan arvion perusteella asiakkaalle on asetettu kevennetty työnhakuvelvollisuus: [LKM] työmahdollisuutta [AIKAJAKSO] (Laki 380/2023 35 §).",
+          "selite": "Käytetään kun mikään valmis kategoria ei täyty, mutta hakuja on syytä vähentää.",
+          "muuttujat": { "LKM": { "tyyppi": "numero", "oletus": 0 }, "AIKAJAKSO": { "tyyppi": "valinta", "vaihtoehdot": ["kuukaudessa", "kolmen kuukauden aikana"], "oletus": "kuukaudessa" } }
         }
       ]
-    },
+    }
     
   ]
 };

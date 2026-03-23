@@ -1,1 +1,15 @@
-node_modules\ndist
+# Riippuvuudet ja koontitiedostot
+node_modules/
+dist/
+ndist/
+
+# Netlify-kohtaiset
+.netlify/
+
+# Käyttöjärjestelmän turhat tiedostot
+.DS_Store
+Thumbs.db
+
+# Ympäristömuuttujat (ERITTÄIN TÄRKEÄ: sisältää usein API-avaimet)
+.env
+.env.local
