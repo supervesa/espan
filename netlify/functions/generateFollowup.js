@@ -1,5 +1,7 @@
 // --- netlify/functions/generateFollowup.js ---
-const { GoogleGenerativeAI, SchemaType } = require("@google/generative-ai");
+const { generateWithFallback, SchemaType } = require('./utils/aiRouter');
+// Tuodaan keskitetty persoona (olettaen, että tiedosto on samassa kansiossa)
+const { SYSTEM_PERSONA } = require('./aiPersona');
 
 exports.handler = async function(event, context) {
     const headers = {
@@ -12,55 +14,48 @@ exports.handler = async function(event, context) {
     if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: 'Method Not Allowed' };
 
     try {
-        // Otetaan vastaan puhtaaksi käännetyt tiedot Frontendiltä!
         const { customerName, planItems, obligationsCount, selectedSnippets } = JSON.parse(event.body);
         
-        const sovitutAsiatText = planItems && planItems.length > 0 
-            ? planItems.join('\n- ') 
+        const sovitutAsiatText = planItems && planItems.length > 0
+            ? planItems.join('\n- ')
             : 'Ei erillisiä toimenpiteitä kirjattu tällä kertaa.';
 
-        const velvollisuusText = obligationsCount > 0 
-            ? `Sovimme, että haet ${obligationsCount} työpaikkaa kuukaudessa.` 
+        const velvollisuusText = obligationsCount > 0
+            ? `Sovimme, että haet ${obligationsCount} työpaikkaa kuukaudessa.`
             : 'Tällä hetkellä sinulla ei ole numeerista työnhakuvelvollisuutta.';
 
-        const snippetsContext = selectedSnippets && selectedSnippets.length > 0 
+        const snippetsContext = selectedSnippets && selectedSnippets.length > 0
             ? selectedSnippets.map(s => `LINKIN NIMI: "${s.label}". LINKIN URL: "${s.url || 'Ei URLia'}". ASIANTUNTIJAN OHJE TEKOÄLYLLE: "${s.ai_description || ''}". LINKIN SISÄLTÖ: "${s.content}"`).join('\n\n')
             : 'Ei erillisiä linkkejä lisättäväksi.';
 
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({
-             model: "gemini-3.1-flash-lite-preview",
-            generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: SchemaType.OBJECT,
-                    properties: {
-                        followupEmailHtml: { 
-                            type: SchemaType.STRING, 
-                            description: "Sähköposti HTML-muodossa. Käytä <p>, <ul>, <li>, <strong>. TEE LINKEISTÄ KLIKATTAVIA: <a href='url'>Linkin nimi</a>." 
-                        },
-                        followupEmailText: { 
-                            type: SchemaType.STRING, 
-                            description: "Sama sähköposti pelkkänä raakatekstinä ilman HTML-tägejä." 
-                        }
-                    },
-                    required: ["followupEmailHtml", "followupEmailText"]
+        const schema = {
+            type: SchemaType.OBJECT,
+            properties: {
+                followupEmailHtml: {
+                    type: SchemaType.STRING,
+                    description: "Sähköposti HTML-muodossa. Käytä <p>, <ul>, <li>, <strong>. TEE LINKEISTÄ KLIKATTAVIA: <a href='url'>Linkin nimi</a>."
+                },
+                followupEmailText: {
+                    type: SchemaType.STRING,
+                    description: "Sama sähköposti pelkkänä raakatekstinä ilman HTML-tägejä."
                 }
-            }
-        });
+            },
+            required: ["followupEmailHtml", "followupEmailText"]
+        };
 
-        const prompt = `Olet empaattinen, mutta asiallinen työllisyyspalveluiden asiantuntija. Kirjoita asiakkaalle ("${customerName}") tapaamisen yhteenvetoviesti "Hampurilaismallin" mukaisesti:
+        // Yhdistetään Master Persoona ja tilannekohtainen tehtävänanto
+        const prompt = `${SYSTEM_PERSONA}
 
-        1. LÄMMIN YLÄSÄMPYLÄ: Kiitä ystävällisesti tapaamisesta.
-        2. PIHVI (Sovitut asiat): Tee näistä sovitusta asioista selkeä, kannustava To-Do -lista asiakkaalle:\n- ${sovitutAsiatText}
-        3. MAUSTEET (Velvollisuudet & Hyväksyntä): Kerro ystävällisesti työnhakuvelvollisuudesta: "${velvollisuusText}". TÄRKEÄÄ: Muistuta asiakasta LAAJASTI ja KANNUSTAVASTI, että hänen pitää käydä Oma Asiointi -palvelussa vahvistamassa tehty suunnitelma, jotta työttömyysturva ei katkea.
-        4. RANSKALAISET (Linkit): Asiantuntija on valinnut asiakkaalle nämä linkit ja ohjeet. Upota ne sähköpostiin kauniisti. Käytä asiantuntijan ohjetta apuna, kun perustelet miksi linkki on mukana. Datat: \n${snippetsContext}
-        5. TUKUVA ALASÄMPYLÄ: Päätä viesti tsemppaavasti ja kerro, että apua on aina saatavilla.
+TEHTÄVÄ:
+Kirjoita asiakkaalle ("${customerName}") lyhyt ja ytimekäs tapaamisen yhteenvetoviesti "Hampurilaismallin" mukaisesti:
 
-        Palauta teksti sekä puhtaana HTML-koodina että raakatekstinä.`;
+1. LÄMMIN YLÄSÄMPYLÄ: Kiitä tapaamisesta.
+2. PIHVI (Sovitut asiat): Tee näistä asioista selkeä To-Do -lista:\n- ${sovitutAsiatText}
+3. MAUSTEET (Velvollisuudet & Hyväksyntä): Kerro työnhakuvelvollisuudesta: "${velvollisuusText}". Muistuta jämäkästi, että suunnitelma pitää käydä hyväksymässä Oma asiointi -palvelussa, jotta työttömyysturvaan ei tule katkoksia.
+4. RANSKALAISET (Linkit): Upota nämä linkit viestiin. Perustele lyhyesti niiden hyöty asiakkaalle ohjeen pohjalta. Datat: \n${snippetsContext}
+5. TUKEVA ALASÄMPYLÄ: Päätä viesti tsemppaavasti ja muistuta, että olet tukena.`;
 
-        const result = await model.generateContent(prompt);
-        const aiData = JSON.parse(result.response.text());
+        const aiData = await generateWithFallback(prompt, schema);
 
         return { statusCode: 200, headers, body: JSON.stringify(aiData) };
 
