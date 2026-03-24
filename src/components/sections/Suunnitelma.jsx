@@ -1,29 +1,64 @@
 // --- src/components/sections/Suunnitelma.jsx ---
-
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { supabase } from '../../utils/supabaseClient';
 import { Zap, CheckSquare, FileText, Activity, Briefcase, GraduationCap, HeartPulse, ArrowDownCircle } from 'lucide-react';
-import Palveluohjaus from './Palveluohjaus'; // <-- Poista { DUMMY_SERVICES } tästä!
+import Palveluohjaus from './Palveluohjaus';
 
-const Suunnitelma = ({ state, actions, planData }) => {
-    const sectionData = planData?.aihealueet?.find(s => s.id === 'suunnitelma');
-    const dbPhrases = sectionData?.fraasit || [];
-    const [loadedServices, setLoadedServices] = React.useState([]);
+const Suunnitelma = ({ state, actions }) => {
+    const DB_SUUNNITELMA = 'd76dd312-1d0d-442e-bc6a-aefea2a655f8';
+
+    const [dbPhrases, setDbPhrases] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [loadedServices, setLoadedServices] = useState([]);
 
     const rawValinnat = state.suunnitelma || {}; 
     const isArray = Array.isArray(rawValinnat);
     const customText = state['custom-suunnitelma'] || '';
     const signals = state.signals || {};
 
-    const isSelected = (id) => {
-        if (isArray) return rawValinnat.includes(id);
-        return !!rawValinnat[id];
-    };
+    // 1. DATAN HAKU
+    useEffect(() => {
+        const fetchSuunnitelmaPhrases = async () => {
+            try {
+                const [phrasesRes, triggersRes] = await Promise.all([
+                    supabase.from('phrases').select('*').eq('section_id', DB_SUUNNITELMA),
+                    supabase.from('phrase_triggers').select('*')
+                ]);
+
+                if (phrasesRes.error) throw phrasesRes.error;
+                if (triggersRes.error) throw triggersRes.error;
+
+                const rawPhrases = phrasesRes.data || [];
+                const rawTriggers = triggersRes.data || [];
+
+                const formattedPhrases = rawPhrases.map(p => {
+                    const matchingTriggers = rawTriggers.filter(t => t.phrase_id === p.id);
+                    return {
+                        id: p.phrase_key,
+                        avainsana: p.phrase_key,
+                        teksti: p.base_text,
+                        lyhenne: p.short_title,
+                        ryhma: p.grouping_key,
+                        priority: p.priority_score,
+                        triggerit: matchingTriggers 
+                    };
+                });
+
+                setDbPhrases(formattedPhrases);
+            } catch (err) {
+                console.error("Virhe Suunnitelma-haussa:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchSuunnitelmaPhrases();
+    }, []);
+
+    const isSelected = (id) => isArray ? rawValinnat.includes(id) : !!rawValinnat[id];
 
     const handleTogglePhrase = (id, isChecked) => {
         if (actions.onUpdateSuunnitelma) {
             actions.onUpdateSuunnitelma(id, isChecked);
-        } else if (actions.toggleSelection) {
-            actions.toggleSelection('suunnitelma', id);
         } else if (actions.updateSectionData) {
             if (isArray) {
                 const newList = isChecked ? [...rawValinnat, id] : rawValinnat.filter(i => i !== id);
@@ -35,62 +70,31 @@ const Suunnitelma = ({ state, actions, planData }) => {
     };
 
     const handleCustomTextChange = (e) => {
-        if (actions.onUpdateCustomText) {
-            actions.onUpdateCustomText('suunnitelma', e.target.value);
-        } else if (actions.updateSectionData) {
-            actions.updateSectionData('custom-suunnitelma', e.target.value);
-        }
+        if (actions.onUpdateCustomText) actions.onUpdateCustomText('suunnitelma', e.target.value);
     };
 
-// 4. TEKSTIN GENEROINTI
     const generatedText = useMemo(() => {
         const activePhrases = dbPhrases.filter(phrase => isSelected(phrase.id));
-        activePhrases.sort((a, b) => {
-            const scoreA = parseInt(a.priority) || 0;
-            const scoreB = parseInt(b.priority) || 0;
-            return scoreB - scoreA;
-        });
+        activePhrases.sort((a, b) => (parseInt(b.priority) || 0) - (parseInt(a.priority) || 0));
 
         const tyokokeiluKesto = state.palkkatuki?.tyokokeilu_kesto_kk || 'X';
-        const phraseTexts = activePhrases.map(phrase => {
-            let teksti = phrase.teksti;
-            if (teksti.includes('[KESTO_KK]')) teksti = teksti.replace(/\[KESTO_KK\]/g, tyokokeiluKesto);
-            return teksti;
-        });
+        const phraseTexts = activePhrases.map(phrase => phrase.teksti.replace(/\[KESTO_KK\]/g, tyokokeiluKesto));
 
-        // KORVATTU KOHTA: Haetaan valitut Palveluohjaukset NYT DYNAMISESTA TILASTA
         const activeServices = loadedServices.filter(service => isSelected(service.id));
         const serviceTexts = activeServices.map(service => service.plan_text);
 
-        const allTexts = [...phraseTexts, ...serviceTexts];
-        return allTexts.join('\n\n');
-        
-    }, [dbPhrases, rawValinnat, isArray, state.palkkatuki, loadedServices]); // <-- Lisää loadedServices dependency-arrayhyn!
+        return [...phraseTexts, ...serviceTexts].join('\n\n');
+    }, [dbPhrases, rawValinnat, isArray, state.palkkatuki, loadedServices]);
 
-    // UUSI FUNKTIO: Siirtää esikatselutekstin muokattavaksi lisätietokenttään
     const handleMoveText = () => {
         if (!generatedText) return;
-        
-        // Jos lisätietokentässä on jo tekstiä, lisätään uusi sen yläpuolelle. Muuten laitetaan pelkkä uusi.
         const combinedText = customText ? `${generatedText}\n\n${customText}` : generatedText;
-        
-        if (actions.onUpdateCustomText) {
-            actions.onUpdateCustomText('suunnitelma', combinedText);
-        } else if (actions.updateSectionData) {
-            actions.updateSectionData('custom-suunnitelma', combinedText);
-        }
+        if (actions.onUpdateCustomText) actions.onUpdateCustomText('suunnitelma', combinedText);
     };
 
-    // 1. SIIVOTAAN SIGNAALIT
-    const displaySignals = useMemo(() => {
-        return Object.entries(signals).filter(([key, value]) => {
-            if (!value) return false;
-            if (key.match(/^[0-9a-f]{8}-[0-9a-f]{4}-/i)) return false;
-            return true;
-        });
-    }, [signals]);
+    const displaySignals = useMemo(() => Object.entries(signals).filter(([key, value]) => value && !key.match(/^[0-9a-f]{8}-[0-9a-f]{4}-/i)), [signals]);
 
-    // 2. STRATEGISET POLUT (A, B, C)
+    // --- UUSITTU STRATEGIAPOLKUJEN LOGIIKKA ---
     const strategyPaths = useMemo(() => {
         const paths = {
             'A': { title: 'Työ edellä', icon: <Briefcase size={16} />, phrases: [] },
@@ -98,9 +102,28 @@ const Suunnitelma = ({ state, actions, planData }) => {
             'C': { title: 'Työkyky ja tuki', icon: <HeartPulse size={16} />, phrases: [] }
         };
 
+        // Luodaan dynaamiset signaalit, jotta tulkki ja heikko kielitaso aktivoivat koulutuspolun
+        const activeSignals = { ...signals };
+        
+        // 1. Jos tarvitsee tulkkia, rinnastetaan se kielitaidon puutteeseen
+        if (signals['osallistuu_tulkki']) {
+            activeSignals['kielitaidon_puute'] = true;
+            activeSignals['kielitaito_heikko'] = true;
+        }
+
+        // 2. Jos kielitaso on A1 tai A2, rinnastetaan se kielitaidon puutteeseen
+        const hasLowLanguage = Object.keys(signals).some(key => 
+            signals[key] && key.startsWith('language_fi_a')
+        );
+        if (hasLowLanguage) {
+            activeSignals['kielitaidon_puute'] = true;
+        }
+
         dbPhrases.forEach(phrase => {
-            if (phrase.triggerit && phrase.triggerit.length > 0) {
-                const matchingTriggers = phrase.triggerit.filter(t => signals[t.signal_key]);
+            if (phrase.triggerit?.length > 0) {
+                // Käytetään laajennettuja activeSignals-signaaleja vertailuun
+                const matchingTriggers = phrase.triggerit.filter(t => activeSignals[t.signal_key]);
+                
                 if (matchingTriggers.length > 0) {
                     const matchedPathKeys = [...new Set(matchingTriggers.map(t => t.strategy_path))];
                     matchedPathKeys.forEach(pathKey => {
@@ -114,15 +137,6 @@ const Suunnitelma = ({ state, actions, planData }) => {
         return paths;
     }, [dbPhrases, signals]);
 
-    const handleSelectPath = (phrasesInPath) => {
-        phrasesInPath.forEach(phrase => {
-            if (!isSelected(phrase.id)) {
-                handleTogglePhrase(phrase.id, true);
-            }
-        });
-    };
-
-    // 3. RYHMITTELY
     const groupedPhrases = useMemo(() => {
         const groups = {};
         dbPhrases.forEach(phrase => {
@@ -133,10 +147,9 @@ const Suunnitelma = ({ state, actions, planData }) => {
         return groups;
     }, [dbPhrases]);
 
-    const formatGroupName = (key) => {
-        if (!key || key === 'muut') return 'Muut toimenpiteet';
-        return key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
-    };
+    const formatGroupName = (key) => key === 'muut' ? 'Muut toimenpiteet' : key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
+
+    if (loading) return <div className="section-container">Ladataan suunnitelman fraaseja...</div>;
 
     return (
         <div className="section-container">
@@ -146,44 +159,28 @@ const Suunnitelma = ({ state, actions, planData }) => {
             </h2>
 
             <div className="thv-resolution-hub">
-                <div className="thv-resolution-header">
-                    <Zap size={20} />
-                    Älykäs Ratkaisukeskus
-                </div>
-                
+                <div className="thv-resolution-header"><Zap size={20} /> Älykäs Ratkaisukeskus</div>
                 <div className="thv-resolution-grid">
                     <div className="thv-resolution-column" style={{ flex: '0 0 30%' }}>
                         <h4 className="thv-column-title">Havaitut signaalit</h4>
                         {displaySignals.length > 0 ? (
-                            <ul className="thv-resolution-signals">
-                                {displaySignals.map(([key]) => (
-                                    <li key={key}>{key.replace(/_/g, ' ')}</li>
-                                ))}
-                            </ul>
+                            <ul className="thv-resolution-signals">{displaySignals.map(([key]) => <li key={key}>{key.replace(/_/g, ' ')}</li>)}</ul>
                         ) : (
                             <p className="thv-resolution-info">Ei vahvoja signaaleja aiemmista osioista.</p>
                         )}
                     </div>
-
                     <div className="thv-resolution-column" style={{ flex: '1', display: 'flex', gap: '1rem' }}>
                         {Object.keys(strategyPaths).some(k => strategyPaths[k].phrases.length > 0) ? (
                             Object.entries(strategyPaths).map(([key, pathData]) => {
                                 if (pathData.phrases.length === 0) return null;
                                 return (
                                     <div key={key} style={{ flex: 1, backgroundColor: 'var(--color-bg-secondary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column' }}>
-                                        <h5 style={{ margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-primary)' }}>
-                                            {pathData.icon} {pathData.title}
-                                        </h5>
+                                        <h5 style={{ margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-primary)' }}>{pathData.icon} {pathData.title}</h5>
                                         <ul style={{ margin: '0 0 1rem 0', paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--color-text-secondary)', flex: 1 }}>
                                             {pathData.phrases.map(p => <li key={`list-${p.id}`}>{p.lyhenne}</li>)}
                                         </ul>
-                                        <button 
-                                            className="thv-action-button"
-                                            onClick={() => handleSelectPath(pathData.phrases)}
-                                            style={{ backgroundColor: 'var(--color-primary)', width: '100%', justifyContent: 'center' }}
-                                        >
-                                            <Activity size={16} />
-                                            Valitse polku {key}
+                                        <button className="thv-action-button" onClick={() => pathData.phrases.forEach(p => { if (!isSelected(p.id)) handleTogglePhrase(p.id, true); })} style={{ backgroundColor: 'var(--color-primary)', width: '100%', justifyContent: 'center' }}>
+                                            <Activity size={16} /> Valitse polku {key}
                                         </button>
                                     </div>
                                 );
@@ -197,25 +194,20 @@ const Suunnitelma = ({ state, actions, planData }) => {
                 </div>
             </div>
 
+            <div style={{ marginBottom: '2rem' }}>
+                <Palveluohjaus state={state} actions={actions} onServicesLoaded={setLoadedServices} />
+            </div>
+
             <div className="questions-container">
                 <h3 style={{ marginBottom: '1.5rem' }}>Käsiohjaus (Kaikki toimenpiteet)</h3>
-                
                 {Object.keys(groupedPhrases).length > 0 ? (
                     Object.entries(groupedPhrases).map(([groupKey, phrasesInGroup]) => (
                         <div key={groupKey} style={{ marginBottom: '2rem' }}>
-                            <h4 className="subsection-title" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-                                {formatGroupName(groupKey)}
-                            </h4>
-                            
+                            <h4 className="subsection-title" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>{formatGroupName(groupKey)}</h4>
                             <div className="perustelut-valinnat">
                                 {phrasesInGroup.map(phrase => (
                                     <label key={phrase.id} className="custom-checkbox-row">
-                                        <input 
-                                            type="checkbox" 
-                                            className="modern-checkbox"
-                                            checked={isSelected(phrase.id)}
-                                            onChange={(e) => handleTogglePhrase(phrase.id, e.target.checked)}
-                                        />
+                                        <input type="checkbox" className="modern-checkbox" checked={isSelected(phrase.id)} onChange={(e) => handleTogglePhrase(phrase.id, e.target.checked)} />
                                         <span>{phrase.lyhenne}</span>
                                     </label>
                                 ))}
@@ -231,36 +223,13 @@ const Suunnitelma = ({ state, actions, planData }) => {
 
             <div className="thv-locked-text-container">
                 <div className="thv-locked-text-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <FileText size={16} />
-                        Generoidun asiakirjan esikatselu
-                    </div>
-                    {/* --- UUSI NAPPI TÄSSÄ --- */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><FileText size={16} /> Generoidun asiakirjan esikatselu</div>
                     {generatedText && (
-                        <button 
-                            onClick={handleMoveText}
-                            style={{ 
-                                display: 'flex', alignItems: 'center', gap: '0.4rem',
-                                background: 'transparent', border: '1px solid var(--color-border)', 
-                                color: 'var(--color-text-primary)', padding: '0.3rem 0.8rem', 
-                                borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem',
-                                transition: 'all 0.2s ease'
-                            }}
-                            onMouseOver={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-bg-secondary)'; }}
-                            onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                        >
-                            <ArrowDownCircle size={14} />
-                            Siirrä muokattavaksi
+                        <button onClick={handleMoveText} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)', padding: '0.3rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', transition: 'all 0.2s ease' }}>
+                            <ArrowDownCircle size={14} /> Siirrä muokattavaksi
                         </button>
                     )}
                 </div>
-       {/* --- 1. PALVELUOHJAUS --- */}
-<Palveluohjaus 
-    state={state} 
-    actions={actions} 
-    onServicesLoaded={setLoadedServices} 
-/>
-
                 <div className="thv-locked-text-body">
                     {generatedText ? generatedText : <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Valitse toimenpiteitä yläpuolelta nähdäksesi suunnitelman luonnoksen...</span>}
                 </div>
@@ -268,17 +237,9 @@ const Suunnitelma = ({ state, actions, planData }) => {
 
             <div className="custom-text-container" style={{ marginTop: '1.5rem' }}>
                 <label htmlFor="suunnitelma-custom-text" className="custom-text-label" style={{ fontWeight: 'bold' }}>
-                    Omat lisäykset ja tarkennukset (Tämä teksti tulostuu suunnitelmaan):
+                    Omat lisäykset ja tarkennukset (Tämä teksti tulostuu lopulliseen suunnitelmaan):
                 </label>
-                <textarea
-                    id="suunnitelma-custom-text"
-                    className="form-input"
-                    rows="6"
-                    placeholder="Kirjoita tähän vapaata tekstiä tai siirrä generoidut tekstit yläpuolelta painamalla nappia..."
-                    value={customText}
-                    onChange={handleCustomTextChange}
-                    style={{ marginTop: '0.5rem', resize: 'vertical' }}
-                />
+                <textarea id="suunnitelma-custom-text" className="form-input" rows="6" value={customText} onChange={handleCustomTextChange} style={{ marginTop: '0.5rem', resize: 'vertical' }} />
             </div>
         </div>
     );

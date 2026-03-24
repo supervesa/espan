@@ -25,26 +25,54 @@ const AdminWorkspace = () => {
         fetchAllData(true);
     }, []);
 
-    const fetchAllData = async (isInitialLoad = false) => {
+   const fetchAllData = async (isInitialLoad = false) => {
         if (isInitialLoad) setLoading(true);
         try {
-            const [secRes, msgRes, knowRes] = await Promise.all([
-                supabase.from('sections').select('*, phrases (*, variables (*))').order('order_index'),
+            // HAETAAN KAIKKI ERIKSEEN (Tämä estää Supabasen relaatiovirheet!)
+            const [secRes, phraseRes, varRes, msgRes, knowRes] = await Promise.all([
+                supabase.from('sections').select('*').order('order_index'),
+                supabase.from('phrases').select('*'),
+                supabase.from('variables').select('*'),
                 supabase.from('message_templates').select('*').order('title'),
                 supabase.from('knowledge_base').select('*').order('title')
             ]);
 
-            if (secRes.data) setSections(secRes.data);
+            // RAKENNETAAN PUU JAVASCRIPTISSÄ
+            if (secRes.data) {
+                const phrasesData = phraseRes.data || [];
+                const varsData = varRes.data || [];
+
+                const builtSections = secRes.data.map(section => {
+                    // 1. Etsitään tähän osioon kuuluvat fraasit
+                    const sectionPhrases = phrasesData.filter(p => p.section_id === section.id);
+                    
+                    // 2. Liitetään fraaseihin niiden muuttujat
+                    const phrasesWithVars = sectionPhrases.map(phrase => ({
+                        ...phrase,
+                        variables: varsData.filter(v => v.phrase_id === phrase.id)
+                    }));
+                    
+                    return {
+                        ...section,
+                        phrases: phrasesWithVars
+                    };
+                });
+                
+                setSections(builtSections);
+            }
+
             if (msgRes.data) setMessages(msgRes.data);
             if (knowRes.data) setKnowledge(knowRes.data);
 
+            // Päivitetään valittu kohde, jos se oli jo auki
             setSelectedItem(prev => {
                 if (!prev) return null;
                 
-                if (prev.type === 'phrase' && secRes.data) {
-                    for (const sec of secRes.data) {
-                        const updatedPhrase = sec.phrases?.find(p => p.id === prev.data.id);
-                        if (updatedPhrase) return { ...prev, data: updatedPhrase };
+                if (prev.type === 'phrase' && phraseRes.data) {
+                    const updatedPhrase = phraseRes.data.find(p => p.id === prev.data.id);
+                    if (updatedPhrase) {
+                        updatedPhrase.variables = varRes.data?.filter(v => v.phrase_id === updatedPhrase.id) || [];
+                        return { ...prev, data: updatedPhrase };
                     }
                 }
                 if (prev.type === 'message' && msgRes.data) {

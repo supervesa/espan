@@ -1,93 +1,95 @@
 const { GoogleGenerativeAI, SchemaType } = require("@google/generative-ai");
-const { SYSTEM_PERSONA } = require("./aiPersona");
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
-
-  try {
-    const { url, knownCategories = [], knownTriggers = [] } = JSON.parse(event.body);
-    if (!url) return { statusCode: 400, body: JSON.stringify({ error: "URL-osoite puuttuu." }) };
-
-    // 1. MÄÄRITELLÄÄN TIUKKA JSON-SKEEMA (STRUCTURED OUTPUT)
-    // Tämä takaa, että AI palauttaa tasan nämä kentät, eikä mitään muuta.
-    const responseSchema = {
-      type: SchemaType.OBJECT,
-      properties: {
-        title: {
-          type: SchemaType.STRING,
-          description: "Palvelun selkeä ja virallinen nimi."
-        },
-        category: {
-          type: SchemaType.STRING,
-          description: `Valitse sopivin olemassa oleva kategoria näistä: ${knownCategories.join(', ')}. Jos mikään ei sovi, luo uusi lyhyt kategoria.`
-        },
-        description: {
-          type: SchemaType.STRING,
-          description: "Tiivis kuvaus asiantuntijalle."
-        },
-        plan_text: {
-          type: SchemaType.STRING,
-          description: "Virkakielinen asiakirjateksti työllistymissuunnitelmaan (1-3 lausetta)."
-        },
-        triggers: {
-          type: SchemaType.STRING,
-          description: `1-3 laukaisevaa signaalia pilkulla erotettuna. Suosi olemassa olevia: ${knownTriggers.join(', ')}.`
-        },
-        language_req: {
-          type: SchemaType.STRING,
-          description: "Suomen kielen taitovaatimus CEFR-asteikolla (esim. A1.2, B1). Palauta tyhjä merkkijono, jos ei mainittu."
-        },
-        brochure_url: {
-          type: SchemaType.STRING,
-          description: "Esitteen, tulostettavan materiaalin tai lisätiedon linkki (esim. PDF) sivun HTML:stä. Palauta suora URL tai tyhjä merkkijono."
-        }
-      },
-      required: ["title", "category", "description", "plan_text", "triggers", "language_req", "brochure_url"]
+exports.handler = async function(event, context) {
+    // 1. CORS-Asetukset
+    const headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
     };
 
-    const SERVICE_TASK_INSTRUCTIONS = `Olet työllisyyspalveluiden asiantuntija. Lue annettu verkkosivuston HTML-sisältö ja tiivistä se täsmälleen määriteltyyn JSON-skeemaan.`;
-
-    // 2. HAETAAN SIVUSTON SISÄLTÖ
-    let websiteContent = "";
-    try {
-        const siteResponse = await fetch(url);
-        if (!siteResponse.ok) throw new Error("Sivuston haku epäonnistui.");
-        const html = await siteResponse.text();
-        websiteContent = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-                             .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-                             .substring(0, 35000); 
-    } catch (fetchErr) {
-        return { statusCode: 400, body: JSON.stringify({ error: "Verkkosivun lukeminen epäonnistui." }) };
+    if (event.httpMethod === 'OPTIONS') {
+        return { statusCode: 200, headers, body: '' };
     }
 
-    // 3. KUTSUTAAN UUTTA GEMINI 3.1 FLASH-LITE -MALLIA
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-3.1-flash-lite-preview", // UUSI NOPEA JA EDULLINEN MALLI
-      systemInstruction: `${SYSTEM_PERSONA}\n\n${SERVICE_TASK_INSTRUCTIONS}`
-    });
+    if (event.httpMethod !== 'POST') {
+        return { statusCode: 405, headers, body: 'Method Not Allowed' };
+    }
 
-    // 4. GENERATION CONFIG: PAKOTETAAN JSON
-    const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: `Analysoi seuraava palvelukuvaus:\n\n${websiteContent}` }] }],
-        generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: responseSchema, // Kytketään tiukka skeema
+    try {
+        const { url, knownCategories, knownTriggers } = JSON.parse(event.body);
+
+        if (!url) {
+            return { statusCode: 400, headers, body: JSON.stringify({ error: 'URL on pakollinen' }) };
         }
-    });
 
-    // Koska käytämme responseMimeTypea, tulos on 100% varmasti puhdas JSON-string. 
-    // Vanhoja ````json ... ```` siivouksia ei enää tarvita!
-    const responseText = result.response.text();
+        // 2. Alustetaan Gemini API
+        // VINKKI: Jos flash-lite-preview antaa edelleen 503-virhettä ruuhkan takia, 
+        // voit vaihtaa malliksi "gemini-3.1-flash", joka on usein vakaampi tuotannossa.
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({
+            model: "gemini-3.1-flash-lite-preview", 
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        title: { 
+                            type: SchemaType.STRING, 
+                            description: "Palvelun virallinen nimi." 
+                        },
+                        category: { 
+                            type: SchemaType.STRING, 
+                            description: `Paras kategoria näistä: ${knownCategories.join(', ')}. Voit luoda uuden vain jos mikään ei sovi.` 
+                        },
+                        description: { 
+                            type: SchemaType.STRING, 
+                            description: "Laaja kuvaus asiantuntijalle. JAA KAHTEEN OSAAN: Kirjoita ensin selkeä tiivistelmä siitä, mitä palvelu tekee. Lisää sen perään tyhjä rivi ja otsikko 'Vaatimukset ja kohderyhmä:', jonka alle listaat selkeästi kenelle palvelu on suunnattu ja mitkä ovat osallistumisen ehdot (esim. ikäraja, asuinpaikka, työttömyyden kesto)." 
+                        },
+                        plan_text: { 
+                            type: SchemaType.STRING, 
+                            description: "Asiakkaan viralliseen asiakirjaan tulostuva teksti. Kirjoita virkamiesmäisesti, passiivissa tai kolmannessa persoonassa. ÄLÄ aloita lausetta kuin jatkaisit jotain aiempaa. Aloita lause muodollisesti, esim: 'Asiakas ohjataan...', 'Asiakas osallistuu...' tai 'Suunnitelmaan sisältyy...'. Kerro lyhyesti myös, miksi palvelu on asiakkaalle hyödyllinen." 
+                        },
+                        triggers: { 
+                            type: SchemaType.ARRAY,
+                            items: { type: SchemaType.STRING },
+                            description: `Palauta taulukkona sopivimmat signaalit näistä: ${knownTriggers.join(', ')}. Voit lisätä myös 1-2 uutta lyhyttä signaalia (esim. 'alle_30v').` 
+                        },
+                        language_req: { 
+                            type: SchemaType.STRING, 
+                            description: "Vaadittu suomen kielen taito CEFR-asteikolla (esim. A1.2, B1.1). Jos ei mainittu, palauta tyhjä merkkijono." 
+                        },
+                        brochure_url: { 
+                            type: SchemaType.STRING, 
+                            description: "Linkki ladattavaan esitteeseen (esim. .pdf). ERIKOISHUOMIO: Jos sivulla on useita esitteitä, valitse EHDOTTOMASTI se, joka on suomenkielinen (urlissa esim. 'fi', 'suomi', 'finnish') ja koskee Helsingin aluetta ('hel', 'helsinki'). Jos tällaista ei löydy, jätä tyhjäksi." 
+                        }
+                    },
+                    required: ["title", "category", "description", "plan_text", "triggers", "language_req", "brochure_url"]
+                }
+            }
+        });
 
-    return { 
-        statusCode: 200, 
-        headers: { "Content-Type": "application/json" }, 
-        body: responseText 
-    };
+        // 3. Suoritetaan haku
+        const prompt = `Lue seuraavan verkkosivun sisältö ja poimi sieltä tiedot työllisyyspalveluiden asiantuntijajärjestelmään: ${url}`;
+        
+        const result = await model.generateContent(prompt);
+        const responseText = result.response.text();
+        
+        // Varmistetaan, että tulos on validia JSONia
+        const aiData = JSON.parse(responseText);
 
-  } catch (error) {
-    console.error("API virhe:", error);
-    return { statusCode: 500, body: JSON.stringify({ error: "Analysointi epäonnistui." }) };
-  }
+        return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify(aiData)
+        };
+
+    } catch (error) {
+        console.error("AI-haun virhe:", error);
+        return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ error: 'Sisällön louhinta epäonnistui', details: error.message })
+        };
+    }
 };

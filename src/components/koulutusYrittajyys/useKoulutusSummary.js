@@ -1,5 +1,5 @@
+// --- src/components/sections/useKoulutusSummary.js ---
 import { useMemo } from 'react';
-import { kielitaitoTasot } from '../../data/guide'; // Varmista polku
 import { toLowerFirst, createListSentence } from '../../utils/stringUtils';
 
 export const useKoulutusSummary = (
@@ -8,151 +8,83 @@ export const useKoulutusSummary = (
     yrittajyysState,
     kielitasoState,
     customTekstit,
-    sectionData,          // Koulutus data
-    korttiSectionData,    // Kortti data
-    yrittajyysSectionData // Yrittäjyys data
+    koulutusPhrases,
+    ammattikorttiPhrases,
+    yrittajyysPhrases,
+    languageLevels
 ) => {
-
-    const summaryData = useMemo(() => {
-        // Alustetaan tilat tyhjiksi objekteiksi varmuuden vuoksi
-        koulutusState = koulutusState || {};
-        ammattikortitState = ammattikortitState || {};
-        yrittajyysState = yrittajyysState || {};
-        const { customKoulutusText, customKielitasoText } = customTekstit || {};
-
-        // Haetaan fraasit omista osioistaan
-        const koulutusFraasit = sectionData?.fraasit || [];
-        const korttiFraasit = korttiSectionData?.fraasit || [];
-        const yrittajyysFraasit = yrittajyysSectionData?.fraasit || [];
-
-        // Alustetaan osien lauseet
+    return useMemo(() => {
         let koulutusLause = '';
         let yrittajyysLause = '';
         let ammattikorttiLause = '';
         let kielitaitoLause = '';
-
-        // Kerätään generoidut osat tähän
         let generatedParts = [];
 
-        // --- 1a. Käsittele Koulutus-valinta ---
-        if (koulutusState && koulutusState.avainsana) {
-            const phrase = koulutusFraasit.find(f => f.avainsana === koulutusState.avainsana);
+        // --- 1. Koulutus ---
+        if (koulutusState?.avainsana) {
+            const phrase = koulutusPhrases.find(f => f.phrase_key === koulutusState.avainsana);
             if (phrase) {
-                let text = phrase.teksti || '';
+                let text = phrase.base_text || '';
                 if (koulutusState.muuttujat) {
                     Object.entries(koulutusState.muuttujat).forEach(([key, value]) => {
-                        if (value || typeof value === 'number') {
-                            text = text.replace(`[${key}]`, value);
-                        }
+                        if (value) text = text.replace(`[${key}]`, value);
                     });
                 }
                 koulutusLause = text.replace(/\s*\[.*?\]/g, '').trim();
-                if (koulutusLause) generatedParts.push(koulutusLause);
+                generatedParts.push(koulutusLause);
             }
         }
 
-        // --- 1b. Käsittele Yrittäjyys-valinta ---
-        if (yrittajyysState && yrittajyysState.avainsana) {
-             const phrase = yrittajyysFraasit.find(f => f.avainsana === yrittajyysState.avainsana);
-             if(phrase) {
-                 yrittajyysLause = phrase.teksti.trim();
-                 if (yrittajyysLause) generatedParts.push(yrittajyysLause);
+        // --- 2. Yrittäjyys ---
+        if (yrittajyysState?.avainsana) {
+             const phrase = yrittajyysPhrases.find(f => f.phrase_key === yrittajyysState.avainsana);
+             if (phrase?.base_text) {
+                 yrittajyysLause = phrase.base_text.trim();
+                 generatedParts.push(yrittajyysLause);
              }
         }
 
-        // --- 2. Käsittele Ammattikortit (KORJATTU EHTO) ---
-        const selectedCards = Object.keys(ammattikortitState)
-            .map(avainsana => {
-                // TARKISTETAAN, ONKO ARVO OBJEKTI (vanha App.jsx tallentaa näin)
-                if (typeof ammattikortitState[avainsana] === 'object' && ammattikortitState[avainsana] !== null) {
-                    const fraasi = korttiFraasit.find(f => f.avainsana === avainsana);
-                    if (fraasi) {
-                        return fraasi.teksti; // Otetaan tekstikenttä planData:sta
-                    }
+        // --- 3. Ammattikortit ---
+        const selectedCards = Object.keys(ammattikortitState || {})
+            .map(key => {
+                if (ammattikortitState[key]) {
+                    const phrase = ammattikorttiPhrases.find(f => f.phrase_key === key);
+                    return phrase?.base_text;
                 }
-                // Jos tulevaisuudessa App.jsx korjataan tallentamaan 'true', tämä ehto toimisi:
-                // else if (ammattikortitState[avainsana] === true) { ... }
                 return null;
             })
-            .filter(Boolean); // Poistaa null-arvot
+            .filter(Boolean);
 
         if (selectedCards.length > 0) {
-            const cardListString = createListSentence(selectedCards);
-            ammattikorttiLause = `Asiakkaalla on voimassa mm. ${cardListString}.`;
+            ammattikorttiLause = `Asiakkaalla on voimassa mm. ${createListSentence(selectedCards)}.`;
             generatedParts.push(ammattikorttiLause);
         }
 
-        // --- 3. Käsittele Kielitaito ---
-        let languageParts = [];
-        let suomiTiedot = '';
-        if (kielitasoState?.muutKielet && kielitasoState.muutKielet.length > 0) {
-             if (typeof kielitaitoTasot !== 'undefined') {
-                const suomi = kielitasoState.muutKielet.find(lang => lang.kieli.toLowerCase() === 'suomi' && lang.taso);
-                if (suomi) {
-                    const levelDescription = kielitaitoTasot[suomi.taso]?.selkokuvaus;
-                    if (levelDescription) {
-                        suomiTiedot = toLowerFirst(levelDescription);
-                    }
-                }
-             }
+        // --- 4. Kielitaito (Äidinkieli + Suomi dynaamisesti) ---
+        const aidinkieli = customTekstit?.aidinkieli;
+        const suomiTaso = customTekstit?.suomiTaso;
+
+        if (aidinkieli && suomiTaso) {
+            const levelData = languageLevels.find(l => l.level_key === suomiTaso);
+            const workDesc = levelData ? toLowerFirst(levelData.work_description) : "";
+            kielitaitoLause = `Asiakkaan äidinkieli on ${aidinkieli}, suomen kielen taito on tasolla ${suomiTaso}. Asiakas ${workDesc}`;
+        } else if (aidinkieli) {
+            kielitaitoLause = `Asiakkaan äidinkieli on ${aidinkieli}.`;
+        } else if (suomiTaso) {
+            const levelData = languageLevels.find(l => l.level_key === suomiTaso);
+            const workDesc = levelData ? toLowerFirst(levelData.work_description) : "";
+            kielitaitoLause = `Asiakkaan suomen kielen taito on tasolla ${suomiTaso}. Asiakas ${workDesc}`;
         }
-        if (kielitasoState?.aidinkieli && suomiTiedot) {
-            const suomiTiedotSuomeksi = suomiTiedot.replace(/^(\w+)/, '$1 suomeksi');
-            languageParts.push(`Asiakkaan äidinkieli on ${kielitasoState.aidinkieli}, asiakas ${suomiTiedotSuomeksi}`);
-        } else if (kielitasoState?.aidinkieli) {
-            languageParts.push(`Asiakkaan äidinkieli on ${kielitasoState.aidinkieli}.`);
-        } else if (suomiTiedot) {
-            const suomiTiedotSuomeksi = suomiTiedot.replace(/^(\w+)/, '$1 suomeksi');
-            languageParts.push(`Asiakas ${suomiTiedotSuomeksi}`);
-        }
-        if (languageParts.length > 0) {
-            const lause = languageParts.join(', ');
-            kielitaitoLause = lause.endsWith('.') ? lause : lause + '.';
-            generatedParts.push(kielitaitoLause);
-        }
+        if (kielitaitoLause) generatedParts.push(kielitaitoLause.trim());
 
-        // --- 4. Yhdistä generoidut ja custom-tekstit ---
-        const combinedGenerated = generatedParts.filter(part => part && part.trim() !== '').join(' ').replace(/\.\./g, '.').trim();
-
-        let finalTextParts = [];
-        if (combinedGenerated) finalTextParts.push(combinedGenerated);
-
-         // Lisää customKielitasoText (jos on olemassa JA eroaa generoidusta)
-         if (customKielitasoText && customKielitasoText.trim()) {
-             if (!combinedGenerated.includes(customKielitasoText.trim())) {
-                 if(!finalTextParts.some(p => p === customKielitasoText.trim())) {
-                    finalTextParts.push(customKielitasoText.trim());
-                 }
-             }
-         }
-
-        // Yhdistetään lopullinen lause pisteillä ja välilyönneillä
-        let yhdistettyLause = finalTextParts.join('. ').replace(/\.\./g, '.').trim();
-         // Varmistetaan, että lopussa on piste, jos tekstiä on
-        if (yhdistettyLause && !yhdistettyLause.endsWith('.')) {
-             yhdistettyLause += '.';
-        }
-
-        // Palautetaan objekti, joka sisältää sekä osat että lopullisen yhdistetyn lauseen
+        const yhdistettyLause = generatedParts.join(' ').replace(/\.\./g, '.').trim();
+        
         return {
             koulutusLause,
             yrittajyysLause,
             ammattikorttiLause,
             kielitaitoLause,
-            yhdistettyLause
+            yhdistettyLause: yhdistettyLause + (yhdistettyLause && !yhdistettyLause.endsWith('.') ? '.' : '')
         };
-
-    }, [
-        koulutusState,
-        ammattikortitState,
-        yrittajyysState,
-        kielitasoState,
-        customTekstit,
-        sectionData,
-        korttiSectionData,
-        yrittajyysSectionData
-    ]);
-
-    // Palautetaan koko dataobjekti
-    return summaryData;
+    }, [koulutusState, ammattikortitState, yrittajyysState, customTekstit, koulutusPhrases, ammattikorttiPhrases, yrittajyysPhrases, languageLevels]);
 };

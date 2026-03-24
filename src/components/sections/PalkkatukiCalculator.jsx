@@ -15,7 +15,6 @@ const PalkkatukiCalculator = ({ state, actions }) => {
     const ptState = state.palkkatuki || {};
     const signals = state.signals || {};
 
-    // UUSI JA KORJATTU: Funktio, joka päivittää laskurin ja lähettää oikean signaalin
     const handleSupportToggle = (avain, signaaliNimi, isChecked) => {
         onUpdatePalkkatuki(avain, isChecked);
         
@@ -26,7 +25,6 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         }
     };
 
-    // Apufunktio suomalaisten päivämäärien parsintaan
     const parseFiDate = (dateStr) => {
         if (!dateStr) return null;
         const parts = dateStr.split('.');
@@ -38,7 +36,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
     };
 
     // =========================================================================
-    // 1. PALKKATUKI MATEMATIIKKA (24/28 kk sääntö ja 3 kk Helsinki-lisä)
+    // 1. PALKKATUKI MATEMATIIKKA
     // =========================================================================
     
     const { 
@@ -55,10 +53,9 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         let originalKestoTxt = 'Ei tiedossa';
 
         const syntymaVuosi = state.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.[STATE_MUUTTUJAT.SYNTYMAVUOSI]
-                          || state.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.['[SYNTYMÄVUOSI]']; // Tuki toiselle formaatille
+                          || state.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.['[SYNTYMÄVUOSI]']; 
 
-     if (syntymaVuosi) {
-            // KORJAUS: Pakotetaan arvo tekstiksi String() -komennolla ennen replace-funktion käyttöä
+        if (syntymaVuosi) {
             const vuosiNum = parseInt(String(syntymaVuosi).replace(/\D/g, ''), 10);
             if (!isNaN(vuosiNum)) {
                 laskettuIka = new Date().getFullYear() - vuosiNum;
@@ -109,7 +106,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
     }, [ehto24_28_tayttyy, ptState.ehto24_28_tayttyy, onUpdatePalkkatuki]);
 
     // =========================================================================
-    // 2. TYÖKOKEILUN 6 KK LASKURI (Copy-Paste)
+    // 2. TYÖKOKEILUN 6 KK LASKURI
     // =========================================================================
     
     const tkText = ptState.tyokokeilu_historia || '';
@@ -163,7 +160,6 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         };
     }, [tkText, isUnder25]);
 
-    // Tallennetaan automaattisesti laskettu kuukausimäärä tilaan, jotta fraasit saavat sen
     useEffect(() => {
         if (ptState.tyokokeilu_kesto_kk !== tkCalc.remainingMonths) {
             onUpdatePalkkatuki('tyokokeilu_kesto_kk', tkCalc.remainingMonths);
@@ -242,57 +238,75 @@ const PalkkatukiCalculator = ({ state, actions }) => {
     }, [ika, ehto24_28_tayttyy, ehto3kk_tayttyy, signals, state.tyokyky, ptState.tyonantaja_yhdistys, ptState.kotikunta_helsinki]);
 
     // =========================================================================
-    // 4. TEKSTINGENEROINTI (Vaihtoehtoisen puollon logiikka)
+    // 4. TEKSTINGENEROINTI (Ikiliikkuja korjattu!)
     // =========================================================================
     
+    // Muutetaan lisähuomiot merkkijonoksi, jotta React ei luule sitä uudeksi objektiksi joka renderöinnillä
+    const lisahuomiotStr = JSON.stringify(ptState.lisahuomiot || {});
+
     useEffect(() => {
-        if (!ptState.palkkatuki_puolletaan && !ptState.helsinkilisa_puolletaan && !ptState.tyokokeilu_puolletaan) {
-            onUpdatePalkkatuki('puoltoKappale', '');
-            return;
-        }
+        let uusiKappale = '';
 
-        let lauseet = [];
-        
-        // MOLEMMAT VALITTU (Vaihtoehtoinen malli)
-        if (ptState.helsinkilisa_puolletaan && ptState.palkkatuki_puolletaan) {
-            let ptPeruste = "ammatillisen osaamisen puutteiden perusteella (50 %)";
-            if (ptState.puoltoTyyppi === '100_yhdistys') ptPeruste = "yhdistykselle 24 kk työttömyyden perusteella (100 %)";
-            if (ptState.puoltoTyyppi === '70_tyokyky') ptPeruste = "työkyvyn alentuman perusteella (70 %)";
-            if (ptState.puoltoTyyppi === '55_tuki') ptPeruste = "55-vuotiaiden työllistämistukena";
-
-            lauseet.push(`Asiakkaalle voidaan puoltaa valtion palkkatukea ${ptPeruste} tai vaihtoehtoisesti Helsinki-lisää (50 % palkkauskustannuksista, enintään 1500 €/kk).`);
-            lauseet.push(`Huomioitavaa on, että tuet ovat toisensa poissulkevia, ja työnantaja voi saada vain toista näistä tuista kerrallaan. Helsinki-lisän myöntäminen edellyttää valtion palkkatuesta luopumista kyseisessä työsuhteessa.`);
-        } 
-        // VAIN HELSINKI-LISÄ
-        else if (ptState.helsinkilisa_puolletaan) {
-            const kesto = ptState.onko_oppisopimus ? "koko oppisopimuksen ajalle" : "enintään 12 kuukauden ajalle";
-            lauseet.push(`Asiakkaalle voidaan myöntää Helsinki-lisä (50 % palkkauskustannuksista, enintään 1500 €/kk). Tukea myönnetään ${kesto}.`);
-        } 
-        // VAIN PALKKATUKI
-        else if (ptState.palkkatuki_puolletaan) {
-            let peruste = "ammatillisen osaamisen puutteiden perusteella (50 %)";
-            if (ptState.puoltoTyyppi === '100_yhdistys') peruste = "yhdistykselle 24 kk työttömyyden perusteella (100 %)";
-            if (ptState.puoltoTyyppi === '70_tyokyky') peruste = "työkyvyn alentuman perusteella (70 %)";
-            if (ptState.puoltoTyyppi === '55_tuki') peruste = "55-vuotiaiden työllistämistukena";
-            lauseet.push(`Asiakkaalle voidaan puoltaa palkkatukea ${peruste}.`);
-        }
-
-        if (ptState.tyokokeilu_puolletaan) {
-            const liite = lauseet.length > 0 ? "Lisäksi puolletaan " : "Asiakkaalle puolletaan ";
-            // Lisätään kesto tulosteeseen
-            const kestoTieto = tkCalc.remainingMonths > 0 ? ` enintään ${tkCalc.remainingMonths} kuukaudeksi` : '';
-            lauseet.push(`${liite}työkokeilua${kestoTieto}.`);
-        }
-
-        const currentHuomiot = ptState.lisahuomiot || {};
-        const valitutHuomiot = Object.values(PALKKATUKI_LISAHUOMIOT)
-            .filter(h => currentHuomiot[h.id] === true)
-            .map(h => h.teksti);
+        if (ptState.palkkatuki_puolletaan || ptState.helsinkilisa_puolletaan || ptState.tyokokeilu_puolletaan) {
+            let lauseet = [];
             
-        if (valitutHuomiot.length > 0) lauseet.push(`\n\n${valitutHuomiot.join(' ')}`);
+            // MOLEMMAT VALITTU
+            if (ptState.helsinkilisa_puolletaan && ptState.palkkatuki_puolletaan) {
+                let ptPeruste = "ammatillisen osaamisen puutteiden perusteella (50 %)";
+                if (ptState.puoltoTyyppi === '100_yhdistys') ptPeruste = "yhdistykselle 24 kk työttömyyden perusteella (100 %)";
+                if (ptState.puoltoTyyppi === '70_tyokyky') ptPeruste = "työkyvyn alentuman perusteella (70 %)";
+                if (ptState.puoltoTyyppi === '55_tuki') ptPeruste = "55-vuotiaiden työllistämistukena";
 
-        onUpdatePalkkatuki('puoltoKappale', lauseet.join(' '));
-    }, [ptState.palkkatuki_puolletaan, ptState.helsinkilisa_puolletaan, ptState.tyokokeilu_puolletaan, ptState.puoltoTyyppi, ptState.lisahuomiot, ptState.onko_oppisopimus, tkCalc.remainingMonths, onUpdatePalkkatuki]);
+                lauseet.push(`Asiakkaalle voidaan puoltaa valtion palkkatukea ${ptPeruste} tai vaihtoehtoisesti Helsinki-lisää (50 % palkkauskustannuksista, enintään 1500 €/kk).`);
+                lauseet.push(`Huomioitavaa on, että tuet ovat toisensa poissulkevia, ja työnantaja voi saada vain toista näistä tuista kerrallaan. Helsinki-lisän myöntäminen edellyttää valtion palkkatuesta luopumista kyseisessä työsuhteessa.`);
+            } 
+            // VAIN HELSINKI-LISÄ
+            else if (ptState.helsinkilisa_puolletaan) {
+                const kesto = ptState.onko_oppisopimus ? "koko oppisopimuksen ajalle" : "enintään 12 kuukauden ajalle";
+                lauseet.push(`Asiakkaalle voidaan myöntää Helsinki-lisä (50 % palkkauskustannuksista, enintään 1500 €/kk). Tukea myönnetään ${kesto}.`);
+            } 
+            // VAIN PALKKATUKI
+            else if (ptState.palkkatuki_puolletaan) {
+                let peruste = "ammatillisen osaamisen puutteiden perusteella (50 %)";
+                if (ptState.puoltoTyyppi === '100_yhdistys') peruste = "yhdistykselle 24 kk työttömyyden perusteella (100 %)";
+                if (ptState.puoltoTyyppi === '70_tyokyky') peruste = "työkyvyn alentuman perusteella (70 %)";
+                if (ptState.puoltoTyyppi === '55_tuki') peruste = "55-vuotiaiden työllistämistukena";
+                lauseet.push(`Asiakkaalle voidaan puoltaa palkkatukea ${peruste}.`);
+            }
+
+            if (ptState.tyokokeilu_puolletaan) {
+                const liite = lauseet.length > 0 ? "Lisäksi puolletaan " : "Asiakkaalle puolletaan ";
+                const kestoTieto = tkCalc.remainingMonths > 0 ? ` enintään ${tkCalc.remainingMonths} kuukaudeksi` : '';
+                lauseet.push(`${liite}työkokeilua${kestoTieto}.`);
+            }
+
+            // Käytetään vanhaa lisähuomiot-viittausta turvallisesti
+            const currentHuomiot = ptState.lisahuomiot || {};
+            const valitutHuomiot = Object.values(PALKKATUKI_LISAHUOMIOT)
+                .filter(h => currentHuomiot[h.id] === true)
+                .map(h => h.teksti);
+                
+            if (valitutHuomiot.length > 0) lauseet.push(`\n\n${valitutHuomiot.join(' ')}`);
+
+            uusiKappale = lauseet.join(' ');
+        }
+
+        // TÄSSÄ ON KORJATTU JARRU! Päivitetään tilaa vain jos teksti on aidosti muuttunut.
+        if (ptState.puoltoKappale !== uusiKappale) {
+            onUpdatePalkkatuki('puoltoKappale', uusiKappale);
+        }
+
+    }, [
+        ptState.palkkatuki_puolletaan, 
+        ptState.helsinkilisa_puolletaan, 
+        ptState.tyokokeilu_puolletaan, 
+        ptState.puoltoTyyppi, 
+        ptState.onko_oppisopimus, 
+        tkCalc.remainingMonths,
+        ptState.puoltoKappale, // Nyt koodi pystyy tarkistamaan edellisen arvon!
+        lisahuomiotStr,        // Ja tämä ei luo enää uutta viittausta
+        onUpdatePalkkatuki
+    ]);
 
     const handleLisahuomioToggle = (id) => {
         const current = ptState.lisahuomiot || {};
@@ -492,7 +506,6 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                             Puolletaan Helsinki-lisää (Väh. 3 kk työttömyys)
                         </label>
                         
-                        {/* TYÖKOKEILU RUKSI ON ESTETTY, JOS MAKSIMIAIKA ON TÄYNNÄ */}
                         <label className="custom-checkbox-row" style={{ opacity: tkCalc.isMaxedOut ? 0.5 : 1 }}>
                             <input 
                                 type="checkbox" 

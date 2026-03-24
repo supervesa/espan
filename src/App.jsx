@@ -20,7 +20,6 @@ import PalkkatukiCalculator from './components/sections/PalkkatukiCalculator';
 import Palveluunohjaus from './components/sections/Palveluunohjaus';
 import Suunnitelma from './components/sections/Suunnitelma';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
-import Kielitaso from './components/sections/Kielitaso';
 import AiAnalyysi from './components/AiAnalyysi';
 import Jalkimarkkinointi from './components/Jalkimarkkinointi';
 import AdminWorkspace from './components/admin/AdminWorkspace';
@@ -145,7 +144,6 @@ function App() {
                         <section id="osio-tyottomyysturva"><Tyottomyysturva state={state} actions={actions} /></section>
                         <section id="osio-tyotilanne"><Tyotilanne state={state} actions={actions} planData={dbPlanData} knowledgeData={dbKnowledge} /></section>
                         <section id="osio-koulutus"><KoulutusJaYrittajyys state={state} actions={actions} /></section>
-                        <Kielitaso state={state} actions={actions} />
                         <section id="osio-tyokyky"><Tyokyky state={state} actions={actions} /></section>
                         <section id="osio-palkkatuki"><PalkkatukiCalculator state={state} actions={actions} /></section>
                         <section id="osio-palveluohjaus"><Palveluunohjaus state={state} actions={actions} /></section>

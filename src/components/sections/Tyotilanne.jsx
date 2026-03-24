@@ -1,12 +1,14 @@
+// --- src/components/sections/Tyotilanne.jsx ---
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { supabase } from '../../utils/supabaseClient';
 import { PhraseOption } from '../PhraseOption';
+import { planData } from '../../data/planData'; // LISÄTTY: Tuodaan planData injektiota varten
 
 // --- APUFUNKTIOT PÄIVÄMÄÄRILLE ---
 const parseFinnishDate = (val) => {
     if (!val) return null;
     if (val instanceof Date) return val;
     if (typeof val !== 'string') return null;
-    
     const s = val.trim();
     if (s.includes('T')) return new Date(s);
     if (s.includes('.')) {
@@ -20,7 +22,6 @@ const parseFinnishDate = (val) => {
     return null;
 };
 
-// Pakottaa päivämäärän aina YYYY-MM-DD -muotoon muita komponentteja varten
 const toISODate = (val) => {
     const d = parseFinnishDate(val);
     if (!d || isNaN(d.getTime())) return "";
@@ -39,27 +40,85 @@ const calculateMonthsDifference = (startDate) => {
     return Math.max(0, diff);
 };
 
-const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
-    const sectionData = planData.aihealueet.find(s => s.id === 'tyotilanne');
-    const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
-    
-    const sectionId = sectionData?.id; 
-    const currentSectionState = state[sectionId] || {};
+const Tyotilanne = ({ state, actions, knowledgeData }) => {
+    const DB_TYOTILANNE = '41642216-1e1e-46d3-8091-67fc0d9d75f6';
+    const UI_KEY = 'tyotilanne';
 
-    // --- TILANHALLINTA ---
+    const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
+    const currentSectionState = state[UI_KEY] || {};
+
+    const [phrases, setPhrases] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    const transformVariables = (varsArray) => {
+        if (!varsArray || !Array.isArray(varsArray) || varsArray.length === 0) return null;
+        const transformed = varsArray.reduce((acc, curr) => {
+            let parsedOptions = [];
+            try {
+                if (curr.options) {
+                    parsedOptions = JSON.parse(curr.options);
+                    if (typeof parsedOptions === 'string') parsedOptions = JSON.parse(parsedOptions);
+                }
+            } catch (e) {}
+            acc[curr.variable_key] = { tyyppi: curr.input_type, oletus: curr.default_value, vaihtoehdot: parsedOptions };
+            return acc;
+        }, {});
+        return Object.keys(transformed).length > 0 ? transformed : null;
+    };
+
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const [phrasesRes, varsRes] = await Promise.all([
+                    supabase.from('phrases').select('*').eq('section_id', DB_TYOTILANNE).order('created_at'),
+                    supabase.from('variables').select('*')
+                ]);
+
+                if (phrasesRes.error) throw phrasesRes.error;
+
+                const enrichedPhrases = (phrasesRes.data || []).map(phrase => ({
+                    ...phrase,
+                    variables: (varsRes.data || []).filter(v => v.phrase_id === phrase.id)
+                }));
+
+                // --- TAIKATEMPPU: INJEKTOIDAAN UUDET FRAASIT PLANDATAAN ---
+                const sectionInPlanData = planData.aihealueet.find(s => s.id === UI_KEY);
+                if (sectionInPlanData) {
+                    enrichedPhrases.forEach(dbPhrase => {
+                        const exists = sectionInPlanData.fraasit.find(f => f.avainsana === dbPhrase.phrase_key);
+                        if (!exists) {
+                            sectionInPlanData.fraasit.push({
+                                avainsana: dbPhrase.phrase_key,
+                                teksti: dbPhrase.base_text,
+                                lyhenne: dbPhrase.short_title,
+                                muuttujat: transformVariables(dbPhrase.variables)
+                            });
+                        }
+                    });
+                }
+                // --------------------------------------------------------
+
+                setPhrases(enrichedPhrases);
+            } catch (err) {
+                console.error("Virhe Tyotilanne-haussa:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, []);
+
+    // --- TILANHALLINTA PÄIVÄMÄÄRILLE ---
     const [serviceDates, setServiceDates] = useState({ start: "", end: "" });
     const [calculations, setCalculations] = useState({ duration: 0, remaining: 0 });
     const [pasteArea, setPasteArea] = useState("");
     const isCommitting = useRef(false);
 
-    // --- PAIKALLINEN LASKENTA (Ei ikiliikkujaa!) ---
     const updateLocalCalculations = useCallback((start, end) => {
-        // Jos jompikumpi päivämäärä puuttuu, nollataan kiltisti
         if (!start || !end) {
              setCalculations({ duration: 0, remaining: 0 });
              return { durationDays: 0, daysUntilEnd: 0 };
         }
-        
         const s = new Date(start);
         const e = new Date(end);
         const today = new Date();
@@ -72,30 +131,23 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
         return { durationDays, daysUntilEnd };
     }, []);
 
-    // --- SYNKRONOINTI GLOBAALISTA TILASTA ---
     useEffect(() => {
         if (!isCommitting.current) {
-            // Muunnetaan globaalin tilan ehkä rikkinäinen data heti oikeaan muotoon
             const alk = toISODate(currentSectionState.palvelu_alku);
             const lop = toISODate(currentSectionState.palvelu_loppu);
-            
             setServiceDates({ start: alk, end: lop });
             updateLocalCalculations(alk, lop);
         }
     }, [currentSectionState.palvelu_alku, currentSectionState.palvelu_loppu, updateLocalCalculations]);
 
-    // --- TALLENNUS GLOBAALIIN TILAAN (Lähettää dataa eteenpäin) ---
     const commitDates = (start, end) => {
         isCommitting.current = true;
-        
-        // Varmistetaan, että globaaliin tilaan menee AINA standardoitu YYYY-MM-DD
         const safeStart = toISODate(start);
         const safeEnd = toISODate(end);
 
-        onUpdateVariable(sectionId, 'palvelu_alku', safeStart);
-        onUpdateVariable(sectionId, 'palvelu_loppu', safeEnd);
+        onUpdateVariable(UI_KEY, 'palvelu_alku', safeStart);
+        onUpdateVariable(UI_KEY, 'palvelu_loppu', safeEnd);
 
-        // Päivitetään numerot heti, vaikka toinen pvm puuttuisi (nollaa laskurin)
         const { durationDays, daysUntilEnd } = updateLocalCalculations(safeStart, safeEnd);
 
         if (safeStart && safeEnd) {
@@ -104,26 +156,18 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
             const startFi = s.toLocaleDateString('fi-FI');
             const endFi = e.toLocaleDateString('fi-FI');
             
-            // Signaalit muille (THV ja Aikatauluavustaja näkevät nämä)
-            onUpdateVariable(sectionId, 'palvelu_yli_1kk', durationDays >= 30);
-            onUpdateVariable(sectionId, 'palvelu_paattymassa_1kk', daysUntilEnd <= 31 && daysUntilEnd > 0);
+            onUpdateVariable(UI_KEY, 'palvelu_yli_1kk', durationDays >= 30);
+            onUpdateVariable(UI_KEY, 'palvelu_paattymassa_1kk', daysUntilEnd <= 31 && daysUntilEnd > 0);
 
-            // Tulosteen teksti
             let printText = `. Palvelun ajankohta: ${startFi}–${endFi}.`;
-            if (durationDays >= 30) {
-                printText += ` Kyseessä on yli kuukauden kestävä palvelu (46 §).`;
-            }
-            onUpdateCustomText(sectionId, printText);
+            if (durationDays >= 30) printText += ` Kyseessä on yli kuukauden kestävä palvelu (46 §).`;
+            onUpdateCustomText(UI_KEY, printText);
         } else {
-            // Siivous, jos loppupäivä tai alkupäivä poistetaan
-            onUpdateCustomText(sectionId, "");
-            onUpdateVariable(sectionId, 'palvelu_yli_1kk', false);
-            onUpdateVariable(sectionId, 'palvelu_paattymassa_1kk', false);
+            onUpdateCustomText(UI_KEY, "");
+            onUpdateVariable(UI_KEY, 'palvelu_yli_1kk', false);
+            onUpdateVariable(UI_KEY, 'palvelu_paattymassa_1kk', false);
         }
-
-        setTimeout(() => {
-            isCommitting.current = false;
-        }, 800);
+        setTimeout(() => { isCommitting.current = false; }, 800);
     };
 
     const handleDateChange = (type, value) => {
@@ -132,16 +176,12 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
         commitDates(newDates.start, newDates.end);
     };
 
-    // --- KORJATTU COPY-PASTE TOIMINTO ---
     const handlePasteChange = (val) => {
         setPasteArea(val);
         const rangeMatch = val.match(/(\d{1,2}\.\d{1,2}\.\d{4})\s*[-–]\s*(\d{1,2}\.\d{1,2}\.\d{4})/);
-        
         if (rangeMatch) {
-            // Nyt syötetään tekstit sellaisenaan toISODate:lle (joka kutsuu parseFinnishDatea turvallisesti)
             const s = toISODate(rangeMatch[1]);
             const e = toISODate(rangeMatch[2]);
-
             if (s && e) {
                 setServiceDates({ start: s, end: e });
                 commitDates(s, e);
@@ -150,7 +190,6 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
         }
     };
 
-    // --- A-TMT LOGIIKKA ---
     const aTmtGuide = useMemo(() => {
         const guide = {};
         if (knowledgeData) {
@@ -166,7 +205,9 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
     }, [knowledgeData]);
 
     const aTmtRecommendation = useMemo(() => {
-        const selectedKeys = Object.keys(currentSectionState).filter(k => currentSectionState[k] === true);
+        const selectedKeys = Object.keys(currentSectionState).filter(k => 
+            currentSectionState[k] === true || (typeof currentSectionState[k] === 'object' && currentSectionState[k] !== null)
+        );
         const tyonhakuAlkanut = state.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.PÄIVÄMÄÄRÄ;
         let highestPriority = -1;
         let recommendedKey = null;
@@ -185,21 +226,27 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
         };
     }, [currentSectionState, state.suunnitelman_perustiedot, aTmtGuide]);
 
-    if (!sectionData) return null;
+    if (loading) return <div className="section-container">Ladataan työtilannetta...</div>;
 
     const showsServiceBox = currentSectionState.palkkatuki || currentSectionState.tyokokeilu || currentSectionState.tyovoimakoulutus;
 
     return (
         <section className="section-container">
-            <h2 className="section-title">{sectionData.otsikko}</h2>
+            <h2 className="section-title">Asiakkaan työtilanne</h2>
             
             <div className="options-container">
-                {sectionData.fraasit.map(phrase => (
+                {phrases.map(phrase => (
                     <PhraseOption
-                        key={phrase.avainsana}
-                        phrase={phrase}
-                        section={sectionData}
-                        isSelected={currentSectionState[phrase.avainsana]}
+                        key={phrase.id}
+                        phrase={{
+                            ...phrase,
+                            avainsana: phrase.phrase_key,
+                            teksti: phrase.base_text,
+                            lyhenne: phrase.short_title,
+                            muuttujat: transformVariables(phrase.variables)
+                        }}
+                        section={{ id: UI_KEY, monivalinta: true }}
+                        isSelected={currentSectionState[phrase.phrase_key]}
                         onSelect={onSelect}
                         onUpdateVariable={onUpdateVariable}
                     />
@@ -210,7 +257,6 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
                 <div className="subsection" style={{ marginTop: '1.5rem', padding: '1.5rem', backgroundColor: 'var(--color-background)', borderRadius: 'var(--border-radius)', border: '1px solid var(--color-border)' }}>
                     <h3 className="subsection-title">Palvelun ajankohta (46 §)</h3>
                     
-                    {/* LISÄTTY LINTER-YHTEENSOPIVAT ID:T */}
                     <div className="info-row" style={{ marginBottom: '1.5rem' }}>
                         <label htmlFor="paste-dates">Pikasyöttö (Liitä esim. 1.1.2025-30.6.2025):</label>
                         <input 
@@ -251,7 +297,6 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
                         </div>
                     </div>
 
-                    {/* LASKURI AINA NÄKYVISSÄ, piilotusehdot revitty pois */}
                     <div className="smart-analysis-box" style={{ marginTop: '1.5rem', backgroundColor: '#ffffff', border: '1px solid var(--color-border)' }}>
                         <div className="smart-analysis-grid" style={{ padding: '10px' }}>
                             <div className="smart-analysis-column">
@@ -276,13 +321,13 @@ const Tyotilanne = ({ state, actions, planData, knowledgeData }) => {
             )}
 
             <div className="custom-text-container" style={{ marginTop: '1.5rem' }}>
-                <label htmlFor={`custom-text-${sectionId}`}>Suunnitelmaan tulostuva teksti:</label>
+                <label htmlFor={`custom-text-${UI_KEY}`}>Suunnitelmaan tulostuva teksti:</label>
                 <textarea
-                    id={`custom-text-${sectionId}`}
+                    id={`custom-text-${UI_KEY}`}
                     rows="3"
                     className="form-input"
-                    value={state[`custom-${sectionId}`] || ''}
-                    onChange={(e) => onUpdateCustomText(sectionId, e.target.value)}
+                    value={state[`custom-${UI_KEY}`] || ''}
+                    onChange={(e) => onUpdateCustomText(UI_KEY, e.target.value)}
                     placeholder="Päivämäärät ilmestyvät tänne automaattisesti..."
                 />
             </div>
