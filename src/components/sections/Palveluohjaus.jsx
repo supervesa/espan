@@ -184,11 +184,27 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                                 {signals['osallistuu_tulkki'] ? ' Tulkki-signaali rajoittaa valintoja.' : ''}
                             </div>
                         )}
-                        <p>{service.description}</p>
-                        <p className="service-card-plan-text">
+                        <p style={{ whiteSpace: 'pre-line' }}>{service.description}</p>
+                        <p className="service-card-plan-text" style={{ whiteSpace: 'pre-line' }}>
                             <strong>Suunnitelmaan tuleva teksti:</strong><br/>
                             {service.plan_text}
                         </p>
+                        
+                        {/* TÄSSÄ ON UUSI LINKKIOSIO */}
+                        {(service.url || service.brochure_url) && (
+                            <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1.2rem', paddingTop: '1rem', borderTop: '1px dashed var(--color-border)', flexWrap: 'wrap' }}>
+                                {service.url && (
+                                    <a href={service.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-primary)', textDecoration: 'none', fontSize: '0.9rem', fontWeight: '500' }}>
+                                        <ExternalLink size={16} /> Siirry palvelun sivuille
+                                    </a>
+                                )}
+                                {service.brochure_url && (
+                                    <a href={service.brochure_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-success)', textDecoration: 'none', fontSize: '0.9rem', fontWeight: '500' }}>
+                                        <FileText size={16} /> Avaa esite / lisätietoa
+                                    </a>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

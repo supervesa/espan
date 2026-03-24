@@ -2137,3 +2137,50 @@ div[style*="margin-top: 1rem"] > label input[type="checkbox"] {
 .service-card-link:hover {
     text-decoration: underline;
 }
+
+/* --- SÄHKÖPOSTIN ESIKATSELU (Jalkimarkkinointi) --- */
+.email-rich-preview {
+    background-color: var(--color-surface);
+    border: 1px dashed var(--color-primary);
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.email-rich-preview h2, 
+.email-rich-preview h3 {
+    color: var(--color-primary);
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.email-rich-preview h2:first-child, 
+.email-rich-preview h3:first-child {
+    margin-top: 0;
+}
+
+.email-rich-preview ul {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin: 1rem 0;
+}
+
+.email-rich-preview li {
+    margin-bottom: 0.5rem;
+    color: var(--color-text-primary);
+}
+
+.email-rich-preview a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    font-weight: 500;
+}
+
+.email-rich-preview p {
+    color: var(--color-text-primary);
+    margin-bottom: 1rem;
+}

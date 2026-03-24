@@ -106,10 +106,17 @@ const ServicesAdmin = () => {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url: formData.url, knownCategories, knownTriggers })
             });
-            if (!response.ok) throw new Error('Virhe AI-haussa');
+            
+            // PÖRRIÄISTEEMAINEN VIRHEENKÄSITTELY
+            if (!response.ok) {
+                if (response.status === 500 || response.status === 503) {
+                    throw new Error("Aivoissa on juuri nyt ruuhkaa! Liikaa pörriäisiä kimpussani, yritä hetken kuluttua uudestaan. 🐝");
+                }
+                throw new Error("Haku epäonnistui (Virhekoodi: " + response.status + "). Tarkista linkki.");
+            }
+            
             const aiData = await response.json();
             
-            // Turvataan triggers siltä varalta, että AI palauttaa taulukon
             const safeTriggers = Array.isArray(aiData.triggers) ? aiData.triggers.join(', ') : (aiData.triggers || '');
 
             setFormData(prev => ({
@@ -119,7 +126,8 @@ const ServicesAdmin = () => {
                 language_req: aiData.language_req || '', brochure_url: aiData.brochure_url || '' 
             }));
         } catch (error) {
-            alert("Haku epäonnistui: " + error.message);
+            // Ponnahdusikkuna näyttää nyt hauskan viestin!
+            alert(error.message);
         } finally {
             setIsGenerating(false);
         }
@@ -142,7 +150,7 @@ const ServicesAdmin = () => {
     const handleCustomTriggerKeyDown = (e) => {
         if (e.key === 'Enter' || e.key === ',') {
             e.preventDefault();
-            const val = e.target.value.trim().toLowerCase().replace(/ /g, '_'); // Automuotoilu esim. "oma koti" -> "oma_koti"
+            const val = e.target.value.trim().toLowerCase().replace(/ /g, '_'); 
             if (val) {
                 handleAddTrigger(val);
                 e.target.value = '';
@@ -194,8 +202,9 @@ const ServicesAdmin = () => {
                                 </label>
                                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                                     <input type="text" className="form-input" placeholder="https://esimerkki.fi/palvelu" value={formData.url} onChange={(e) => setFormData({...formData, url: e.target.value})} style={{ flex: 1, padding: '0.75rem' }} />
+                                    {/* PÖRRIÄISTEEMAINEN NAPPI */}
                                     <button className="btn" onClick={handleAIProcess} disabled={isGenerating || !formData.url || isSaving} style={{ backgroundColor: '#8b5cf6', borderColor: '#8b5cf6', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem' }}>
-                                        <Sparkles size={16} /> {isGenerating ? 'Louhitaan...' : 'Hae tiedot (AI)'}
+                                        <Sparkles size={16} /> {isGenerating ? 'Kerätään mettä... 🌼🍯' : 'Hae tiedot (AI) 🐝'}
                                     </button>
                                 </div>
                             </div>
@@ -237,7 +246,7 @@ const ServicesAdmin = () => {
 
                                 <div>
                                     <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>Kuvaus asiantuntijalle</label>
-                                    <textarea className="form-input" rows="3" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} disabled={isSaving} />
+                                    <textarea className="form-input" rows="6" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} disabled={isSaving} />
                                 </div>
 
                                 <div>
@@ -245,7 +254,7 @@ const ServicesAdmin = () => {
                                     <textarea className="form-input" rows="4" style={{ borderLeft: '3px solid var(--color-primary)', backgroundColor: '#fffaf5' }} value={formData.plan_text} onChange={(e) => setFormData({...formData, plan_text: e.target.value})} disabled={isSaving} />
                                 </div>
 
-                                {/* UUSI TAG MANAGER SIGNAALEILLE */}
+                                {/* TAG MANAGER SIGNAALEILLE */}
                                 <div style={{ backgroundColor: '#f9fafb', padding: '1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
                                     <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
                                         <Info size={16} color="var(--color-text-secondary)" /> Laukaisevat signaalit (Tagit)

@@ -1,78 +1,71 @@
-// netlify/functions/generateFollowup.js
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-// Tuodaan olemassa oleva tietopankkisi.
-// HUOM: Polku saattaa vaatia säätöä riippuen kansiorakenteestasi.
-// Tämä olettaa, että kansiosi ovat /netlify/functions/ ja /src/data/
-const { infoSnippets } = require('../../src/data/infoSnippets.js');
+// --- netlify/functions/generateFollowup.js ---
+const { GoogleGenerativeAI, SchemaType } = require("@google/generative-ai");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); // Käytetään tuttua mallia
-
-function createFollowupPrompt(customerState, linkDatabase) {
-    // Siivotaan state-objekti, lähetetään vain oleellinen
-    const relevantState = {
-        suunnitelma_valinnat: customerState.suunnitelma || {},
-        suunnitelma_teksti: customerState['custom-suunnitelma'] || null,
-        tyokyky: customerState.tyokyky || null,
-        koulutus: customerState.koulutus_yrittajyys || null,
-        palkkatuki: customerState.palkkatuki || null
+exports.handler = async function(event, context) {
+    const headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
     };
 
-    return `
-Olet Vesa Nessling, kannustava ja ammattimainen työllisyys-asiantuntija. Olet juuri lopettanut tapaamisen asiakkaan kanssa.
+    if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
+    if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: 'Method Not Allowed' };
 
-Tehtäväsi on kirjoittaa asiakkaalle ystävällinen "Kiitos tapaamisesta" -sähköposti.
-
-Tässä on JSON-muodossa ne tiedot, jotka kirjasit ylös tapaamisesta:
----
-${JSON.stringify(relevantState, null, 2)}
----
-
-Tässä on tietopankki hyödyllisistä linkeistä (infoSnippets), joita voit käyttää:
----
-${JSON.stringify(linkDatabase, null, 2)}
----
-
-OHJEET SÄHKÖPOSTILLE:
-
-1.  **Aloitus:** Aloita ystävällisesti, esim. "Hei, ja kiitos tapaamisesta tänään!"
-2.  **Yhteenveto:** Kirjoita 1-2 kappaleen vapaamuotoinen yhteenveto. Käytä "suunnitelma_teksti"-kenttää pääasiallisena pohjana sille, mitä sovittiin. Mainitse tärkeimmät sovitut asiat.
-3.  **Lisäresurssit (TÄRKEIN):**
-    * Analysoi asiakkaan tilannetta (tyokyky, koulutus, palkkatuki jne.).
-    * Valitse tietopankista 1-3 kaikkein hyödyllisintä linkkiä, jotka liittyvät suoraan asiakkaan tilanteeseen.
-    * Esittele ne osiossa, esim. "Tässä vielä muutama hyödyllinen linkki, joista keskustelimme:". Käytä 'label'-kenttää linkin nimenä ja 'content'-kenttää linkkinä/tekstinä.
-    * ÄLÄ ehdota linkkiä, jos se ei liity asiakkaan tilanteeseen.
-4.  **Lopetus:** Päätä viesti kannustavasti.
-
-Palauta VAIN ja AINOASTAAN valmis sähköpostiteksti.
-`;
-}
-
-exports.handler = async (event, context) => {
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: 'Method Not Allowed' };
-    }
     try {
-        const { customerState } = JSON.parse(event.body);
-        if (!customerState) {
-            return { statusCode: 400, body: JSON.stringify({ error: 'Asiakasdata puuttuu' }) };
-        }
-
-        // Käytetään 'infoSnippets' muuttujaa tietopankkina
-        const prompt = createFollowupPrompt(customerState, infoSnippets);
+        // Otetaan vastaan puhtaaksi käännetyt tiedot Frontendiltä!
+        const { customerName, planItems, obligationsCount, selectedSnippets } = JSON.parse(event.body);
         
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const followupEmail = response.text().trim();
+        const sovitutAsiatText = planItems && planItems.length > 0 
+            ? planItems.join('\n- ') 
+            : 'Ei erillisiä toimenpiteitä kirjattu tällä kertaa.';
 
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ followupEmail: followupEmail })
-        };
+        const velvollisuusText = obligationsCount > 0 
+            ? `Sovimme, että haet ${obligationsCount} työpaikkaa kuukaudessa.` 
+            : 'Tällä hetkellä sinulla ei ole numeerista työnhakuvelvollisuutta.';
+
+        const snippetsContext = selectedSnippets && selectedSnippets.length > 0 
+            ? selectedSnippets.map(s => `LINKIN NIMI: "${s.label}". LINKIN URL: "${s.url || 'Ei URLia'}". ASIANTUNTIJAN OHJE TEKOÄLYLLE: "${s.ai_description || ''}". LINKIN SISÄLTÖ: "${s.content}"`).join('\n\n')
+            : 'Ei erillisiä linkkejä lisättäväksi.';
+
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({
+             model: "gemini-3.1-flash-lite-preview",
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                        followupEmailHtml: { 
+                            type: SchemaType.STRING, 
+                            description: "Sähköposti HTML-muodossa. Käytä <p>, <ul>, <li>, <strong>. TEE LINKEISTÄ KLIKATTAVIA: <a href='url'>Linkin nimi</a>." 
+                        },
+                        followupEmailText: { 
+                            type: SchemaType.STRING, 
+                            description: "Sama sähköposti pelkkänä raakatekstinä ilman HTML-tägejä." 
+                        }
+                    },
+                    required: ["followupEmailHtml", "followupEmailText"]
+                }
+            }
+        });
+
+        const prompt = `Olet empaattinen, mutta asiallinen työllisyyspalveluiden asiantuntija. Kirjoita asiakkaalle ("${customerName}") tapaamisen yhteenvetoviesti "Hampurilaismallin" mukaisesti:
+
+        1. LÄMMIN YLÄSÄMPYLÄ: Kiitä ystävällisesti tapaamisesta.
+        2. PIHVI (Sovitut asiat): Tee näistä sovitusta asioista selkeä, kannustava To-Do -lista asiakkaalle:\n- ${sovitutAsiatText}
+        3. MAUSTEET (Velvollisuudet & Hyväksyntä): Kerro ystävällisesti työnhakuvelvollisuudesta: "${velvollisuusText}". TÄRKEÄÄ: Muistuta asiakasta LAAJASTI ja KANNUSTAVASTI, että hänen pitää käydä Oma Asiointi -palvelussa vahvistamassa tehty suunnitelma, jotta työttömyysturva ei katkea.
+        4. RANSKALAISET (Linkit): Asiantuntija on valinnut asiakkaalle nämä linkit ja ohjeet. Upota ne sähköpostiin kauniisti. Käytä asiantuntijan ohjetta apuna, kun perustelet miksi linkki on mukana. Datat: \n${snippetsContext}
+        5. TUKUVA ALASÄMPYLÄ: Päätä viesti tsemppaavasti ja kerro, että apua on aina saatavilla.
+
+        Palauta teksti sekä puhtaana HTML-koodina että raakatekstinä.`;
+
+        const result = await model.generateContent(prompt);
+        const aiData = JSON.parse(result.response.text());
+
+        return { statusCode: 200, headers, body: JSON.stringify(aiData) };
 
     } catch (error) {
-        console.error("Virhe Gemini-kutsussa (generateFollowup):", error);
-        return { statusCode: 500, body: JSON.stringify({ error: "Virhe yhteenvedon luonnissa: " + error.message }) };
+        console.error("Sähköpostin generointivirhe:", error);
+        return { statusCode: 500, headers, body: JSON.stringify({ error: 'Sähköpostin luonti epäonnistui' }) };
     }
 };
