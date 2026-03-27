@@ -16,45 +16,36 @@ exports.handler = async function(event, context) {
         
         if (!rawText) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Syöte on pakollinen' }) };
 
-        const prompt = `Olet asiantunteva TE-palveluiden asiantuntija. Tehtäväsi on jäsentää asiakkaan raaka työ- ja palveluhistoria selkeäksi, virkamiesmäiseksi tekstiksi työllistymissuunnitelmaa varten.
+        const prompt = `Olet asiantunteva TE-palveluiden asiantuntija. Tehtäväsi on jäsentää asiakkaan raaka työ- ja palveluhistoria selkeäksi tekstiksi ja erotella tietyt tiedot omiin kenttiinsä.
         
         RAAKA DATA:
         ${rawText.substring(0, 15000)}
 
-        OHJEET TEKSTIN MUOTOILUUN JA JAKAMISEEN:
-        1. Jätä tarkat työnantajien nimet pois, korvaa ne geneerisesti (esim. "työskennellyt logistiikka-alan yrityksessä").
-        2. Erottele työhistoria ja aiemmat TE-palvelut (esim. työkokeilut, palkkatuet) 'tyohistoria' -kenttään kronologiseksi tiivistelmäksi (3-5 viimeisintä vuotta).
-        3. Erottele kaikki suoritetut tutkinnot, lyhytkurssit ja pätevyydet (esim. hygieniapassi, työturvallisuuskortti) 'koulutushistoria' -kenttään.
-        4. Käytä koulutushistoriassa luettelomerkkejä (viivaa - tai asteriskia *) ja lihavoi (**) tutkintonimikkeet ja kortit.
-        5. Älä ehdota tulevaisuuden polkuja tai suosituksia, keskity vain olemassa olevan datan siistimiseen.
-        6. Älä käytä markdown-otsikoita (#), vaan pelkkiä rivinvaihtoja, lihavointeja ja luettelomerkkejä.`;
+        OHJEET:
+        1. Jätä tarkat työnantajien nimet pois (korvaa geneerisesti, esim. "kuljetusalan yritys").
+        2. Kirjoita 'tyohistoria' -kenttään kronologinen tiivistelmä (3-5 viimeisintä vuotta).
+        3. Kirjoita 'koulutushistoria' -kenttään ranskalaisilla viivoilla ja lihavoinneilla suoritetut tutkinnot ja kortit.
+        4. Etsi tekstistä KAIKKI työkokeilut ja vastaavat palvelujaksot. Kirjoita ne 'tyokokeilut_pvm' -kenttään VAIN JA AINOASTAAN muodossa PP.KK.VVVV - PP.KK.VVVV. Älä kirjoita mitään muuta tekstiä, ei sanoja, ei selityksiä, ei luettelomerkkejä. Vain puhtaat päivämääräparit omille riveilleen.
+        5. Älä ehdota tulevaisuuden polkuja. Älä käytä markdown-otsikoita (#).`;
 
         const schema = {
             type: SchemaType.OBJECT,
             properties: {
-                tyohistoria: { 
-                    type: SchemaType.STRING, 
-                    description: "Tiivistelmä työkokemuksesta ja aiemmista TE-palveluista virkakielellä." 
-                },
-                koulutushistoria: { 
-                    type: SchemaType.STRING, 
-                    description: "Luettelomainen ja lihavoitu lista suoritetuista tutkinnoista, kursseista ja korteista." 
-                },
-                esco_ammatti: { 
-                    type: SchemaType.STRING, 
-                    description: "Poimi historiasta asiakkaan selkein pääammatti tai vahvin osaamisala virallisen tuntuiseksi ammattinimikkeeksi (esim. 'Ohjelmistokehittäjä', 'Lähihoitaja'). Palauta tyhjä, jos historia on liian pirstaleinen." 
-                },
+                tyohistoria: { type: SchemaType.STRING, description: "Tiivistelmä työkokemuksesta ja aiemmista TE-palveluista virkakielellä." },
+                koulutushistoria: { type: SchemaType.STRING, description: "Luettelomainen ja lihavoitu lista suoritetuista tutkinnoista, kursseista ja korteista." },
+                tyokokeilut_pvm: { type: SchemaType.STRING, description: "Pelkät työkokeilujen päivämääräparit allekkain (esim. 01.02.2023 - 31.05.2023). Palauta tyhjänä jos ei löydy." },
+                esco_ammatti: { type: SchemaType.STRING, description: "Poimi historiasta asiakkaan selkein pääammatti tai vahvin osaamisala virallisen tuntuiseksi ammattinimikkeeksi (esim. 'Ohjelmistokehittäjä'). Palauta tyhjä, jos liian pirstaleinen." },
                 loydetyt_triggerit: { 
                     type: SchemaType.ARRAY,
                     items: { type: SchemaType.STRING },
-                    description: `Valitse sopivimmat laukaisevat signaalit näiden joukosta: ${knownTriggers.join(', ')}. Valitse vain sellaisia, joihin historiassa on selkeä viittaus.` 
+                    description: `Valitse sopivimmat laukaisevat signaalit näiden joukosta: ${knownTriggers.join(', ')}.` 
                 }
             },
-            required: ["tyohistoria", "koulutushistoria", "esco_ammatti", "loydetyt_triggerit"]
+            required: ["tyohistoria", "koulutushistoria", "tyokokeilut_pvm", "esco_ammatti", "loydetyt_triggerit"]
         };
 
         const aiData = await generateWithFallback(prompt, schema);
-        console.log("🐝 URA-analyysi valmis (Jaettu):", JSON.stringify(aiData, null, 2));
+        console.log("🐝 URA-analyysi valmis:", JSON.stringify(aiData, null, 2));
 
         return { statusCode: 200, headers, body: JSON.stringify(aiData) };
 

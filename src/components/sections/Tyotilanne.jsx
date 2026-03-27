@@ -3,10 +3,9 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../../utils/supabaseClient';
 import { PhraseOption } from '../PhraseOption';
 import { planData } from '../../data/planData';
-import { Wand2 } from 'lucide-react';
-import UraAnalyzerModal from './UraAnalyzerModal'; // TÄMÄ PUUTTUI (Itse modaali)
+import { Wand2, Sparkles, Briefcase, CalendarClock, Tag } from 'lucide-react'; 
+import UraAnalyzerModal from './UraAnalyzerModal';
 
-// --- APUFUNKTIOT PÄIVÄMÄÄRILLE ---
 const parseFinnishDate = (val) => {
     if (!val) return null;
     if (val instanceof Date) return val;
@@ -84,7 +83,6 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                     variables: (varsRes.data || []).filter(v => v.phrase_id === phrase.id)
                 }));
 
-                // --- TAIKATEMPPU: INJEKTOIDAAN UUDET FRAASIT PLANDATAAN ---
                 const sectionInPlanData = planData.aihealueet.find(s => s.id === UI_KEY);
                 if (sectionInPlanData) {
                     enrichedPhrases.forEach(dbPhrase => {
@@ -99,8 +97,6 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                         }
                     });
                 }
-                // --------------------------------------------------------
-
                 setPhrases(enrichedPhrases);
             } catch (err) {
                 console.error("Virhe Tyotilanne-haussa:", err);
@@ -111,7 +107,6 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
         fetchData();
     }, []);
 
-    // --- TILANHALLINTA PÄIVÄMÄÄRILLE ---
     const [serviceDates, setServiceDates] = useState({ start: "", end: "" });
     const [calculations, setCalculations] = useState({ duration: 0, remaining: 0 });
     const [pasteArea, setPasteArea] = useState("");
@@ -229,6 +224,17 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
         };
     }, [currentSectionState, state.suunnitelman_perustiedot, aTmtGuide]);
 
+
+    // --- KORJATTU: LUKULASIT OIKEISIIN LAATIKKOIHIN ---
+    const escoNimi = state['custom-tavoiteammatti_esco_nimi']; // Haetaan suoraan custom-kentästä!
+    const tkHistoria = state.palkkatuki?.tyokokeilu_historia;
+    
+    // Haetaan triggerit suoraan globaalista state.signals -rekisteristä
+    const globalSignals = state.signals || {};
+    const activeTriggers = Object.keys(globalSignals).filter(key => 
+        globalSignals[key] === true || (typeof globalSignals[key] === 'object' && !globalSignals[key].isMuted)
+    );
+
     if (loading) return <div className="section-container">Ladataan työtilannetta...</div>;
 
     const showsServiceBox = currentSectionState.palkkatuki || currentSectionState.tyokokeilu || currentSectionState.tyovoimakoulutus;
@@ -245,6 +251,52 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                     <Wand2 size={16} /> Tuo ja analysoi URA-historia
                 </button>
             </div>
+
+            {/* AI-KOJELAUTA */}
+            {(escoNimi || tkHistoria || activeTriggers.length > 0) && (
+                <div style={{ backgroundColor: '#f8fafc', padding: '1.25rem', borderRadius: '6px', border: '1px solid #cbd5e1', marginBottom: '1.5rem', animation: 'fadeIn 0.3s ease-out' }}>
+                    <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: '#0f172a' }}>
+                        <Sparkles size={18} color="#8b5cf6" /> AI-analyysin tulokset (URA-historia)
+                    </label>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        {escoNimi && (
+                            <div style={{ backgroundColor: '#fff', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.75rem' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#059669', marginBottom: '0.25rem' }}>
+                                    <Briefcase size={14} /> Tavoiteammatti (ESCO)
+                                </label>
+                                <span style={{ fontWeight: '500', color: '#064e3b' }}>{escoNimi}</span>
+                            </div>
+                        )}
+
+                        {tkHistoria && (
+                            <div style={{ backgroundColor: '#fff', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.75rem' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#2563eb', marginBottom: '0.25rem' }}>
+                                    <CalendarClock size={14} /> Työkokeilut
+                                </label>
+                                <span style={{ fontSize: '0.85rem', color: '#1e3a8a' }}>
+                                    Siirretty {tkHistoria.split('\n').filter(l => l.trim().length > 0).length} jaksoa Palkkatukilaskuriin!
+                                </span>
+                            </div>
+                        )}
+                        
+                        {activeTriggers.length > 0 && (
+                            <div style={{ gridColumn: '1 / -1', backgroundColor: '#fff', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.75rem' }}>
+                                <label style={{ fontSize: '0.8rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#d97706', marginBottom: '0.5rem' }}>
+                                    <Tag size={14} /> Tunnistetut signaalit ja tagit
+                                </label>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                    {activeTriggers.map(t => (
+                                        <span key={t} style={{ fontSize: '0.75rem', backgroundColor: '#fef3c7', color: '#b45309', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid #fde68a' }}>
+                                            {t}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
             
             <div className="options-container">
                 {phrases.map(phrase => (
@@ -348,7 +400,6 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                 <p>A-TMT suositus: <strong>{aTmtRecommendation.status}</strong> ({aTmtRecommendation.months} kk)</p>
             </div>
 
-            {/* TÄMÄ PUUTTUI (Modaalin renderöinti aivan loppuun) */}
             <UraAnalyzerModal 
                 isOpen={isAnalyzerOpen} 
                 onClose={() => setIsAnalyzerOpen(false)} 
