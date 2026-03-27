@@ -6,15 +6,15 @@ import RadioPhraseSection from './RadioPhraseSection';
 import SummaryPreview from './SummaryPreview';
 import { useKoulutusSummary } from './useKoulutusSummary';
 import { PhraseOption } from '../PhraseOption';
-import { GraduationCap, Award, Briefcase, Languages, User, Sparkles } from 'lucide-react';
+import { GraduationCap, Award, Briefcase, Languages, User, Sparkles, CheckCircle2, Loader2, MousePointerClick } from 'lucide-react';
 
 const KoulutusJaYrittajyys = ({ state, actions }) => {
-    // 1. SUPABASE UUID:t tietokantahakuja varten
+    // 1. SUPABASE UUID:t
     const DB_KOULUTUS = 'e73f3897-85e1-4c05-a601-d5a2b67e9c75';
     const DB_KORTIT = 'fbb22c56-6a1c-49a7-8a7c-52c53f0c5dbf';
     const DB_YRITTAJYYS = '29118579-1f9e-4286-a60c-7810a9adce45';
 
-    // 2. FRONTEND ID:t sovelluksen tilaa (state) varten
+    // 2. FRONTEND ID:t
     const UI_KOULUTUS = 'koulutus';
     const UI_KORTIT = 'ammattikortit';
     const UI_YRITTAJYYS = 'yrittajyys';
@@ -22,46 +22,39 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
     const [data, setData] = useState({ koulutus: [], ammattikortit: [], yrittajyys: [], languageLevels: [] });
     const [loading, setLoading] = useState(true);
     
-    // AI-poiminnan tilat
+    // Yksittäisen syötön tilat (Varalla)
     const [pasteText, setPasteText] = useState('');
     const [parseFeedback, setParseFeedback] = useState('');
     const [isExtracting, setIsExtracting] = useState(false);
 
+    // UUDET TILAT KELTAISELLE LAATIKOLLE JA LISTALLE
+    const [isBoxExtracting, setIsBoxExtracting] = useState(false);
+    const [extractedDegrees, setExtractedDegrees] = useState([]); // Tähän tulee lista tekoälyn löytämistä tutkinnoista
+    const [boxParseFeedback, setBoxParseFeedback] = useState('');
+
     const { onSelect, onUpdateVariable, onUpdateCustomText, updateSignal } = actions;
 
-    // Apufunktio: Muuttaa Supabasesta haetun taulukon PhraseOptionin ymmärtämäksi objektiksi
     const transformVariables = (varsArray) => {
         if (!varsArray || !Array.isArray(varsArray) || varsArray.length === 0) return null;
-        
         const transformed = varsArray.reduce((acc, curr) => {
             let parsedOptions = [];
             try {
-                // Varmistetaan turvallinen parsinta
                 if (curr.options) {
                     parsedOptions = JSON.parse(curr.options);
-                    if (typeof parsedOptions === 'string') {
-                        parsedOptions = JSON.parse(parsedOptions);
-                    }
+                    if (typeof parsedOptions === 'string') parsedOptions = JSON.parse(parsedOptions);
                 }
             } catch (e) {
                 console.warn("Virhe options-kentän parsinnassa:", curr.options);
             }
-
-            acc[curr.variable_key] = {
-                tyyppi: curr.input_type,
-                oletus: curr.default_value,
-                vaihtoehdot: parsedOptions
-            };
+            acc[curr.variable_key] = { tyyppi: curr.input_type, oletus: curr.default_value, vaihtoehdot: parsedOptions };
             return acc;
         }, {});
-
         return Object.keys(transformed).length > 0 ? transformed : null;
     };
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // Haetaan taulut erikseen viiteavainongelmien välttämiseksi
                 const [phrasesRes, varsRes, langRes] = await Promise.all([
                     supabase.from('phrases').select('*').in('section_id', [DB_KOULUTUS, DB_KORTIT, DB_YRITTAJYYS]),
                     supabase.from('variables').select('*'),
@@ -73,7 +66,6 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                 const phrasesData = phrasesRes.data || [];
                 const variablesData = varsRes.data || [];
 
-                // Yhdistetään muuttujat fraaseihin JavaScriptin puolella phrase_id:n avulla
                 const enrichedPhrases = phrasesData.map(phrase => ({
                     ...phrase,
                     variables: variablesData.filter(v => v.phrase_id === phrase.id)
@@ -94,24 +86,18 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         fetchData();
     }, []);
 
-    // Kielitason vaihto asettaa tekstin ja aktivoi globaalin signaalin (esim. language_fi_a1_2)
     const handleSuomiChange = (val) => {
         onUpdateCustomText('kielitaso_suomi', val);
-        
         const currentSignals = state.signals || {};
         Object.keys(currentSignals).forEach(key => {
             if (key.startsWith('language_fi_')) updateSignal(key, false);
         });
-        
-        if (val) {
-            updateSignal(`language_fi_${val.toLowerCase().replace('.', '_')}`, true);
-        }
+        if (val) updateSignal(`language_fi_${val.toLowerCase().replace('.', '_')}`, true);
     };
 
-    // Tekoälyavusteinen koulutuksen poiminta
+    // Alkuperäinen manuaalisen kentän AI-haku
     const handleAIParse = async () => {
         if (!pasteText) return setParseFeedback('Liitä ensin tekstiä laatikkoon.');
-        
         setIsExtracting(true);
         setParseFeedback('Tekoäly analysoi koulutustietoja...');
 
@@ -122,17 +108,13 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             });
 
             if (!response.ok) throw new Error('Haku epäonnistui');
-            
             const aiResult = await response.json();
 
             if (aiResult.degree) {
                 onSelect(UI_KOULUTUS, 'koulutus_tausta', false);
-                
                 setTimeout(() => {
                     onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'KOULUTUS', aiResult.degree);
-                    if (aiResult.year) {
-                        onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'VUOSI', aiResult.year);
-                    }
+                    if (aiResult.year) onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'VUOSI', aiResult.year);
                     setParseFeedback(`Koulutus "${aiResult.degree}" poimittu onnistuneesti!`);
                     setPasteText(''); 
                 }, 50);
@@ -146,6 +128,60 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         }
     };
 
+    // --- UUSI: KELTAISEN LAATIKON AI-ANALYYSI JA LISTAUS ---
+    const handleBoxAIParse = async () => {
+        const textToParse = state['custom-ai_koulutushistoria'];
+        if (!textToParse) return;
+        
+        setIsBoxExtracting(true);
+        setBoxParseFeedback('Etsitään tutkintoja ja kortteja...');
+        setExtractedDegrees([]);
+
+        try {
+            // Huom! Tämä käyttää pian päivitettävää Netlify-funktiota
+            const response = await fetch('/.netlify/functions/extract_education', {
+                method: 'POST',
+                body: JSON.stringify({ rawText: textToParse, mode: 'list' }) // mode: 'list' kertoo backendiin, että haluamme taulukon
+            });
+
+            if (!response.ok) throw new Error('Haku epäonnistui');
+            const aiResult = await response.json();
+
+            // 1. Asetetaan löydetyt tutkinnot listaksi asiantuntijan valittavaksi
+            if (aiResult.degrees && aiResult.degrees.length > 0) {
+                setExtractedDegrees(aiResult.degrees);
+                setBoxParseFeedback('Valitse alta asiakkaan pääkoulutus klikkaamalla:');
+            } else {
+                setBoxParseFeedback('Ei löytynyt selkeitä tutkintoja valittavaksi.');
+            }
+
+            // 2. Automatiikka: Täpätään löydetyt kortit heti päälle!
+            if (aiResult.cards && aiResult.cards.length > 0) {
+                aiResult.cards.forEach(card => {
+                    onUpdateVariable(UI_KORTIT, card, true);
+                });
+            }
+        } catch (error) {
+            setBoxParseFeedback('Virhe analysoinnissa.');
+        } finally {
+            setIsBoxExtracting(false);
+        }
+    };
+
+    // Kun asiantuntija klikkaa haluamaansa tutkintoa listasta
+    const handleDegreeSelect = (degreeObj) => {
+        onSelect(UI_KOULUTUS, 'koulutus_tausta', false); // Tyhjennetään ensin
+        setTimeout(() => {
+            onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'KOULUTUS', degreeObj.degree);
+            if (degreeObj.year) onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'VUOSI', degreeObj.year);
+            
+            // Siivotaan lista pois näkyvistä ja annetaan palaute
+            setExtractedDegrees([]);
+            setBoxParseFeedback(`✓ Pääkoulutukseksi asetettu: ${degreeObj.degree}`);
+        }, 50);
+    };
+    // --------------------------------------------------------
+
     const summary = useKoulutusSummary(
         state[UI_KOULUTUS], state[UI_KORTIT], state[UI_YRITTAJYYS], null,
         { aidinkieli: state['custom-kielitaso_aidinkieli'], suomiTaso: state['custom-kielitaso_suomi'] },
@@ -154,6 +190,8 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
 
     if (loading) return <div className="section-container">Ladataan tietoja tietokannasta...</div>;
 
+    const aiTuotuKoulutushistoria = state['custom-ai_koulutushistoria'];
+
     return (
         <section className="section-container">
             <h2 className="section-title">Koulutus, osaaminen ja yrittäjyys</h2>
@@ -161,11 +199,67 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             {/* --- 1. KOULUTUS --- */}
             <div className="subsection">
                 <h3 className="subsection-title"><GraduationCap size={20} /> Koulutus</h3>
+
+                {/* TAIKALAATIKKO URA-HISTORIALLE */}
+                {aiTuotuKoulutushistoria && (
+                    <div style={{ backgroundColor: '#fffbe3', padding: '1.25rem', borderRadius: '6px', border: '1px solid #facc15', marginBottom: '1.5rem', animation: 'fadeIn 0.3s ease-out' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                            <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#b45309' }}>
+                                <Sparkles size={18} /> URA-historiasta tuodut tutkinnot ja kortit (AI)
+                            </label>
+                            
+                            {/* UUSI NAPPI SIIRRETTY TÄNNE */}
+                            <button 
+                                onClick={handleBoxAIParse} 
+                                disabled={isBoxExtracting} 
+                                className="btn" 
+                                style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem', backgroundColor: '#f59e0b', borderColor: '#f59e0b', color: '#fff' }}
+                            >
+                                {isBoxExtracting ? <><Loader2 size={14} className="animate-spin" /> Etsitään...</> : <><MousePointerClick size={14} /> Poimi tiedot lomakkeelle</>}
+                            </button>
+                        </div>
+                        
+                        <textarea
+                            className="form-input"
+                            rows="5"
+                            value={aiTuotuKoulutushistoria}
+                            onChange={(e) => onUpdateCustomText('ai_koulutushistoria', e.target.value)}
+                            style={{ borderLeft: '3px solid #f59e0b', backgroundColor: '#fff' }}
+                        />
+                        
+                        {/* LISTA VALITTAVISTA TUTKINNOISTA */}
+                        {boxParseFeedback && (
+                            <p style={{ fontSize: '0.85rem', color: '#b45309', marginTop: '0.75rem', fontWeight: extractedDegrees.length > 0 ? '600' : 'normal', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                {boxParseFeedback.includes('✓') ? <CheckCircle2 size={16} /> : null}
+                                {boxParseFeedback}
+                            </p>
+                        )}
+                        
+                        {extractedDegrees.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                {extractedDegrees.map((deg, idx) => (
+                                    <button 
+                                        key={idx}
+                                        onClick={() => handleDegreeSelect(deg)}
+                                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', backgroundColor: '#fff', border: '1px solid #fcd34d', borderRadius: '6px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
+                                        onMouseOver={e => Object.assign(e.currentTarget.style, { backgroundColor: '#fef3c7', borderColor: '#f59e0b' })}
+                                        onMouseOut={e => Object.assign(e.currentTarget.style, { backgroundColor: '#fff', borderColor: '#fcd34d' })}
+                                    >
+                                        <span style={{ fontWeight: '600', color: 'var(--color-text-primary)' }}>{deg.degree}</span>
+                                        {deg.year && <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', backgroundColor: '#f1f5f9', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>{deg.year}</span>}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+                {/* -------------------------------------- */}
                 
-                <div className="paste-area-container">
+                {/* Alkuperäinen pieni varakenttä */}
+                <div className="paste-area-container" style={{ opacity: aiTuotuKoulutushistoria ? 0.6 : 1 }}>
                     <textarea
                         rows="2"
-                        placeholder="Liitä tutkintotiedot tähän (esim. Koski-palvelusta)..."
+                        placeholder="Liitä yksittäinen uusi tutkintotieto tähän (esim. Koski-palvelusta kopioitu)..."
                         value={pasteText}
                         onChange={(e) => setPasteText(e.target.value)}
                         className="paste-area-textarea"

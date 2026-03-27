@@ -2,7 +2,9 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { PhraseOption } from '../PhraseOption';
-import { planData } from '../../data/planData'; // LISÄTTY: Tuodaan planData injektiota varten
+import { planData } from '../../data/planData';
+import { Wand2 } from 'lucide-react';
+import UraAnalyzerModal from './UraAnalyzerModal'; // TÄMÄ PUUTTUI (Itse modaali)
 
 // --- APUFUNKTIOT PÄIVÄMÄÄRILLE ---
 const parseFinnishDate = (val) => {
@@ -43,6 +45,7 @@ const calculateMonthsDifference = (startDate) => {
 const Tyotilanne = ({ state, actions, knowledgeData }) => {
     const DB_TYOTILANNE = '41642216-1e1e-46d3-8091-67fc0d9d75f6';
     const UI_KEY = 'tyotilanne';
+    const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
 
     const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
     const currentSectionState = state[UI_KEY] || {};
@@ -232,7 +235,16 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
 
     return (
         <section className="section-container">
-            <h2 className="section-title">Asiakkaan työtilanne</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h2 className="section-title" style={{ margin: 0 }}>Asiakkaan työtilanne</h2>
+                <button 
+                    className="btn" 
+                    onClick={() => setIsAnalyzerOpen(true)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
+                >
+                    <Wand2 size={16} /> Tuo ja analysoi URA-historia
+                </button>
+            </div>
             
             <div className="options-container">
                 {phrases.map(phrase => (
@@ -335,6 +347,14 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
             <div className="guidance-box a-tmt-guidance" style={{ marginTop: '1.5rem' }}>
                 <p>A-TMT suositus: <strong>{aTmtRecommendation.status}</strong> ({aTmtRecommendation.months} kk)</p>
             </div>
+
+            {/* TÄMÄ PUUTTUI (Modaalin renderöinti aivan loppuun) */}
+            <UraAnalyzerModal 
+                isOpen={isAnalyzerOpen} 
+                onClose={() => setIsAnalyzerOpen(false)} 
+                actions={actions} 
+            />
+            
         </section>
     );
 };
