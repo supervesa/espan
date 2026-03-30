@@ -1,45 +1,13 @@
 // --- src/components/sections/Tyotilanne.jsx ---
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { PhraseOption } from '../PhraseOption';
 import { planData } from '../../data/planData';
-import { Wand2, Sparkles, Briefcase, CalendarClock, Tag } from 'lucide-react'; 
+import { Wand2, Sparkles, Briefcase, CalendarClock } from 'lucide-react'; 
 import UraAnalyzerModal from './UraAnalyzerModal';
 
-const parseFinnishDate = (val) => {
-    if (!val) return null;
-    if (val instanceof Date) return val;
-    if (typeof val !== 'string') return null;
-    const s = val.trim();
-    if (s.includes('T')) return new Date(s);
-    if (s.includes('.')) {
-        const parts = s.split('.');
-        if (parts.length === 3) return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-    }
-    if (s.includes('-')) {
-        const parts = s.split('-');
-        if (parts.length === 3) return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-    }
-    return null;
-};
-
-const toISODate = (val) => {
-    const d = parseFinnishDate(val);
-    if (!d || isNaN(d.getTime())) return "";
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-};
-
-const calculateMonthsDifference = (startDate) => {
-    if (!startDate) return 0;
-    const start = parseFinnishDate(startDate);
-    if (!start) return 0;
-    const now = new Date();
-    const diff = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-    return Math.max(0, diff);
-};
+// Tuodaan siirretyt päivämäärätyökalut:
+import { parseFinnishDate, toISODate, calculateMonthsDifference } from '../../utils/dateUtils';
 
 const Tyotilanne = ({ state, actions, knowledgeData }) => {
     const DB_TYOTILANNE = '41642216-1e1e-46d3-8091-67fc0d9d75f6';
@@ -51,6 +19,12 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
 
     const [phrases, setPhrases] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [pasteArea, setPasteArea] = useState("");
+
+    const [serviceDates, setServiceDates] = useState({
+        start: currentSectionState.palvelu_alku || state.asiakas?.palvelu_alku || "",
+        end: currentSectionState.palvelu_loppu || state.asiakas?.palvelu_loppu || ""
+    });
 
     const transformVariables = (varsArray) => {
         if (!varsArray || !Array.isArray(varsArray) || varsArray.length === 0) return null;
@@ -107,71 +81,51 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
         fetchData();
     }, []);
 
-    const [serviceDates, setServiceDates] = useState({ start: "", end: "" });
-    const [calculations, setCalculations] = useState({ duration: 0, remaining: 0 });
-    const [pasteArea, setPasteArea] = useState("");
-    const isCommitting = useRef(false);
-
-    const updateLocalCalculations = useCallback((start, end) => {
-        if (!start || !end) {
-             setCalculations({ duration: 0, remaining: 0 });
-             return { durationDays: 0, daysUntilEnd: 0 };
-        }
-        const s = new Date(start);
-        const e = new Date(end);
+    const calculations = useMemo(() => {
+        if (!serviceDates.start || !serviceDates.end) return { duration: 0, remaining: 0, yli1kk: false, paattymassa1kk: false };
+        const s = new Date(serviceDates.start);
+        const e = new Date(serviceDates.end);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-
+        
         const durationDays = Math.ceil((e - s) / (1000 * 60 * 60 * 24));
         const daysUntilEnd = Math.ceil((e - today) / (1000 * 60 * 60 * 24));
+        
+        return {
+            duration: durationDays,
+            remaining: daysUntilEnd,
+            yli1kk: durationDays >= 30,
+            paattymassa1kk: daysUntilEnd <= 31 && daysUntilEnd > 0
+        };
+    }, [serviceDates]);
 
-        setCalculations({ duration: durationDays, remaining: daysUntilEnd });
-        return { durationDays, daysUntilEnd };
-    }, []);
 
+    // === RADIOLÄHETIN ===
     useEffect(() => {
-        if (!isCommitting.current) {
-            const alk = toISODate(currentSectionState.palvelu_alku);
-            const lop = toISODate(currentSectionState.palvelu_loppu);
-            setServiceDates({ start: alk, end: lop });
-            updateLocalCalculations(alk, lop);
+        if (serviceDates.start && serviceDates.end) {
+            let palveluTyyppi = "tuntematon";
+            if (currentSectionState.tyokokeilu) palveluTyyppi = "tyokokeilu";
+            if (currentSectionState.palkkatuki) palveluTyyppi = "palkkatuki";
+            if (currentSectionState.tyovoimakoulutus) palveluTyyppi = "tyovoimakoulutus";
+
+            const payload = {
+                alku: serviceDates.start,
+                loppu: serviceDates.end,
+                tyyppi: palveluTyyppi
+            };
+            window.dispatchEvent(new CustomEvent('palvelu_ajankohta_paivitetty', { detail: payload }));
         }
-    }, [currentSectionState.palvelu_alku, currentSectionState.palvelu_loppu, updateLocalCalculations]);
+    }, [serviceDates.start, serviceDates.end, currentSectionState.tyokokeilu, currentSectionState.palkkatuki, currentSectionState.tyovoimakoulutus]);
 
-    const commitDates = (start, end) => {
-        isCommitting.current = true;
-        const safeStart = toISODate(start);
-        const safeEnd = toISODate(end);
-
-        onUpdateVariable(UI_KEY, 'palvelu_alku', safeStart);
-        onUpdateVariable(UI_KEY, 'palvelu_loppu', safeEnd);
-
-        const { durationDays, daysUntilEnd } = updateLocalCalculations(safeStart, safeEnd);
-
-        if (safeStart && safeEnd) {
-            const s = new Date(safeStart);
-            const e = new Date(safeEnd);
-            const startFi = s.toLocaleDateString('fi-FI');
-            const endFi = e.toLocaleDateString('fi-FI');
-            
-            onUpdateVariable(UI_KEY, 'palvelu_yli_1kk', durationDays >= 30);
-            onUpdateVariable(UI_KEY, 'palvelu_paattymassa_1kk', daysUntilEnd <= 31 && daysUntilEnd > 0);
-
-            let printText = `. Palvelun ajankohta: ${startFi}–${endFi}.`;
-            if (durationDays >= 30) printText += ` Kyseessä on yli kuukauden kestävä palvelu (46 §).`;
-            onUpdateCustomText(UI_KEY, printText);
-        } else {
-            onUpdateCustomText(UI_KEY, "");
-            onUpdateVariable(UI_KEY, 'palvelu_yli_1kk', false);
-            onUpdateVariable(UI_KEY, 'palvelu_paattymassa_1kk', false);
-        }
-        setTimeout(() => { isCommitting.current = false; }, 800);
-    };
 
     const handleDateChange = (type, value) => {
-        const newDates = { ...serviceDates, [type]: value };
-        setServiceDates(newDates);
-        commitDates(newDates.start, newDates.end);
+        setServiceDates(prev => ({ ...prev, [type]: value }));
+        
+        const key = type === 'start' ? 'palvelu_alku' : 'palvelu_loppu';
+        onUpdateVariable(UI_KEY, key, value);
+        if (typeof actions.onUpdateAsiakas === 'function') {
+            actions.onUpdateAsiakas(key, value);
+        }
     };
 
     const handlePasteChange = (val) => {
@@ -182,7 +136,12 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
             const e = toISODate(rangeMatch[2]);
             if (s && e) {
                 setServiceDates({ start: s, end: e });
-                commitDates(s, e);
+                onUpdateVariable(UI_KEY, 'palvelu_alku', s);
+                onUpdateVariable(UI_KEY, 'palvelu_loppu', e);
+                if (typeof actions.onUpdateAsiakas === 'function') {
+                    actions.onUpdateAsiakas('palvelu_alku', s);
+                    actions.onUpdateAsiakas('palvelu_loppu', e);
+                }
                 setPasteArea(""); 
             }
         }
@@ -225,73 +184,49 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
     }, [currentSectionState, state.suunnitelman_perustiedot, aTmtGuide]);
 
 
-    // --- KORJATTU: LUKULASIT OIKEISIIN LAATIKKOIHIN ---
-    const escoNimi = state['custom-tavoiteammatti_esco_nimi']; // Haetaan suoraan custom-kentästä!
+    const escoNimi = state.asiakas?.tavoiteammatti_esco_nimi; 
     const tkHistoria = state.palkkatuki?.tyokokeilu_historia;
     
-    // Haetaan triggerit suoraan globaalista state.signals -rekisteristä
-    const globalSignals = state.signals || {};
-    const activeTriggers = Object.keys(globalSignals).filter(key => 
-        globalSignals[key] === true || (typeof globalSignals[key] === 'object' && !globalSignals[key].isMuted)
-    );
-
     if (loading) return <div className="section-container">Ladataan työtilannetta...</div>;
 
     const showsServiceBox = currentSectionState.palkkatuki || currentSectionState.tyokokeilu || currentSectionState.tyovoimakoulutus;
 
     return (
         <section className="section-container">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <h2 className="section-title" style={{ margin: 0 }}>Asiakkaan työtilanne</h2>
+            <div className="section-header">
+                <h2 className="section-title thv-section-title">Asiakkaan työtilanne</h2>
                 <button 
-                    className="btn" 
+                    className="btn-ai" 
                     onClick={() => setIsAnalyzerOpen(true)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
                 >
                     <Wand2 size={16} /> Tuo ja analysoi URA-historia
                 </button>
             </div>
 
-            {/* AI-KOJELAUTA */}
-            {(escoNimi || tkHistoria || activeTriggers.length > 0) && (
-                <div style={{ backgroundColor: '#f8fafc', padding: '1.25rem', borderRadius: '6px', border: '1px solid #cbd5e1', marginBottom: '1.5rem', animation: 'fadeIn 0.3s ease-out' }}>
-                    <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: '#0f172a' }}>
-                        <Sparkles size={18} color="#8b5cf6" /> AI-analyysin tulokset (URA-historia)
+            {(escoNimi || tkHistoria) && (
+                <div className="panel-gray" style={{ backgroundColor: 'var(--color-ai-bg)', borderColor: 'var(--color-ai-border)', animation: 'fadeIn 0.3s ease-out' }}>
+                    <label className="icon-label" style={{ marginBottom: '1rem' }}>
+                        <Sparkles size={18} color="var(--color-ai)" /> AI-analyysin tulokset (URA-historia)
                     </label>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="grid-cols-2-tight">
                         {escoNimi && (
-                            <div style={{ backgroundColor: '#fff', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.75rem' }}>
-                                <label style={{ fontSize: '0.8rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#059669', marginBottom: '0.25rem' }}>
+                            <div className="card-inner-sm">
+                                <label className="icon-label" style={{ fontSize: '0.8rem', color: 'var(--color-success)', marginBottom: '0.25rem' }}>
                                     <Briefcase size={14} /> Tavoiteammatti (ESCO)
                                 </label>
-                                <span style={{ fontWeight: '500', color: '#064e3b' }}>{escoNimi}</span>
+                                <span style={{ fontWeight: '500', color: 'var(--color-text-primary)' }}>{escoNimi}</span>
                             </div>
                         )}
 
                         {tkHistoria && (
-                            <div style={{ backgroundColor: '#fff', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.75rem' }}>
-                                <label style={{ fontSize: '0.8rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#2563eb', marginBottom: '0.25rem' }}>
+                            <div className="card-inner-sm">
+                                <label className="icon-label" style={{ fontSize: '0.8rem', color: 'var(--color-info-text)', marginBottom: '0.25rem' }}>
                                     <CalendarClock size={14} /> Työkokeilut
                                 </label>
-                                <span style={{ fontSize: '0.85rem', color: '#1e3a8a' }}>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--color-info-dark)' }}>
                                     Siirretty {tkHistoria.split('\n').filter(l => l.trim().length > 0).length} jaksoa Palkkatukilaskuriin!
                                 </span>
-                            </div>
-                        )}
-                        
-                        {activeTriggers.length > 0 && (
-                            <div style={{ gridColumn: '1 / -1', backgroundColor: '#fff', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.75rem' }}>
-                                <label style={{ fontSize: '0.8rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#d97706', marginBottom: '0.5rem' }}>
-                                    <Tag size={14} /> Tunnistetut signaalit ja tagit
-                                </label>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                                    {activeTriggers.map(t => (
-                                        <span key={t} style={{ fontSize: '0.75rem', backgroundColor: '#fef3c7', color: '#b45309', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid #fde68a' }}>
-                                            {t}
-                                        </span>
-                                    ))}
-                                </div>
                             </div>
                         )}
                     </div>
@@ -318,24 +253,24 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
             </div>
 
             {showsServiceBox && (
-                <div className="subsection" style={{ marginTop: '1.5rem', padding: '1.5rem', backgroundColor: 'var(--color-background)', borderRadius: 'var(--border-radius)', border: '1px solid var(--color-border)' }}>
+                <div className="panel-gray">
                     <h3 className="subsection-title">Palvelun ajankohta (46 §)</h3>
                     
-                    <div className="info-row" style={{ marginBottom: '1.5rem' }}>
-                        <label htmlFor="paste-dates">Pikasyöttö (Liitä esim. 1.1.2025-30.6.2025):</label>
+                    <div className="flex-col-gap mb-6">
+                        <label htmlFor="paste-dates" className="stat-label">Pikasyöttö (Liitä esim. 1.1.2025-30.6.2025):</label>
                         <input 
                             id="paste-dates"
                             type="text" 
-                            className="modern-select"
+                            className="modern-select text-mono"
                             placeholder="Liitä päivämääräväli tähän..."
                             value={pasteArea}
                             onChange={(e) => handlePasteChange(e.target.value)}
                         />
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="grid-cols-2-tight">
                         <div>
-                            <label htmlFor="palvelu-alkaa">Alkaa:</label>
+                            <label htmlFor="palvelu-alkaa" className="stat-label">Alkaa:</label>
                             <input 
                                 id="palvelu-alkaa"
                                 type="date" 
@@ -345,7 +280,7 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                             />
                         </div>
                         <div>
-                            <label htmlFor="palvelu-paattyy">Päättyy:</label>
+                            <label htmlFor="palvelu-paattyy" className="stat-label">Päättyy:</label>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <input 
                                     id="palvelu-paattyy"
@@ -355,27 +290,27 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                                     onChange={(e) => handleDateChange('end', e.target.value)} 
                                 />
                                 {serviceDates.end && (
-                                    <button className="btn--secondary" onClick={() => handleDateChange('end', "")} style={{ color: 'var(--color-danger)', padding: '0 10px' }}>X</button>
+                                    <button className="btn-clear" onClick={() => handleDateChange('end', "")} title="Tyhjennä päättymispäivä">X</button>
                                 )}
                             </div>
                         </div>
                     </div>
 
-                    <div className="smart-analysis-box" style={{ marginTop: '1.5rem', backgroundColor: '#ffffff', border: '1px solid var(--color-border)' }}>
-                        <div className="smart-analysis-grid" style={{ padding: '10px' }}>
+                    <div className="card-inner" style={{ marginTop: '1.5rem', padding: '1rem' }}>
+                        <div className="smart-analysis-grid">
                             <div className="smart-analysis-column">
                                 <p className="smart-analysis-title">PALVELUN KESTO</p>
-                                <strong>{calculations.duration} päivää</strong>
-                                <span style={{ fontSize: '0.8rem', color: calculations.duration >= 30 ? 'var(--color-success)' : 'inherit', display: 'block' }}>
+                                <strong className="stat-value">{calculations.duration} päivää</strong>
+                                <span className={`stat-label ${calculations.duration >= 30 ? 'text-success' : ''}`}>
                                     {calculations.duration >= 30 ? "✓ Yli 1 kk (32 § poikkeus)" : "Alle 1 kk"}
                                 </span>
                             </div>
-                            <div className="smart-analysis-column" style={{ borderLeft: '1px solid var(--color-border)', paddingLeft: '1.5rem' }}>
+                            <div className="smart-analysis-column">
                                 <p className="smart-analysis-title">PÄÄTTYMISEEN</p>
-                                <strong style={{ color: calculations.remaining <= 31 && calculations.remaining > 0 ? 'var(--color-danger)' : 'inherit' }}>
+                                <strong className={`stat-value ${calculations.remaining <= 31 && calculations.remaining > 0 ? 'text-danger' : ''}`}>
                                     {calculations.remaining} päivää
                                 </strong>
-                                <span style={{ fontSize: '0.8rem', display: 'block' }}>
+                                <span className="stat-label">
                                     {calculations.remaining <= 31 && calculations.remaining > 0 ? "⚠️ Varaa 46 § työnhakukeskustelu!" : "Sykli normaali"}
                                 </span>
                             </div>
@@ -384,26 +319,27 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                 </div>
             )}
 
-            <div className="custom-text-container" style={{ marginTop: '1.5rem' }}>
-                <label htmlFor={`custom-text-${UI_KEY}`}>Suunnitelmaan tulostuva teksti:</label>
+            <div className="custom-text-container">
+                <label htmlFor={`custom-text-${UI_KEY}`} className="stat-label">Vapaat lisätiedot:</label>
                 <textarea
                     id={`custom-text-${UI_KEY}`}
                     rows="3"
                     className="form-input"
                     value={state[`custom-${UI_KEY}`] || ''}
                     onChange={(e) => onUpdateCustomText(UI_KEY, e.target.value)}
-                    placeholder="Päivämäärät ilmestyvät tänne automaattisesti..."
+                    placeholder="Kirjaa tähän mahdolliset lisätiedot..."
                 />
             </div>
 
-            <div className="guidance-box a-tmt-guidance" style={{ marginTop: '1.5rem' }}>
-                <p>A-TMT suositus: <strong>{aTmtRecommendation.status}</strong> ({aTmtRecommendation.months} kk)</p>
+            <div className="guidance-box a-tmt-guidance">
+                <p>A-TMT suositus: <strong className="recommended-status">{aTmtRecommendation.status}</strong> ({aTmtRecommendation.months} kk)</p>
             </div>
-
-            <UraAnalyzerModal 
+            
+<UraAnalyzerModal 
                 isOpen={isAnalyzerOpen} 
                 onClose={() => setIsAnalyzerOpen(false)} 
                 actions={actions} 
+                state={state} 
             />
             
         </section>

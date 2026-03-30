@@ -22,7 +22,8 @@ const deepMerge = (target, source) => {
 };
 
 export const usePlanState = (dbPlanData) => {
-    const [state, setState] = useState({});
+    // Alustetaan tila tyhjällä 'asiakas'-objektilla, jotta se on heti kaikkien käytettävissä
+    const [state, setState] = useState({ asiakas: {} });
 
     const handleScrape = useCallback((scrapedState) => {
         setState(currentState => deepMerge(currentState, scrapedState));
@@ -226,6 +227,16 @@ export const usePlanState = (dbPlanData) => {
     const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => {
         setState(currentState => {
             const newState = JSON.parse(JSON.stringify(currentState));
+            
+            // --- UUSI: Reititys suoraan asiakas-tilaan, jos sectionId on 'asiakas' ---
+            if (sectionId === 'asiakas') {
+                if (!newState.asiakas) newState.asiakas = {};
+                // Varmistetaan, että emme tallenna vahingossa [object Object]
+                newState.asiakas[avainsana] = value; 
+                return newState;
+            }
+            // ----------------------------------------------------------------------
+            
             let section = dbPlanData.aihealueet?.find(s => s.id === sectionId);
             if (!section) section = planData.aihealueet.find(s => s.id === sectionId);
             
@@ -256,6 +267,17 @@ export const usePlanState = (dbPlanData) => {
         setState(currentState => ({ ...currentState, [customKey]: value }));
     }, []);
 
+    // --- UUSI: Master-profiilin oma suora käsittelijä ---
+    const handleUpdateAsiakas = useCallback((key, value) => {
+        setState(prevState => {
+            const newState = JSON.parse(JSON.stringify(prevState));
+            if (!newState.asiakas) newState.asiakas = {};
+            newState.asiakas[key] = value;
+            return newState;
+        });
+    }, []);
+    // ---------------------------------------------------
+
     const handleUpdateTyokyky = useCallback((key, value) => {
         setState(prevState => {
             const newState = JSON.parse(JSON.stringify(prevState));
@@ -280,18 +302,15 @@ export const usePlanState = (dbPlanData) => {
                  currentTiedot[value.id] = value.value;
                  newTyokykyState.keskustelunTiedot = currentTiedot;
             } else {
-                // KORJAUS TÄSSÄ: Puretaan objektit merkkijonoksi turvallisesti
                 const oldValue = newTyokykyState[key];
                 const oldSignalKey = typeof oldValue === 'string' ? oldValue : (oldValue?.avainsana || null);
                 
-                // Poistetaan vanha signaali paneelista
                 if (oldSignalKey && newState.signals[oldSignalKey]) {
                     delete newState.signals[oldSignalKey];
                 }
                 
                 const newSignalKey = typeof value === 'string' ? value : (value?.avainsana || null);
 
-                // Lisätään uusi signaali, jos se on virallinen fraasi
                 if (newSignalKey) {
                     let isKnownSignal = false;
                     for (const sec of (dbPlanData.aihealueet || [])) {
@@ -400,10 +419,12 @@ export const usePlanState = (dbPlanData) => {
         });
     }, []);
 
+    // Päivitetty actions-objekti, joka jaetaan kaikille komponenteille
     const actions = {
         onSelect: handleSelectPhrase,
         onUpdateVariable: handleUpdateVariable,
         onUpdateCustomText: handleUpdateCustomText,
+        onUpdateAsiakas: handleUpdateAsiakas, // UUSI!
         onUpdateTyokyky: handleUpdateTyokyky,
         onUpdatePalkkatuki: handleUpdatePalkkatuki,
         onUpdateTyottomyysturva: handleUpdateTyottomyysturva,

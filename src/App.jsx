@@ -16,7 +16,7 @@ import Tyottomyysturva from './components/sections/Tyottomyysturva';
 import Tyotilanne from './components/sections/Tyotilanne';
 import KoulutusJaYrittajyys from './components/koulutusYrittajyys';
 import Tyokyky from './components/sections/Tyokyky';
-import PalkkatukiCalculator from './components/sections/PalkkatukiCalculator';
+import PalkkatukiCalculator from "./components/sections/PalkkatukiCalculator";
 import Palveluunohjaus from './components/sections/Palveluunohjaus';
 import Suunnitelma from './components/sections/Suunnitelma';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';

@@ -19,9 +19,15 @@ const Jalkimarkkinointi = ({ state }) => {
     const [copySuccess, setCopySuccess] = useState('');
 
     // 1. PANSSAROITU DATAN LUKU
-    const customerEmail = state?.perustiedot?.sahkoposti || state?.sahkoposti || state?.asiakkaan_sahkoposti || 'Ei sähköpostia kirjattu';
-    const customerName = state?.perustiedot?.etunimi || state?.etunimi || state?.nimi || state?.asiakkaan_nimi || 'Asiakas';
-    const lkmArvo = state?.tyonhakuvelvollisuus?.lkm_arvo || state?.lkm_arvo || state?.haettavat_tyopaikat || 0;
+    const masterAsiakas = state?.asiakas || {};
+    
+    const customerEmail = masterAsiakas.sahkoposti || state?.perustiedot?.sahkoposti || state?.sahkoposti || state?.asiakkaan_sahkoposti || 'Ei sähköpostia kirjattu';
+    const customerName = masterAsiakas.etunimi || state?.perustiedot?.etunimi || state?.etunimi || state?.nimi || state?.asiakkaan_nimi || 'Asiakas';
+    
+    const lkmArvo = masterAsiakas.lkm_arvo || state?.tyonhakuvelvollisuus?.muuttujat?.LKM || state?.tyonhakuvelvollisuus?.lkm_arvo || 0;
+    
+    // Haetaan Suunnitelma-komponentin tallentama lopullinen teksti tekoälylle
+    const finalPlanText = masterAsiakas.lopullinen_suunnitelma_teksti || '';
 
     // 2. HAETAAN LINKIT
     useEffect(() => {
@@ -37,21 +43,21 @@ const Jalkimarkkinointi = ({ state }) => {
         fetchSnippets();
     }, []);
 
-    // 3. SUUNNITELMAN KÄÄNNÖS (Korjattu: Etsitään nyt phrase_key:n perusteella!)
+    // 3. SUUNNITELMAN KÄÄNNÖS
     useEffect(() => {
         const fetchPlanDetails = async () => {
-            const rawPlan = state?.suunnitelma || [];
-            
-            if (!Array.isArray(rawPlan) || rawPlan.length === 0) {
+            const rawPlan = masterAsiakas.valitut_palvelut_id || state?.suunnitelma || [];
+            const validPlanArray = Array.isArray(rawPlan) ? rawPlan : Object.keys(rawPlan).filter(k => rawPlan[k]);
+
+            if (validPlanArray.length === 0) {
                 setPlanItems([]);
                 return;
             }
 
             try {
-                // Haemme fraasit phrase_key:n perusteella ja palvelut id:n perusteella
                 const [phrasesRes, servicesRes] = await Promise.all([
-                    supabase.from('phrases').select('phrase_key, short_title').in('phrase_key', rawPlan),
-                    supabase.from('services').select('id, title').in('id', rawPlan)
+                    supabase.from('phrases').select('phrase_key, short_title').in('phrase_key', validPlanArray),
+                    supabase.from('services').select('id, title').in('id', validPlanArray)
                 ]);
 
                 const items = [];
@@ -64,35 +70,60 @@ const Jalkimarkkinointi = ({ state }) => {
             }
         };
         fetchPlanDetails();
-    }, [JSON.stringify(state?.suunnitelma)]);
+    }, [JSON.stringify(masterAsiakas.valitut_palvelut_id), JSON.stringify(state?.suunnitelma)]);
 
-    // 4. ÄLYKÄS RUKSAILU (Laajennettu vertailupohja)
+    // 4. ÄLYKÄS RUKSAILU (Super-imuri, jossa on roskasuodatin!)
     useEffect(() => {
         if (snippets.length === 0) return;
 
         const userSignals = state?.signals || {};
-        const rawPlan = Array.isArray(state?.suunnitelma) ? state.suunnitelma : [];
+        const rawPlan = masterAsiakas.valitut_palvelut_id || state?.suunnitelma || [];
+        const validPlanArray = Array.isArray(rawPlan) ? rawPlan : Object.keys(rawPlan).filter(k => rawPlan[k]);
         
-        // Luodaan yhteinen "hakusanalista" yhdistämällä signaalit ja suunnitelman valinnat
-        const activeKeywords = new Set([
-            ...Object.keys(userSignals)
-                .filter(key => userSignals[key] === true || userSignals[key] === "true")
-                .map(key => key.toLowerCase().trim()),
-            ...rawPlan.map(item => typeof item === 'string' ? item.toLowerCase().trim() : '')
-        ]);
+        const normalize = (str) => {
+            if (!str) return '';
+            return str.toLowerCase().replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/å/g, 'a').trim();
+        };
+
+        const allContext = [
+            ...Object.keys(userSignals).filter(key => 
+                userSignals[key] === true || 
+                userSignals[key] === "true" || 
+                (typeof userSignals[key] === 'object' && !userSignals[key].isMuted)
+            ),
+            ...validPlanArray,
+            ...planItems, 
+            masterAsiakas.tavoiteammatti_esco_nimi || ''
+        ].map(normalize).join(' ');
+
+        const contextString = allContext.replace(/helsinki-lisa/g, 'helsinkilisa').replace(/helsinki-lisä/g, 'helsinkilisa');
         
+        // UUSI LAYER: Ohitetaan super-yleiset triggerit, jotta koko ruutu ei mene ruksille!
+        const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irtisanottu', 'alle_6kk_tyossa'];
+
         const preSelected = [];
         snippets.forEach(snippet => {
             if (snippet.triggers) {
-                const triggersArray = snippet.triggers.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-                // Onko osumaa asiakkaan datan ja linkin triggerien välillä?
-                const isMatch = triggersArray.some(t => activeKeywords.has(t));
+                const triggersArray = snippet.triggers.split(',').map(t => normalize(t));
+                
+                const isMatch = triggersArray.some(trigger => {
+                    const cleanTrigger = trigger.replace('_puollettu', '').replace('_valittu', '');
+                    
+                    // 1. Estetään liian yleiset sanat (työtön, lomautettu)
+                    if (ignoredTriggers.includes(cleanTrigger)) return false; 
+                    
+                    // 2. Estetään liian lyhyet haamusomat (esim. vahinkolyhenteet)
+                    if (cleanTrigger.length < 3) return false; 
+
+                    return contextString.includes(cleanTrigger);
+                });
+
                 if (isMatch) preSelected.push(snippet.id);
             }
         });
         
         setSelectedSnippetIds(preSelected);
-    }, [snippets, JSON.stringify(state?.signals), JSON.stringify(state?.suunnitelma)]);
+    }, [snippets, JSON.stringify(state?.signals), JSON.stringify(masterAsiakas), JSON.stringify(state?.suunnitelma), planItems]);
 
     const toggleSnippet = (id) => {
         setSelectedSnippetIds(prev => 
@@ -117,15 +148,17 @@ const Jalkimarkkinointi = ({ state }) => {
                     customerName,
                     planItems, 
                     obligationsCount: lkmArvo,
-                    selectedSnippets: selectedSnippetsData
+                    selectedSnippets: selectedSnippetsData,
+                    finalPlanText: finalPlanText 
                 }),
             });
 
             if (!response.ok) {
+                const responseData = await response.json().catch(() => ({}));
                 if (response.status === 500 || response.status === 503) {
                     throw new Error("Aivoissa on ruuhkaa! Liikaa pörriäisiä kimpussani, yritä hetken kuluttua uudestaan. 🐝");
                 }
-                throw new Error("Pyyntö epäonnistui (Virhekoodi: " + response.status + ")");
+                throw new Error(responseData.error || "Pyyntö epäonnistui (Virhekoodi: " + response.status + ")");
             }
 
             const data = await response.json();
@@ -196,6 +229,15 @@ const Jalkimarkkinointi = ({ state }) => {
                             )}
                         </div>
                     </div>
+
+                    {finalPlanText && (
+                        <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
+                            <strong style={{ width: '120px' }}>Suunnitelma:</strong>
+                            <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
+                                ✓ Asiakirjan lopullinen teksti liitetty mukaan tekoälyn pohjadataksi.
+                            </span>
+                        </div>
+                    )}
 
                     <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
                         <strong style={{ width: '120px' }}>Velvollisuus:</strong>

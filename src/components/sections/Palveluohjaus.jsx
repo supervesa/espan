@@ -29,6 +29,9 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
     const signals = state.signals || {};
     const currentLanguageLevel = state['custom-kielitaso_suomi'];
 
+    // UUSI LAYER: Luetaan myös Master-profiilista, onko palvelu valittuna
+    const masterValinnat = state.asiakas?.valitut_palvelut_id || [];
+
     // Resetoidaan näkyvien määrä, jos haku tai välilehti muuttuu
     useEffect(() => {
         setVisibleCount(6);
@@ -141,18 +144,34 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
     const displayedServices = filteredServices.slice(0, visibleCount);
 
     const handleToggleService = (id, isChecked) => {
+        let newList = valinnatArray;
+
+        // 1. Päivitetään vanha paikallinen tila (Suunnitelma-komponenttia varten)
         if (actions.onUpdateSuunnitelma) {
             actions.onUpdateSuunnitelma(id, isChecked);
         } else if (actions.updateSectionData) {
-            const newList = isChecked ? [...valinnatArray, id] : valinnatArray.filter(i => i !== id);
+            newList = isChecked ? [...valinnatArray, id] : valinnatArray.filter(i => i !== id);
             actions.updateSectionData('suunnitelma', newList);
+        }
+
+        // 2. UUSI LAYER: Tallennetaan tieto suoraan Master-profiiliin (Jälkimarkkinointia varten)
+        if (typeof actions.onUpdateAsiakas === 'function') {
+            // Yhdistetään varmuuden vuoksi kaikki aiemmat valinnat (myös ne, jotka on ehkä tehty toisessa komponentissa)
+            const combinedSet = new Set([...valinnatArray, ...masterValinnat]);
+            if (isChecked) {
+                combinedSet.add(id);
+            } else {
+                combinedSet.delete(id);
+            }
+            actions.onUpdateAsiakas('valitut_palvelut_id', Array.from(combinedSet));
         }
     };
 
     const toggleExpand = (id) => setExpandedService(expandedService === id ? null : id);
 
     const renderCard = (service, isRecommendation = false) => {
-        const isSelected = valinnatArray.includes(service.id);
+        // Tarkistetaan valinta molemmista listoista varmuuden vuoksi
+        const isSelected = valinnatArray.includes(service.id) || masterValinnat.includes(service.id);
         const cardKey = isRecommendation ? `rec-${service.id}` : service.id;
         
         const langInfo = checkLanguageMatch(service, signals, currentLanguageLevel);
@@ -185,7 +204,7 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                     {service.title}
                 </h4>
 
-                {/* UUSI: TVM-kriittiset tiedot suoraan etupuolella */}
+                {/* TVM-kriittiset tiedot suoraan etupuolella */}
                 {service.service_type === 'koulutus' && (
                     <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                         {service.ura_number && <span><strong>URA:</strong> {service.ura_number}</span>}

@@ -54,29 +54,50 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
              }
         }
     }
-    else if (sectionId === 'tyonhakuvelvollisuus' && selection) {
-        const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
-        if (phraseData) {
-            let koottuTeksti = processPhrase(phraseData, selection);
-            if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
-                const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([, v]) => v).map(([k]) => k);
-                let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
-                if (perustelut.length > 0) alennusTeksti += ` Perusteet: ${perustelut.join(', ')}.`;
-                if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
-                koottuTeksti += alennusTeksti;
-            }
-            let thvLopputeksti = TYONHAKUVELVOLLISUUS_LOPPUTEKSTI; 
-            if (dbKnowledge && dbKnowledge.length > 0) {
-                const dbTeksti = dbKnowledge.find(k => k.title === 'THV Lopputeksti');
-                if (dbTeksti && dbTeksti.content_text) {
-                    thvLopputeksti = dbTeksti.content_text;
+    // --- KORJATTU THV-LUKU: Poistettu '&& selection' rajoite ---
+    else if (sectionId === 'tyonhakuvelvollisuus') {
+        let koottuTeksti = '';
+        
+        // 1. Jos numeerinen pääfraasi ON valittu, käsitellään se
+        if (selection && selection.avainsana) {
+            const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
+            if (phraseData) {
+                koottuTeksti = processPhrase(phraseData, selection);
+                
+                // Alennusten perustelut
+                if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
+                    const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([, v]) => v).map(([k]) => k);
+                    let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
+                    if (perustelut.length > 0) alennusTeksti += ` Perusteet: ${perustelut.join(', ')}.`;
+                    if (selection.alentamisenVapaaTeksti) alennusTeksti += ` ${selection.alentamisenVapaaTeksti}`;
+                    koottuTeksti += alennusTeksti;
                 }
             }
-            if (thvLopputeksti && !koottuTeksti.includes("Oikeudet ja velvollisuudet")) {
-                 koottuTeksti += `\n\n${thvLopputeksti.trim()}`;
-            }
-            generated = koottuTeksti;
         }
+
+        // 2. AINA MUKAAN: Aikatauluehdotus + Lakisääteiset tekstit
+        if (selection && selection.vakiotekstitYhdistetty) {
+            // Jos asiantuntija on käynyt THV-välilehdellä, sieltä löytyy valmiiksi puristettu paketti
+            koottuTeksti += (koottuTeksti ? '\n\n' : '') + selection.vakiotekstitYhdistetty.trim();
+        } else {
+            // HÄTÄVARA: Jos asiantuntija ei koskaan edes avannut THV-välilehteä, 
+            // haetaan aikataulu suoraan Master-profiilista ja peruslait tietokannasta.
+            const aikataulu = state.asiakas?.aikataulu_teksti;
+            if (aikataulu && !koottuTeksti.includes(aikataulu)) {
+                koottuTeksti += (koottuTeksti ? '\n\n' : '') + aikataulu.trim();
+            }
+            
+            if (dbKnowledge && !koottuTeksti.includes("Oikeudet ja velvollisuudet")) {
+                const luvat = dbKnowledge.find(k => k.title === 'Oikeudet ja velvollisuudet')?.content_text || '';
+                const keskustelut = dbKnowledge.find(k => k.title === 'Täydentävät- ja Työnhakukeskustelut')?.content_text || '';
+                const fallbackLait = [luvat, keskustelut].filter(Boolean).join('\n\n');
+                if (fallbackLait) {
+                    koottuTeksti += (koottuTeksti ? '\n\n' : '') + fallbackLait;
+                }
+            }
+        }
+
+        generated = koottuTeksti.trim();
     }
     else if (section.id === 'suunnitelma' && state.suunnitelma) {
          Object.values(YLEISET_SUUNNITELMA_FRAASIT).forEach(phrase => {
@@ -125,7 +146,6 @@ export const generateHybridSummary = (state, dbPlanData, dbKnowledge) => {
     let tyottomyysturvaFraasi = '';
     let koulutusJaYrittajyysCustomText = ''; 
 
-    // HYBRIDI-YHDISTÄJÄ: Yhdistää vanhan ja uuden datan turvallisesti
     let mergedSections = planData.aihealueet.map(staticSection => {
         const dbOverride = dbPlanData?.aihealueet?.find(s => s.id === staticSection.id);
         return dbOverride || staticSection;

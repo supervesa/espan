@@ -1,6 +1,7 @@
 // --- src/components/sections/PalkkatukiCalculator.jsx ---
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { supabase } from '../../utils/supabaseClient'; 
 import { 
     BrainCircuit, Calculator, Calendar, Zap, Building, 
     CheckCircle, AlertCircle, Info, Coins, FileText, Clock, RotateCcw, MinusCircle, MapPin, Briefcase, Copy, AlertTriangle
@@ -12,8 +13,27 @@ const PalkkatukiCalculator = ({ state, actions }) => {
     const { onUpdatePalkkatuki, onUpdateCustomText } = actions;
     const [showModal, setShowModal] = useState(false);
     
+    const [estoFraasi, setEstoFraasi] = useState('');
     const ptState = state.palkkatuki || {};
-    const signals = state.signals || {};
+
+    useEffect(() => {
+        const fetchFraasi = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('phrases')
+                    .select('base_text')
+                    .eq('phrase_key', 'tyokokeilu_maksimi_taynna')
+                    .single();
+                    
+                if (data && !error) {
+                    setEstoFraasi(data.base_text);
+                }
+            } catch (err) {
+                console.error("Virhe fraasin haussa:", err);
+            }
+        };
+        fetchFraasi();
+    }, []);
 
     const handleSupportToggle = (avain, signaaliNimi, isChecked) => {
         onUpdatePalkkatuki(avain, isChecked);
@@ -25,9 +45,15 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         }
     };
 
-    const parseFiDate = (dateStr) => {
-        if (!dateStr) return null;
-        const parts = dateStr.split('.');
+    // Paranneltu päivämäärän lukija (Ymmärtää Suomi-muodon ja Radiosta tulevan ISO-muodon)
+    const parseAnyDate = (val) => {
+        if (!val) return null;
+        if (val instanceof Date) return val;
+        if (val.includes('-')) {
+            const d = new Date(val);
+            return isNaN(d.getTime()) ? null : d;
+        }
+        const parts = val.split('.');
         if (parts.length === 3) {
             const d = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
             return isNaN(d.getTime()) ? null : d;
@@ -39,15 +65,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
     // 1. PALKKATUKI MATEMATIIKKA
     // =========================================================================
     
-    const { 
-        ika, 
-        alkuperainenAlkuPvm, 
-        perusKestoPv, 
-        perusKestoTxt,
-        hyvaksytytPaivat,
-        ehto24_28_tayttyy,
-        ehto3kk_tayttyy
-    } = useMemo(() => {
+    const { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy } = useMemo(() => {
         let laskettuIka = null;
         let originalDiffDays = 0;
         let originalKestoTxt = 'Ei tiedossa';
@@ -63,20 +81,19 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         }
 
         const alkupvmStr = state.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.[STATE_MUUTTUJAT.TYONHAKU_ALKUPVM];
-        const startDate = parseFiDate(alkupvmStr);
+        const startDate = parseAnyDate(alkupvmStr);
         const now = new Date();
         
         if (startDate) {
             const diffTime = Math.max(0, now - startDate);
             originalDiffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
             const vuodet = Math.floor(originalDiffDays / 365);
             const kuukaudet = Math.floor((originalDiffDays % 365) / 30);
             if (vuodet > 0) originalKestoTxt = `${vuodet} v ${kuukaudet} kk (${originalDiffDays} pv)`;
             else originalKestoTxt = `${kuukaudet} kk (${originalDiffDays} pv)`;
         }
 
-        const nollausPvm = parseFiDate(ptState.nollausPvm);
+        const nollausPvm = parseAnyDate(ptState.nollausPvm);
         const activeStart = nollausPvm || startDate;
         
         let acceptedDays = 0;
@@ -88,15 +105,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
             acceptedDays = Math.max(0, daysIn28MonthWindow - vahennykset);
         }
 
-        return { 
-            ika: laskettuIka, 
-            alkuperainenAlkuPvm: alkupvmStr,
-            perusKestoPv: originalDiffDays, 
-            perusKestoTxt: originalKestoTxt,
-            hyvaksytytPaivat: acceptedDays,
-            ehto24_28_tayttyy: acceptedDays >= 730,
-            ehto3kk_tayttyy: acceptedDays >= 91 
-        };
+        return { ika: laskettuIka, alkuperainenAlkuPvm: alkupvmStr, perusKestoPv: originalDiffDays, perusKestoTxt: originalKestoTxt, hyvaksytytPaivat: acceptedDays, ehto24_28_tayttyy: acceptedDays >= 730, ehto3kk_tayttyy: acceptedDays >= 91 };
     }, [state.suunnitelman_perustiedot, ptState.nollausPvm, ptState.vahennysPv]);
 
     useEffect(() => {
@@ -105,8 +114,27 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         }
     }, [ehto24_28_tayttyy, ptState.ehto24_28_tayttyy, onUpdatePalkkatuki]);
 
+
+    // === RADION KUUNTELIJA (Vastaanottaa työkokeilun, muttei sotke laatikkoa) ===
+    useEffect(() => {
+        const handleRadio = (event) => {
+            const payload = event.detail;
+            if (payload && payload.tyyppi === "tyokokeilu" && payload.alku && payload.loppu) {
+                onUpdatePalkkatuki('suunniteltu_tk_alku', payload.alku);
+                onUpdatePalkkatuki('suunniteltu_tk_loppu', payload.loppu);
+            } else {
+                onUpdatePalkkatuki('suunniteltu_tk_alku', null);
+                onUpdatePalkkatuki('suunniteltu_tk_loppu', null);
+            }
+        };
+
+        window.addEventListener('palvelu_ajankohta_paivitetty', handleRadio);
+        return () => window.removeEventListener('palvelu_ajankohta_paivitetty', handleRadio);
+    }, [onUpdatePalkkatuki]);
+
+
     // =========================================================================
-    // 2. TYÖKOKEILUN 6 KK LASKURI
+    // 3. TYÖKOKEILUN 6 KK LASKURI (Historia + Suunniteltu)
     // =========================================================================
     
     const tkText = ptState.tyokokeilu_historia || '';
@@ -119,9 +147,10 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         let totalDays = 0;
         let latestEndDate = null;
 
+        // 1. Lasketaan historia-laatikon päivät
         while ((match = regex.exec(tkText)) !== null) {
-            const start = parseFiDate(match[1]);
-            const end = parseFiDate(match[2]);
+            const start = parseAnyDate(match[1]);
+            const end = parseAnyDate(match[2]);
             if (start && end && end >= start) {
                 const diffTime = Math.abs(end - start);
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; 
@@ -134,6 +163,23 @@ const PalkkatukiCalculator = ({ state, actions }) => {
             }
         }
 
+        // 2. Lisätään suunniteltu jakso (JOS täppä on päällä)
+        const usePlanned = ptState.huomioi_suunniteltu_tk !== false; // Oletuksena True
+        if (usePlanned && ptState.suunniteltu_tk_alku && ptState.suunniteltu_tk_loppu) {
+            const pStart = parseAnyDate(ptState.suunniteltu_tk_alku);
+            const pEnd = parseAnyDate(ptState.suunniteltu_tk_loppu);
+
+            if (pStart && pEnd && pEnd >= pStart) {
+                const diffDays = Math.ceil(Math.abs(pEnd - pStart) / (1000 * 60 * 60 * 24)) + 1;
+                totalDays += diffDays;
+                
+                if (!latestEndDate || pEnd > latestEndDate) {
+                    latestEndDate = pEnd;
+                }
+            }
+        }
+
+        // 3. Tarkistetaan nollaussääntö (karenssi)
         const now = new Date();
         let gapDays = 0;
         let isReset = false;
@@ -158,7 +204,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
             remainingMonths,
             isMaxedOut: remainingMonths <= 0 && !isReset
         };
-    }, [tkText, isUnder25]);
+    }, [tkText, isUnder25, ptState.suunniteltu_tk_alku, ptState.suunniteltu_tk_loppu, ptState.huomioi_suunniteltu_tk]);
 
     useEffect(() => {
         if (ptState.tyokokeilu_kesto_kk !== tkCalc.remainingMonths) {
@@ -166,147 +212,110 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         }
     }, [tkCalc.remainingMonths, ptState.tyokokeilu_kesto_kk, onUpdatePalkkatuki]);
 
+    useEffect(() => {
+        if (!tkCalc.isMaxedOut && ptState.kirjaa_tyokokeilu_esto) {
+            onUpdatePalkkatuki('kirjaa_tyokokeilu_esto', false);
+        }
+    }, [tkCalc.isMaxedOut, ptState.kirjaa_tyokokeilu_esto, onUpdatePalkkatuki]);
 
     // =========================================================================
-    // 3. ÄLYKÄS ANALYYSI
+    // 4. ÄLYKÄS ANALYYSI
     // =========================================================================
     
     const analysis = useMemo(() => {
         const detected = [];
         const suggestions = [];
-        const activeSignals = Object.keys(signals).filter(k => !signals[k]?.isMuted);
+        const fullStateStr = JSON.stringify(state || {}).toLowerCase();
         
-        const tyokykyAvainsana = state.tyokyky?.paavalinta?.avainsana;
-        const onkoAlentuma = activeSignals.some(s => s.includes('alentuma') || s.includes('haaste')) || 
-                             (tyokykyAvainsana === 'tyokyky_alentunut' || tyokykyAvainsana === 'tyokyky_selvityksessa');
+        const onkoAlentuma = fullStateStr.includes('alentuma') || fullStateStr.includes('haaste') || fullStateStr.includes('työkyky_alentunut') || fullStateStr.includes('tyokyky_alentunut') || fullStateStr.includes('sairausloma');
 
         if (ika && ika >= 55) detected.push(`Ikä 55+ vuotta (${ika} v)`);
         else if (ika && ika < 25) detected.push(`Alle 25-vuotias (${ika} v)`);
-
         if (ehto24_28_tayttyy) detected.push('24/28 kk ehto (730 pv) täyttyy');
         else if (ehto3kk_tayttyy) detected.push('3 kk työttömyysehto täyttyy (Helsinki-lisä)');
-
         if (onkoAlentuma) detected.push('Työkyvyn alentuma havaittu');
 
         const onkoYhdistys = ptState.tyonantaja_yhdistys;
 
         if (onkoAlentuma) {
             suggestions.push({
-                label: 'Puolla 70 % tukea (Työkyvyn alentuma)',
-                info: 'Vamman tai sairauden perusteella.',
-                action: () => {
-                    onUpdatePalkkatuki('puoltoTyyppi', '70_tyokyky');
-                    handleSupportToggle('palkkatuki_puolletaan', 'palkkatuki_puollettu', true);
-                }
+                label: 'Puolla 70 % tukea (Työkyvyn alentuma)', info: 'Vamman tai sairauden perusteella.',
+                action: () => { onUpdatePalkkatuki('puoltoTyyppi', '70_tyokyky'); handleSupportToggle('palkkatuki_puolletaan', 'palkkatuki_puollettu', true); }
             });
         }
-
         if (ehto3kk_tayttyy && ptState.kotikunta_helsinki) {
             suggestions.push({
-                label: 'Puolla Helsinki-lisää (50 %)',
-                info: 'Helsinkiläinen, väh. 3 kk työttömyys.',
-                icon: <MapPin size={18} />,
-                action: () => {
-                    handleSupportToggle('helsinkilisa_puolletaan', 'helsinkilisa_puollettu', true);
-                }
+                label: 'Puolla Helsinki-lisää (50 %)', info: 'Helsinkiläinen, väh. 3 kk työttömyys.', icon: <MapPin size={18} />,
+                action: () => { handleSupportToggle('helsinkilisa_puolletaan', 'helsinkilisa_puollettu', true); }
             });
         }
-
         if (ehto24_28_tayttyy && onkoYhdistys) {
             suggestions.push({
-                label: 'Puolla 100 % tukea (Yhdistys / 24 kk)',
-                info: '24/28 kk ehto täyttyy.',
-                action: () => {
-                    onUpdatePalkkatuki('puoltoTyyppi', '100_yhdistys');
-                    handleSupportToggle('palkkatuki_puolletaan', 'palkkatuki_puollettu', true);
-                }
+                label: 'Puolla 100 % tukea (Yhdistys / 24 kk)', info: '24/28 kk ehto täyttyy.',
+                action: () => { onUpdatePalkkatuki('puoltoTyyppi', '100_yhdistys'); handleSupportToggle('palkkatuki_puolletaan', 'palkkatuki_puollettu', true); }
             });
         }
-
         if (ika >= 55 && ehto24_28_tayttyy) {
             suggestions.push({
-                label: 'Puolla 55-vuotiaiden työllistämistukea',
-                info: '70% tuki ikäperusteella.',
-                action: () => {
-                    onUpdatePalkkatuki('puoltoTyyppi', '55_tuki');
-                    handleSupportToggle('palkkatuki_puolletaan', 'palkkatuki_puollettu', true);
-                }
+                label: 'Puolla 55-vuotiaiden työllistämistukea', info: '70% tuki ikäperusteella.',
+                action: () => { onUpdatePalkkatuki('puoltoTyyppi', '55_tuki'); handleSupportToggle('palkkatuki_puolletaan', 'palkkatuki_puollettu', true); }
             });
         }
-
         return { detected, suggestions };
-    }, [ika, ehto24_28_tayttyy, ehto3kk_tayttyy, signals, state.tyokyky, ptState.tyonantaja_yhdistys, ptState.kotikunta_helsinki]);
+    }, [ika, ehto24_28_tayttyy, ehto3kk_tayttyy, state, ptState.tyonantaja_yhdistys, ptState.kotikunta_helsinki]);
 
     // =========================================================================
-    // 4. TEKSTINGENEROINTI (Ikiliikkuja korjattu!)
+    // 5. TEKSTINGENEROINTI
     // =========================================================================
     
-    // Muutetaan lisähuomiot merkkijonoksi, jotta React ei luule sitä uudeksi objektiksi joka renderöinnillä
     const lisahuomiotStr = JSON.stringify(ptState.lisahuomiot || {});
 
     useEffect(() => {
         let uusiKappale = '';
+        let lauseet = [];
+
+        if (ptState.kirjaa_tyokokeilu_esto && estoFraasi && tkCalc.isMaxedOut) {
+            const karenssiTxt = isUnder25 ? "3 kuukautta" : "12 kuukautta";
+            lauseet.push(estoFraasi.replace('[KARENSSI_KK]', karenssiTxt));
+        }
 
         if (ptState.palkkatuki_puolletaan || ptState.helsinkilisa_puolletaan || ptState.tyokokeilu_puolletaan) {
-            let lauseet = [];
-            
-            // MOLEMMAT VALITTU
             if (ptState.helsinkilisa_puolletaan && ptState.palkkatuki_puolletaan) {
                 let ptPeruste = "ammatillisen osaamisen puutteiden perusteella (50 %)";
                 if (ptState.puoltoTyyppi === '100_yhdistys') ptPeruste = "yhdistykselle 24 kk työttömyyden perusteella (100 %)";
                 if (ptState.puoltoTyyppi === '70_tyokyky') ptPeruste = "työkyvyn alentuman perusteella (70 %)";
                 if (ptState.puoltoTyyppi === '55_tuki') ptPeruste = "55-vuotiaiden työllistämistukena";
-
                 lauseet.push(`Asiakkaalle voidaan puoltaa valtion palkkatukea ${ptPeruste} tai vaihtoehtoisesti Helsinki-lisää (50 % palkkauskustannuksista, enintään 1500 €/kk).`);
                 lauseet.push(`Huomioitavaa on, että tuet ovat toisensa poissulkevia, ja työnantaja voi saada vain toista näistä tuista kerrallaan. Helsinki-lisän myöntäminen edellyttää valtion palkkatuesta luopumista kyseisessä työsuhteessa.`);
-            } 
-            // VAIN HELSINKI-LISÄ
-            else if (ptState.helsinkilisa_puolletaan) {
+            } else if (ptState.helsinkilisa_puolletaan) {
                 const kesto = ptState.onko_oppisopimus ? "koko oppisopimuksen ajalle" : "enintään 12 kuukauden ajalle";
                 lauseet.push(`Asiakkaalle voidaan myöntää Helsinki-lisä (50 % palkkauskustannuksista, enintään 1500 €/kk). Tukea myönnetään ${kesto}.`);
-            } 
-            // VAIN PALKKATUKI
-            else if (ptState.palkkatuki_puolletaan) {
+            } else if (ptState.palkkatuki_puolletaan) {
                 let peruste = "ammatillisen osaamisen puutteiden perusteella (50 %)";
                 if (ptState.puoltoTyyppi === '100_yhdistys') peruste = "yhdistykselle 24 kk työttömyyden perusteella (100 %)";
                 if (ptState.puoltoTyyppi === '70_tyokyky') peruste = "työkyvyn alentuman perusteella (70 %)";
                 if (ptState.puoltoTyyppi === '55_tuki') peruste = "55-vuotiaiden työllistämistukena";
                 lauseet.push(`Asiakkaalle voidaan puoltaa palkkatukea ${peruste}.`);
             }
-
-            if (ptState.tyokokeilu_puolletaan) {
+            if (ptState.tyokokeilu_puolletaan && !tkCalc.isMaxedOut) {
                 const liite = lauseet.length > 0 ? "Lisäksi puolletaan " : "Asiakkaalle puolletaan ";
                 const kestoTieto = tkCalc.remainingMonths > 0 ? ` enintään ${tkCalc.remainingMonths} kuukaudeksi` : '';
                 lauseet.push(`${liite}työkokeilua${kestoTieto}.`);
             }
-
-            // Käytetään vanhaa lisähuomiot-viittausta turvallisesti
-            const currentHuomiot = ptState.lisahuomiot || {};
-            const valitutHuomiot = Object.values(PALKKATUKI_LISAHUOMIOT)
-                .filter(h => currentHuomiot[h.id] === true)
-                .map(h => h.teksti);
-                
-            if (valitutHuomiot.length > 0) lauseet.push(`\n\n${valitutHuomiot.join(' ')}`);
-
-            uusiKappale = lauseet.join(' ');
         }
 
-        // TÄSSÄ ON KORJATTU JARRU! Päivitetään tilaa vain jos teksti on aidosti muuttunut.
+        const currentHuomiot = ptState.lisahuomiot || {};
+        const valitutHuomiot = Object.values(PALKKATUKI_LISAHUOMIOT).filter(h => currentHuomiot[h.id] === true).map(h => h.teksti);
+        if (valitutHuomiot.length > 0) {
+            const prefix = lauseet.length > 0 ? '\n\n' : '';
+            lauseet.push(`${prefix}${valitutHuomiot.join(' ')}`);
+        }
+
+        uusiKappale = lauseet.join(' ').trim();
         if (ptState.puoltoKappale !== uusiKappale) {
             onUpdatePalkkatuki('puoltoKappale', uusiKappale);
         }
-
-    }, [
-        ptState.palkkatuki_puolletaan, 
-        ptState.helsinkilisa_puolletaan, 
-        ptState.tyokokeilu_puolletaan, 
-        ptState.puoltoTyyppi, 
-        ptState.onko_oppisopimus, 
-        tkCalc.remainingMonths,
-        ptState.puoltoKappale, // Nyt koodi pystyy tarkistamaan edellisen arvon!
-        lisahuomiotStr,        // Ja tämä ei luo enää uutta viittausta
-        onUpdatePalkkatuki
-    ]);
+    }, [ptState.palkkatuki_puolletaan, ptState.helsinkilisa_puolletaan, ptState.tyokokeilu_puolletaan, ptState.puoltoTyyppi, ptState.onko_oppisopimus, ptState.kirjaa_tyokokeilu_esto, estoFraasi, isUnder25, tkCalc.isMaxedOut, tkCalc.remainingMonths, ptState.puoltoKappale, lisahuomiotStr, onUpdatePalkkatuki]);
 
     const handleLisahuomioToggle = (id) => {
         const current = ptState.lisahuomiot || {};
@@ -379,32 +388,45 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                     </h3>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-                        {/* Copy-Paste kenttä */}
-                        <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '600', marginBottom: '0.5rem' }}>
-                                <Copy size={16} color="var(--color-primary)" /> Liitä aiemmat työkokeilut
-                            </label>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
-                                Järjestelmä etsii tekstistä päivämääräparit (esim. 1.2.2023 - 3.4.2023).
-                            </p>
-                            <textarea 
-                                className="form-input" 
-                                rows="4" 
-                                placeholder="Liitä aiempi historia tähän..."
-                                value={tkText}
-                                onChange={(e) => onUpdatePalkkatuki('tyokokeilu_historia', e.target.value)}
-                                style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
-                            />
-                             {tkCalc.periods.length > 0 && (
-                                <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.2rem', fontSize: '0.8rem', color: 'var(--color-primary)' }}>
-                                    {tkCalc.periods.map((p, i) => (
-                                        <li key={i}>{p.startStr} - {p.endStr} ({p.days} pv)</li>
-                                    ))}
-                                </ul>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '6px', border: '1px solid var(--color-border)', flexGrow: 1 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '600', marginBottom: '0.5rem' }}>
+                                    <Copy size={16} color="var(--color-primary)" /> Liitä aiemmat työkokeilut
+                                </label>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
+                                    Järjestelmä etsii tekstistä historiajaksojen päivämääräparit.
+                                </p>
+                                <textarea 
+                                    className="form-input" 
+                                    rows="4" 
+                                    placeholder="Liitä aiempi historia tähän..."
+                                    value={tkText}
+                                    onChange={(e) => onUpdatePalkkatuki('tyokokeilu_historia', e.target.value)}
+                                    style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+                                />
+                            </div>
+
+                            {/* UUSI: Älykäs täppä työtilanteesta tulleelle työkokeilulle */}
+                            {ptState.suunniteltu_tk_alku && ptState.suunniteltu_tk_loppu && (
+                                <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: 'var(--color-background)', border: '1px solid var(--color-primary)', borderRadius: '6px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text-primary)', cursor: 'pointer', margin: 0 }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={ptState.huomioi_suunniteltu_tk !== false} 
+                                            onChange={(e) => onUpdatePalkkatuki('huomioi_suunniteltu_tk', e.target.checked)} 
+                                            style={{ cursor: 'pointer', marginTop: '2px' }}
+                                        />
+                                        <span style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <strong>Huomioi laskurissa uusi suunniteltu kokeilu:</strong>
+                                            <span style={{ color: 'var(--color-primary)' }}>
+                                                {parseAnyDate(ptState.suunniteltu_tk_alku)?.toLocaleDateString('fi-FI')} - {parseAnyDate(ptState.suunniteltu_tk_loppu)?.toLocaleDateString('fi-FI')}
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
                             )}
                         </div>
 
-                        {/* Tulokset */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             <div style={{ display: 'flex', gap: '1rem' }}>
                                 <div style={{ flex: 1, backgroundColor: '#fff', padding: '1rem', borderRadius: '6px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
@@ -414,7 +436,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                                     </strong>
                                 </div>
                                 <div style={{ flex: 1, backgroundColor: '#fff', padding: '1rem', borderRadius: '6px', border: '1px solid var(--color-border)', textAlign: 'center' }}>
-                                    <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>Työkokeilua jäljellä</span>
+                                    <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>Jäljellä (pyöristettynä)</span>
                                     <strong style={{ fontSize: '1.5rem', color: tkCalc.isMaxedOut ? 'var(--color-warning)' : 'var(--color-primary)' }}>
                                         {tkCalc.remainingMonths} kk
                                     </strong>
@@ -422,11 +444,33 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                             </div>
                             
                             {tkCalc.isMaxedOut && (
-                                <div className="tag tag--warning" style={{ padding: '0.8rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
-                                    <span style={{ fontSize: '0.85rem', lineHeight: '1.4' }}>
-                                        <strong>Maksimiaika täynnä.</strong> Työkokeilua ei voida puoltaa ennen kuin {isUnder25 ? '3 kk' : '12 kk'} yhdenjaksoinen työttömyys täyttyy kokeilun päättymisestä.
-                                    </span>
+                                <div className="tag tag--warning" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-start', marginTop: '0.5rem' }}>
+                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                        <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                        <span style={{ fontSize: '0.85rem', lineHeight: '1.4' }}>
+                                            <strong>Työkokeilun enimmäiskesto (6 kk) on täyttynyt.</strong><br/>
+                                            Uuden työkokeilun myöntäminen edellyttää, että asiakas on ollut vähintään {isUnder25 ? '3 kuukautta' : '12 kuukautta'} yhdenjaksoisesti työttömänä.
+                                        </span>
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        onClick={() => onUpdatePalkkatuki('kirjaa_tyokokeilu_esto', !ptState.kirjaa_tyokokeilu_esto)}
+                                        className="btn btn--secondary"
+                                        style={{ 
+                                            alignSelf: 'stretch', 
+                                            fontSize: '0.85rem', 
+                                            padding: '0.4rem', 
+                                            display: 'flex', 
+                                            justifyContent: 'center', 
+                                            alignItems: 'center', 
+                                            gap: '0.5rem',
+                                            borderColor: ptState.kirjaa_tyokokeilu_esto ? 'var(--color-danger)' : 'var(--color-border)',
+                                            color: ptState.kirjaa_tyokokeilu_esto ? 'var(--color-danger)' : 'var(--color-text-primary)'
+                                        }}
+                                    >
+                                        <FileText size={16} /> 
+                                        {ptState.kirjaa_tyokokeilu_esto ? 'Poista lainsäädäntöteksti asiakirjasta' : 'Kirjaa perustelu tulosteeseen'}
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -538,7 +582,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                     <div className="thv-locked-text-header">
                         <FileText size={16} /> Esikatselu asiakirjaan
                     </div>
-                    <div className="thv-locked-text-body" style={{ backgroundColor: '#fff', padding: '1.5rem', border: '1px solid #dee2e6', borderRadius: '6px' }}>
+                    <div className="thv-locked-text-body" style={{ backgroundColor: '#fff', padding: '1.5rem', border: '1px solid #dee2e6', borderRadius: '6px', whiteSpace: 'pre-wrap' }}>
                         {ptState.puoltoKappale || <span style={{ color: '#adb5bd', fontStyle: 'italic' }}>Tee valintoja yläpuolelta nähdäksesi tekstin...</span>}
                     </div>
                     <div className="custom-text-container" style={{ borderTop: 'none', paddingTop: '1rem', marginTop: '1rem' }}>

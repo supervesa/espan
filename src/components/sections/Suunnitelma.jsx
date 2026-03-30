@@ -1,5 +1,5 @@
 // --- src/components/sections/Suunnitelma.jsx ---
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { Zap, CheckSquare, FileText, Activity, Briefcase, GraduationCap, HeartPulse, ArrowDownCircle } from 'lucide-react';
 import Palveluohjaus from './Palveluohjaus';
@@ -15,6 +15,10 @@ const Suunnitelma = ({ state, actions }) => {
     const isArray = Array.isArray(rawValinnat);
     const customText = state['custom-suunnitelma'] || '';
     const signals = state.signals || {};
+
+    // IKILIIKKUJAN ESTO: Tallennetaan edelliset arvot muistiin
+    const prevTextRef = useRef(null);
+    const prevIdsRef = useRef(null);
 
     // 1. DATAN HAKU
     useEffect(() => {
@@ -92,9 +96,29 @@ const Suunnitelma = ({ state, actions }) => {
         if (actions.onUpdateCustomText) actions.onUpdateCustomText('suunnitelma', combinedText);
     };
 
+    // --- UUSI KERROS: Synkronointi Master-profiiliin (Ikiliikkuja korjattu) ---
+    useEffect(() => {
+        if (typeof actions.onUpdateAsiakas === 'function') {
+            const currentText = customText || generatedText;
+            const valitutIdList = isArray ? rawValinnat : Object.keys(rawValinnat).filter(k => rawValinnat[k]);
+            const currentIdsStr = JSON.stringify(valitutIdList);
+            
+            // Lähetetään päivitys VAIN jos sisältö on oikeasti muuttunut
+            if (prevTextRef.current !== currentText) {
+                actions.onUpdateAsiakas('lopullinen_suunnitelma_teksti', currentText);
+                prevTextRef.current = currentText;
+            }
+
+            if (prevIdsRef.current !== currentIdsStr) {
+                actions.onUpdateAsiakas('valitut_palvelut_id', valitutIdList);
+                prevIdsRef.current = currentIdsStr;
+            }
+        }
+    }, [customText, generatedText, rawValinnat, isArray, actions]);
+    // ----------------------------------------------------------------------------
+
     const displaySignals = useMemo(() => Object.entries(signals).filter(([key, value]) => value && !key.match(/^[0-9a-f]{8}-[0-9a-f]{4}-/i)), [signals]);
 
-    // --- UUSITTU STRATEGIAPOLKUJEN LOGIIKKA ---
     const strategyPaths = useMemo(() => {
         const paths = {
             'A': { title: 'Työ edellä', icon: <Briefcase size={16} />, phrases: [] },
@@ -102,16 +126,13 @@ const Suunnitelma = ({ state, actions }) => {
             'C': { title: 'Työkyky ja tuki', icon: <HeartPulse size={16} />, phrases: [] }
         };
 
-        // Luodaan dynaamiset signaalit, jotta tulkki ja heikko kielitaso aktivoivat koulutuspolun
         const activeSignals = { ...signals };
         
-        // 1. Jos tarvitsee tulkkia, rinnastetaan se kielitaidon puutteeseen
         if (signals['osallistuu_tulkki']) {
             activeSignals['kielitaidon_puute'] = true;
             activeSignals['kielitaito_heikko'] = true;
         }
 
-        // 2. Jos kielitaso on A1 tai A2, rinnastetaan se kielitaidon puutteeseen
         const hasLowLanguage = Object.keys(signals).some(key => 
             signals[key] && key.startsWith('language_fi_a')
         );
@@ -121,7 +142,6 @@ const Suunnitelma = ({ state, actions }) => {
 
         dbPhrases.forEach(phrase => {
             if (phrase.triggerit?.length > 0) {
-                // Käytetään laajennettuja activeSignals-signaaleja vertailuun
                 const matchingTriggers = phrase.triggerit.filter(t => activeSignals[t.signal_key]);
                 
                 if (matchingTriggers.length > 0) {

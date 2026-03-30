@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+// --- src/components/AikatauluEhdotus.jsx ---
+import React, { useState, useEffect, useRef } from 'react';
 
-const AikatauluEhdotus = ({ state }) => {
+const AikatauluEhdotus = ({ state }) => { 
   const [count, setCount] = useState(1);
   const [period, setPeriod] = useState(3);
   const [meetingType, setMeetingType] = useState("täydentävää työnhakukeskustelua");
@@ -8,24 +9,24 @@ const AikatauluEhdotus = ({ state }) => {
   const [recommendation, setRecommendation] = useState(null);
   const [manualEndDate, setManualEndDate] = useState(null);
 
-  // --- HAKU: Suoraan ja turvallisesti ---
-  const findActiveServiceDate = () => {
-    const section = state['tyotilanne'] || {};
-    const directDate = section.palvelu_loppu || section.muuttujat?.palvelu_loppu;
-    if (directDate) return directDate;
+  // UUSI: Kuunneltu päivämäärä Työtilanteesta
+  const [radioEndDate, setRadioEndDate] = useState("");
+  const prevPhraseRef = useRef("");
 
-    for (const key in state) {
-      const data = state[key];
-      if (!data) continue;
-      if (data.palvelu_loppu) return data.palvelu_loppu;
-      if (data.muuttujat?.palvelu_loppu) return data.muuttujat.palvelu_loppu;
-    }
-    return "";
-  };
+  // === RADION KUUNTELIJA ===
+  useEffect(() => {
+    const handleRadio = (event) => {
+      const payload = event.detail;
+      // Otetaan vain loppupäivä talteen, tyypistä viis (Kaikki palvelut päättyvät joskus)
+      if (payload && payload.loppu) {
+         setRadioEndDate(payload.loppu);
+      }
+    };
+    window.addEventListener('palvelu_ajankohta_paivitetty', handleRadio);
+    return () => window.removeEventListener('palvelu_ajankohta_paivitetty', handleRadio);
+  }, []);
 
-  const autoEndDate = findActiveServiceDate();
 
-  // --- TURVALLINEN PARSERI ---
   const parseDate = (val) => {
     if (!val) return null;
     let d;
@@ -58,11 +59,9 @@ const AikatauluEhdotus = ({ state }) => {
     return d ? d.toLocaleDateString('fi-FI') : "";
   };
 
-  const activeDateRaw = manualEndDate !== null ? manualEndDate : autoEndDate;
-  const displayValue = manualEndDate !== null ? manualEndDate : formatDate(autoEndDate);
+  const activeDateRaw = manualEndDate !== null ? manualEndDate : radioEndDate;
+  const displayValue = manualEndDate !== null ? manualEndDate : formatDate(radioEndDate);
 
-  // --- KORJATTU ÄLYKÄS ANALYYSI (Ei enää ikiliikkujaa!) ---
-  // Riippuvuutena on nyt pelkkä merkkijono (activeDateRaw), ei Date-objekti
   useEffect(() => {
     const parsed = parseDate(activeDateRaw);
     if (parsed) {
@@ -86,7 +85,6 @@ const AikatauluEhdotus = ({ state }) => {
     }
   };
 
-  // --- FRAASIGENERAATTORI ---
   const generatePhrase = () => {
     if (count === 0) {
       return "Asiakkaan palvelutarve on arvioitu, eikä säännöllisille täydentäville työnhakukeskusteluille ole tarvetta alkavalla jaksolla. Asiakkaalla on kuitenkin lakisääteinen oikeus keskusteluihin; tarvittaessa asiakas voi jättää yhteydenottopyynnön Työmarkkinatorin Oma asiointi -palvelussa.";
@@ -101,6 +99,14 @@ const AikatauluEhdotus = ({ state }) => {
 
     return `Asiakkaalle järjestetään ${count} (${count}) ${meetingType} ${period} (${period}) kuukauden aikana.`;
   };
+
+  useEffect(() => {
+      const currentPhrase = generatePhrase();
+      if (prevPhraseRef.current !== currentPhrase) {
+          window.dispatchEvent(new CustomEvent('aikataulu_radio', { detail: currentPhrase }));
+          prevPhraseRef.current = currentPhrase;
+      }
+  });
 
   const handleCopyText = () => {
     const text = generatePhrase();
@@ -129,9 +135,7 @@ const AikatauluEhdotus = ({ state }) => {
           btn.innerText = "✓ Kopioitu!";
           setTimeout(() => { btn.innerText = originalText; }, 2000);
         }
-      } catch (err) {
-        alert("Selaimesi estää automaattisen kopioinnin. Maalaa teksti käsin.");
-      }
+      } catch (err) {}
       textArea.remove();
     }
   };
@@ -198,7 +202,7 @@ const AikatauluEhdotus = ({ state }) => {
                   <button className="btn--secondary" onClick={() => setManualEndDate(null)} style={{color: 'var(--color-danger)'}} title="Palauta automaattinen">X</button>
                 )}
               </div>
-              {manualEndDate === null && autoEndDate && <span className="tag tag--success" style={{marginTop: '5px', display: 'inline-block'}}>✓ Haettu työtilanteesta</span>}
+              {manualEndDate === null && radioEndDate && <span className="tag tag--success" style={{marginTop: '5px', display: 'inline-block'}}>✓ Haettu työtilanteesta</span>}
             </div>
           </div>
         </div>
@@ -206,7 +210,7 @@ const AikatauluEhdotus = ({ state }) => {
 
       <div className="summary-preview language-summary-preview">
         <h4>Suunnitelmaan kopioitava teksti:</h4>
-        <p>"{generatePhrase()}"</p>
+        <p style={{ whiteSpace: 'pre-line' }}>{generatePhrase()}</p>
         <button 
           id="kopioi-btn"
           className="btn" 
