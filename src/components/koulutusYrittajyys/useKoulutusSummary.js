@@ -18,6 +18,8 @@ export const useKoulutusSummary = (
         let yrittajyysLause = '';
         let ammattikorttiLause = '';
         let kielitaitoLause = '';
+        let ideatLause = '';
+        let tuettuOpiskeluLause = '';
         let generatedParts = [];
 
         // --- 1. Koulutus ---
@@ -60,7 +62,7 @@ export const useKoulutusSummary = (
             generatedParts.push(ammattikorttiLause);
         }
 
-        // --- 4. Kielitaito (Äidinkieli + Suomi dynaamisesti) ---
+        // --- 4. Kielitaito ---
         const aidinkieli = customTekstit?.aidinkieli;
         const suomiTaso = customTekstit?.suomiTaso;
 
@@ -77,6 +79,58 @@ export const useKoulutusSummary = (
         }
         if (kielitaitoLause) generatedParts.push(kielitaitoLause.trim());
 
+        // --- 5. Tekoälyn valitut koulutusideat ---
+        try {
+            if (customTekstit?.valitutAiIdeat) {
+                const ideatArray = JSON.parse(customTekstit.valitutAiIdeat);
+                if (Array.isArray(ideatArray) && ideatArray.length > 0) {
+                    const yhdistettyIdeat = ideatArray.join(', ');
+                    ideatLause = `Asiakkaan kanssa sovittiin seuraavien koulutusmahdollisuuksien selvittämisestä: ${yhdistettyIdeat}.`;
+                    generatedParts.push(ideatLause);
+                }
+            }
+        } catch (e) {
+            console.error("Virhe AI-ideoiden parsinnassa:", e);
+        }
+
+        // --- 6. Tuettu Opiskelu (SIIRRETTY VIIMEISEKSI) ---
+        if (customTekstit?.tuettu_aktiivinen) {
+            let opiskelunTyyppi = "";
+            switch (customTekstit.tuettu_tyyppi) {
+                case 'omaehtoinen': opiskelunTyyppi = "omaehtoisesta opiskelusta"; break;
+                case 'lyhytkestoinen': opiskelunTyyppi = "lyhytkestoisista opinnoista"; break;
+                case 'kotoutuja': opiskelunTyyppi = "kotoutujan omaehtoisesta opiskelusta"; break;
+                case 'sivutoiminen': opiskelunTyyppi = "sivutoimisesta opiskelusta"; break;
+                default: opiskelunTyyppi = "opiskelusta";
+            }
+
+            // A. Peruslause (Tyyppi + Nimi + Aika)
+            let alkuosa = `Asiakkaan kanssa on sovittu työttömyysetuudella tuetusta ${opiskelunTyyppi}`;
+            if (customTekstit.tuettu_opinnon_nimi) {
+                alkuosa += ` (${customTekstit.tuettu_opinnon_nimi})`;
+            }
+            if (customTekstit.tuettu_alku_pvm && customTekstit.tuettu_loppu_pvm) {
+                const s = new Date(customTekstit.tuettu_alku_pvm).toLocaleDateString('fi-FI');
+                const e = new Date(customTekstit.tuettu_loppu_pvm).toLocaleDateString('fi-FI');
+                alkuosa += ` ajalla ${s} – ${e}`;
+            }
+            alkuosa += ".";
+
+            // B. Lakipykälä-ehdot (Laitetaan siistiksi jatkolauseeksi)
+            let ehdot = [];
+            if (customTekstit.tuettu_perusopetus) ehdot.push("Opintojen tavoitteena on perusopetuksen oppimäärän suorittaminen (76 §)");
+            if (customTekstit.tuettu_edellytys_suunnitelma) ehdot.push("Opiskelusta on sovittu tässä suunnitelmassa (75 §)");
+            if (customTekstit.tuettu_edellytys_tarkoituksenmukaisuus) ehdot.push("Opiskelu parantaa olennaisesti ammattitaitoa ja mahdollisuuksia työllistyä avoimille työmarkkinoille (73 §)");
+            if (customTekstit.tuettu_edellytys_seuranta) ehdot.push("Opintojen etenemisen seurannasta on sovittu (77 §)");
+
+            tuettuOpiskeluLause = alkuosa;
+            if (ehdot.length > 0) {
+                tuettuOpiskeluLause += " " + createListSentence(ehdot) + ".";
+            }
+
+            generatedParts.push(tuettuOpiskeluLause);
+        }
+
         const yhdistettyLause = generatedParts.join(' ').replace(/\.\./g, '.').trim();
         
         return {
@@ -84,6 +138,8 @@ export const useKoulutusSummary = (
             yrittajyysLause,
             ammattikorttiLause,
             kielitaitoLause,
+            ideatLause,
+            tuettuOpiskeluLause,
             yhdistettyLause: yhdistettyLause + (yhdistettyLause && !yhdistettyLause.endsWith('.') ? '.' : '')
         };
     }, [koulutusState, ammattikortitState, yrittajyysState, customTekstit, koulutusPhrases, ammattikorttiPhrases, yrittajyysPhrases, languageLevels]);

@@ -121,21 +121,21 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                                 />
                             </div>
 
+                           {/* KORJATTU: Suunnitellun työkokeilun laatikko */}
                             {ptState.suunniteltu_tk_alku && ptState.suunniteltu_tk_loppu && (
-                                <div className="pt-smart-checkbox-container">
-                                    <label className="pt-smart-checkbox-label">
+                                <div className="card-inner-sm" style={{ borderLeft: '3px solid var(--color-primary)' }}>
+                                    <label className="custom-checkbox-row" style={{ margin: 0, padding: 0 }}>
                                         <input 
                                             type="checkbox" 
                                             checked={ptState.huomioi_suunniteltu_tk !== false} 
                                             onChange={(e) => onUpdatePalkkatuki('huomioi_suunniteltu_tk', e.target.checked)} 
-                                            style={{ marginTop: '2px' }}
                                         />
-                                        <span style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <strong>Huomioi laskurissa uusi suunniteltu kokeilu:</strong>
-                                            <span style={{ color: 'var(--color-primary)' }}>
+                                        <div>
+                                            <strong style={{ display: 'block', fontSize: '0.95rem' }}>Huomioi laskurissa uusi suunniteltu kokeilu:</strong>
+                                            <span style={{ color: 'var(--color-primary)', fontWeight: '600', fontSize: '0.9rem' }}>
                                                 {parseAnyDate(ptState.suunniteltu_tk_alku)?.toLocaleDateString('fi-FI')} - {parseAnyDate(ptState.suunniteltu_tk_loppu)?.toLocaleDateString('fi-FI')}
                                             </span>
-                                        </span>
+                                        </div>
                                     </label>
                                 </div>
                             )}

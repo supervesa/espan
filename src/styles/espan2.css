@@ -2393,3 +2393,210 @@ div[style*="margin-top: 1rem"] > label input[type="checkbox"] {
     transition: opacity 0.2s;
 }
 .btn-tag-dismiss:hover { opacity: 1; }
+
+/* =========================================
+   KOULUTUS JA YRITTÄJYYS - PUHDISTETUT TYYLIT
+   (Käyttää lokaaleja CSS-muuttujia teemoitukseen)
+   ========================================= */
+
+/* --- 1. AI Tuontilaatikko (URA-historia) --- */
+.ai-import-box {
+    background-color: rgba(255, 176, 32, 0.05); /* Varoitus-sävy taustalla */
+    padding: 1.25rem;
+    border-radius: var(--border-radius);
+    border: 1px solid rgba(255, 176, 32, 0.3);
+    margin-bottom: 1.5rem;
+    animation: fadeIn 0.3s ease-out;
+}
+.ai-import-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+.ai-import-label {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-primary);
+}
+.btn-ai-action {
+    font-family: var(--font-sans);
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background-color: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--border-radius);
+    color: var(--color-surface);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-ai-action:hover:not(:disabled) {
+    background-color: var(--color-primary-hover);
+    border-color: var(--color-primary-hover);
+    transform: translateY(-1px);
+}
+.ai-import-textarea {
+    border-left: 3px solid var(--color-primary) !important;
+    background-color: var(--color-surface) !important;
+}
+.ai-import-feedback {
+    font-size: 0.85rem;
+    color: var(--color-primary);
+    margin-top: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.ai-import-feedback--success {
+    font-weight: 600;
+    color: var(--color-success);
+}
+.ai-degree-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+.btn-ai-degree {
+    font-family: var(--font-sans);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s;
+    box-shadow: var(--shadow);
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+.btn-ai-degree:hover {
+    background-color: rgba(255, 107, 0, 0.05); /* Päävärin hento hover */
+    border-color: var(--color-primary);
+}
+.ai-degree-year {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    background-color: var(--color-background);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-weight: normal;
+}
+
+/* --- 2. AI Apupilotti (Koulutusideat) --- */
+.ai-ideas-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.btn-ai-idea {
+    font-family: var(--font-sans);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-ai-border);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s;
+    color: var(--color-info-dark);
+    font-weight: 500;
+}
+.btn-ai-idea:hover {
+    background-color: var(--color-ai-bg);
+    border-color: var(--color-info-text);
+    transform: translateY(-1px);
+}
+.btn-ai-idea--selected {
+    background-color: var(--color-info-text);
+    border-color: var(--color-info-text);
+    color: var(--color-surface);
+}
+.btn-ai-idea--selected:hover {
+    background-color: var(--color-info-dark);
+    border-color: var(--color-info-dark);
+}
+.ai-idea-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    font-weight: bold;
+}
+.btn-ai-idea .ai-idea-icon { color: var(--color-info-text); }
+.btn-ai-idea--selected .ai-idea-icon { color: var(--color-surface); }
+
+/* --- 3. Tuettu Opiskelu --- */
+.tuettu-opiskelu-panel {
+    animation: fadeIn 0.3s ease-out;
+}
+.tuettu-content-wrapper {
+    padding-left: 0.5rem;
+    border-left: 3px solid var(--color-primary);
+    animation: slideDownFade 0.2s ease-out;
+}
+.alert-box-icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.alert-box--ai {
+    background-color: var(--color-ai-bg);
+    border-color: var(--color-ai-border);
+    margin-bottom: 1.5rem;
+}
+.service-card--disabled {
+    opacity: 0.5;
+    cursor: not-allowed !important;
+}
+.service-card--disabled:hover {
+    border-color: var(--color-border);
+    box-shadow: none;
+}
+.service-card--suggested {
+    border: 1px dashed var(--color-ai);
+}
+.service-card-desc {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+/* "Säännöt ja edellytykset" infolaatikko */
+.info-box--blue {
+    margin-top: -0.5rem;
+    background-color: var(--color-ai-bg);
+    border-color: var(--color-ai-border);
+}
+.accordion-title--blue {
+    font-size: 0.9rem !important;
+    color: var(--color-info-dark) !important;
+    padding: 0.25rem 0 !important;
+}
+.accordion-title-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.info-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* Yleiset apuluokat */
+.status-text--danger { font-weight: 600; display: flex; align-items: center; gap: 0.4rem; color: var(--color-danger); }
+.status-text--success { font-weight: 600; display: flex; align-items: center; gap: 0.4rem; color: var(--color-success); }
+.bg-gray-50 { background-color: var(--color-background) !important; }
+.mt-2 { margin-top: 0.5rem !important; }

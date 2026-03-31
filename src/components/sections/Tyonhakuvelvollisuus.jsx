@@ -87,8 +87,8 @@ const VakiotekstiTyokalu = ({ vakiotekstit, selection, onUpdate, aikatauluTeksti
         const currentLkm = currentSelection?.muuttujat?.LKM;
         const currentSelected = currentSelection.valitutVakiotekstit || {};
         let newSelected = { ...currentSelected };
-        let hasChanges = false;
 
+        // 1. Oletusvalintojen asettaminen ensimmäisellä kerralla
         if (Object.keys(currentSelected).length === 0) {
             vakiotekstit.forEach(vt => {
                 if (vt.title.includes('Oikeudet ja velvollisuudet') || vt.title.includes('Täydentävät- ja Työnhakukeskustelut')) {
@@ -99,16 +99,12 @@ const VakiotekstiTyokalu = ({ vakiotekstit, selection, onUpdate, aikatauluTeksti
                     newSelected[vt.id] = false;
                 }
             });
-            hasChanges = true;
         } 
+        // 2. Reagoi lukumäärän (LKM) muutoksiin lennosta
         else if (currentLkm !== prevLkmRef.current) {
              vakiotekstit.forEach(vt => {
                  if (vt.title.includes('toteuttaminen ja seuranta')) {
-                     const shouldBeOn = Number(currentLkm) > 0;
-                     if (newSelected[vt.id] !== shouldBeOn) {
-                         newSelected[vt.id] = shouldBeOn;
-                         hasChanges = true;
-                     }
+                     newSelected[vt.id] = Number(currentLkm) > 0;
                  }
              });
         }
@@ -116,12 +112,22 @@ const VakiotekstiTyokalu = ({ vakiotekstit, selection, onUpdate, aikatauluTeksti
         const combinedStandard = vakiotekstit.filter(vt => newSelected[vt.id]).map(vt => vt.content_text).join('\n\n');
         const newFinalCombined = aikatauluTeksti ? `${aikatauluTeksti}\n\n${combinedStandard}` : combinedStandard;
 
-        if (hasChanges || currentSelection.vakiotekstitYhdistetty !== newFinalCombined) {
-            onUpdate({ ...currentSelection, valitutVakiotekstit: newSelected, vakiotekstitYhdistetty: newFinalCombined });
+        // === IKILIIKKUJAN ESTO (Suojalukko) ===
+        // Tarkistetaan, onko teksti TAI valinnat oikeasti muuttuneet.
+        const valinnatSamat = JSON.stringify(currentSelected) === JSON.stringify(newSelected);
+        const tekstiSama = currentSelection.vakiotekstitYhdistetty === newFinalCombined;
+
+        // Lähetetään päivitys vain, jos jotain oikeasti muuttui
+        if (!valinnatSamat || !tekstiSama) {
+            onUpdate({ 
+                ...currentSelection, 
+                valitutVakiotekstit: newSelected, 
+                vakiotekstitYhdistetty: newFinalCombined 
+            });
         }
         
         prevLkmRef.current = currentLkm;
-    }, [currentSelection?.muuttujat?.LKM, vakiotekstit, currentSelection, onUpdate, aikatauluTeksti]);
+    }, [currentSelection, vakiotekstit, onUpdate, aikatauluTeksti]);
 
     const handleToggle = (vtId, isChecked) => {
         const newSelected = { ...(currentSelection?.valitutVakiotekstit || {}), [vtId]: isChecked };

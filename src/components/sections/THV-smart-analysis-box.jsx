@@ -9,14 +9,47 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
         const detected = [];
         const suggestions = [];
 
-        // Muutetaan koko state tekstiksi nopeaa ja pomminvarmaa skannausta varten
-        const fullStateStr = JSON.stringify(state || {}).toLowerCase();
+        // ---------------------------------------------------------
+        // 1. TÄSMÄTUTKA 2.0 (Joustava, mutta turvallinen)
+        // Etsii sisältääkö mikään AKTIIVINEN arvo etsittyä sanaa.
+        // Tunnistaa esim. "tyokokeilu_puollettu", mutta hylkää "false" arvot.
+        // ---------------------------------------------------------
+        const hasActiveKey = (searchStr) => {
+            if (!state) return false;
+            
+            // 1. Tarkistetaan Signaalipaneelin globaalit signaalit (joissa arvo on true)
+            if (state.signals) {
+                for (const key in state.signals) {
+                    if (key.includes(searchStr) && state.signals[key] === true) return true;
+                }
+            }
 
+            // 2. Tarkistetaan kaikkien välilehtien aktiiviset valinnat
+            for (const section in state) {
+                const sectionData = state[section];
+                if (typeof sectionData === 'object' && sectionData !== null) {
+                    
+                    // Monivalinnat (esim. { tyokokeilu_puollettu: true })
+                    for (const key in sectionData) {
+                        if (key.includes(searchStr) && sectionData[key] === true) return true;
+                    }
+                    
+                    // Radiopainikkeet (esim. { avainsana: 'tyokyky_alentunut' })
+                    if (sectionData.avainsana && sectionData.avainsana.includes(searchStr)) return true;
+                }
+            }
+            return false;
+        };
+
+        // =========================================================
         // LOKIIKKA 1: Työkyky ja Terveys
-        if (fullStateStr.includes('työkyky_alentunut') || fullStateStr.includes('tyokyky_alentunut') || fullStateStr.includes('sairausloma') || fullStateStr.includes('tyokyky_selvityksessa')) {
+        // =========================================================
+        const isTyokykyAlentunut = hasActiveKey('tyokyky_alentunut');
+        const isTyokykySelvityksessa = hasActiveKey('tyokyky_selvityksessa') || hasActiveKey('selvitetaan_tyokyky');
+
+        if (isTyokykyAlentunut || isTyokykySelvityksessa) {
             detected.push('Työkykyyn tai terveyteen liittyvä rajoite havaittu');
             
-            // Vaihtoehto A: 0 paikkaa (Selvitys kesken) -> Käytetään suoraan tietokannan valmista fraasia
             suggestions.push({
                 id: 'tyokyky_0',
                 label: 'Aseta 0 paikkaa (Työkyky selvityksessä)',
@@ -25,7 +58,6 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
                 phraseKey: 'selvitetaan_tyokyky'
             });
             
-            // Vaihtoehto B: 2 paikkaa -> Käytetään 'paasaanto'-fraasia, lasketaan LKM = 2, ja valitaan alennussyy 'perustelu_2' (Työkyky)
             suggestions.push({
                 id: 'tyokyky_2',
                 label: 'Aseta 2 paikkaa (Työkyvyn alentuma)',
@@ -38,11 +70,12 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
             });
         }
 
+        // =========================================================
         // LOKIIKKA 2: Osa-aikatyö
-        if (fullStateStr.includes('osa_aika') || fullStateStr.includes('osa-aika')) {
+        // =========================================================
+        if (hasActiveKey('osa-aikainen') || hasActiveKey('osa_aika')) {
             detected.push('Osa-aikatyö havaittu');
             
-            // Käytetään suoraan tietokannan upeaa valmista 'kevennetty_osa_aikainen' -fraasia (1 paikka / 3kk)
             suggestions.push({
                 id: 'osa_aika_1',
                 label: 'Aseta kevennetty (Osa-aikatyö)',
@@ -52,11 +85,12 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
             });
         }
 
+        // =========================================================
         // LOKIIKKA 3: Lomautus
-        if (fullStateStr.includes('lomautettu') || fullStateStr.includes('lomautus')) {
+        // =========================================================
+        if (hasActiveKey('lomautettu')) {
             detected.push('Lomautus havaittu');
             
-            // Käytetään suoraan tietokannan valmista 'ei_velvoitetta_lomautus' -fraasia
             suggestions.push({
                 id: 'lomautus_0',
                 label: 'Aseta 0 paikkaa (Lomautus alle 3kk)',
@@ -66,19 +100,39 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
             });
         }
 
-        // LOKIIKKA 4: Palvelussa oleva asiakas
-        if (fullStateStr.includes('tyokokeilu') || fullStateStr.includes('työkokeilu') || 
-            fullStateStr.includes('tyovoimakoulutus') || fullStateStr.includes('työvoimakoulutus') || 
-            fullStateStr.includes('palkkatuki') || fullStateStr.includes('palkkatuettu')) {
-            
+        // =========================================================
+        // LOKIIKKA 4: Palvelussa oleva asiakas (KORJATTU)
+        // =========================================================
+        if (hasActiveKey('tyokokeilu') || hasActiveKey('palkkatuki') || hasActiveKey('tyovoimakoulutus')) {
             detected.push('Asiakas on työllistymistä edistävässä palvelussa');
             
             suggestions.push({
-                id: 'palvelu_clear',
-                label: 'Siivoa numeerinen velvollisuus (Siirry Aikataulu-tilaan)',
-                info: 'Palvelun aikana ei vaadita THV-lukumäärää. Poistaa turhat valinnat ja käyttää vain Aikatauluehdotusta.',
-                actionType: 'CLEAR'
+                id: 'palvelu_aikana',
+                label: 'Aseta 0 paikkaa (Palvelun aikana)',
+                info: 'Työnhakuvelvollisuutta ei aseteta palvelun ajaksi. Asettaa sääntömoottorin mukaisen fraasin.',
+                actionType: 'SET_DIRECT_PHRASE',
+                phraseKey: 'palvelun_aikana'
             });
+        }
+
+        // =========================================================
+        // LOKIIKKA 5: Tuettu opiskelu (UUSI)
+        // =========================================================
+        if (hasActiveKey('tuettu_opiskelu_omaehtoinen') || hasActiveKey('tuettu_opiskelu_kotoutuja')) {
+            detected.push('Tuettu opiskelu (Omaehtoinen / Kotoutuja) havaittu');
+            
+            suggestions.push({
+                id: 'opiskelu_kevennetty',
+                label: 'Aseta kevennetty (Omaehtoinen opiskelu)',
+                info: 'Asettaa valmiin lausekkeen: vähintään 3 työmahdollisuutta kolmen kuukauden aikana.',
+                actionType: 'SET_DIRECT_PHRASE',
+                phraseKey: 'kevennetty_opiskelija'
+            });
+        }
+
+        // Lyhytkestoinen tai sivutoiminen näytetään havaittuna, mutta ei yleensä alenna velvoitetta
+        if (hasActiveKey('tuettu_opiskelu_lyhytkestoinen') || hasActiveKey('tuettu_opiskelu_sivutoiminen')) {
+            detected.push('Tuettu opiskelu (Lyhytkestoinen / Sivutoiminen) havaittu');
         }
 
         return { detected, suggestions };
@@ -87,7 +141,6 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
     const handleApplyAction = (sugg) => {
         if (!actions) return;
 
-        // TOIMENPIDE A: Tyhjennetään valinnat (Palvelussa olevat)
         if (sugg.actionType === 'CLEAR') {
             actions.onSelect('tyonhakuvelvollisuus', '', false, {
                 avainsana: '',
@@ -97,7 +150,6 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
             return;
         }
 
-        // TOIMENPIDE B: Asetetaan suoraan valmis erikoisfraasi (Ei vaadi muuttujia)
         if (sugg.actionType === 'SET_DIRECT_PHRASE') {
             actions.onSelect('tyonhakuvelvollisuus', sugg.phraseKey, false, {
                 avainsana: sugg.phraseKey,
@@ -107,7 +159,6 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
             return;
         }
 
-        // TOIMENPIDE C: Asetetaan Pääsääntö ('paasaanto') ja annetaan sille LKM, AIKAJAKSO ja Alennussyy
         if (sugg.actionType === 'SET_WITH_DISCOUNT') {
             const updatedSelection = {
                 avainsana: sugg.phraseKey,
@@ -119,10 +170,7 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
                 alentamisenVapaaTeksti: ''
             };
 
-            // 1. Asetetaan fraasi ja alennuksen syy paikallisesti
             actions.onSelect('tyonhakuvelvollisuus', sugg.phraseKey, false, updatedSelection);
-            
-            // 2. Päivitetään muuttujat varmuuden vuoksi myös globaalisti
             actions.onUpdateVariable('tyonhakuvelvollisuus', sugg.phraseKey, 'LKM', sugg.lkm);
             actions.onUpdateVariable('tyonhakuvelvollisuus', sugg.phraseKey, 'AIKAJAKSO', sugg.aikajakso);
         }
@@ -167,11 +215,11 @@ const THVSmartAnalysisBox = ({ state, actions }) => {
                                             type="button" 
                                             onClick={() => handleApplyAction(sugg)} 
                                             className="btn" 
-                                            style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}
+                                            style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', margin: '0' }}
                                         >
                                             <Zap size={16} /> {sugg.label}
                                         </button>
-                                        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-secondary)', lineHeight: '1.4' }}>
+                                        <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.8rem', color: 'var(--color-text-secondary)', lineHeight: '1.4' }}>
                                             {sugg.info}
                                         </p>
                                     </div>

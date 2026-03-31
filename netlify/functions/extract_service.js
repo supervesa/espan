@@ -16,6 +16,12 @@ exports.handler = async function(event, context) {
         
         if (!aiInput) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Syöte on pakollinen' }) };
 
+        // --- UUSI: Muutetaan objektit tekoälylle ymmärrettäväksi tekstiksi ---
+        const triggersContext = knownTriggers.map(t => 
+            `- AVAIN: "${t.keyword}" | NIMI: "${t.label}" | KUVAUS: "${t.description}"`
+        ).join('\n');
+        // ----------------------------------------------------------------------
+
         let prompt = "";
 
         if (mode === 'url') {
@@ -39,11 +45,15 @@ exports.handler = async function(event, context) {
                 category: { type: SchemaType.STRING, description: `Paras kategoria näistä: ${knownCategories.join(', ')}.` },
                 description: { type: SchemaType.STRING, description: "Laaja kuvaus asiantuntijalle. JAA KAHTEEN OSAAN: Kirjoita ensin selkeä tiivistelmä. Lisää otsikko 'Vaatimukset ja kohderyhmä:', jonka alle listaat ehdot." },
                 plan_text: { type: SchemaType.STRING, description: "Asiakkaan viralliseen asiakirjaan tulostuva teksti. JOS kyseessä on Työvoimakoulutus, sisällytä tekstiin myös URA-numero." },
+                
+                // --- KORJATTU TRIGGERS-SÄÄNTÖ ---
                 triggers: { 
                     type: SchemaType.ARRAY,
                     items: { type: SchemaType.STRING },
-                    description: `Valitse sopivimmat signaalit näistä: ${knownTriggers.join(', ')}. Etsi pohjakoulutusvaatimukset ja valitse TÄSMÄLLEEN se listalta löytyvä tagi.` 
+                    description: `Lue alla oleva sallittujen signaalien lista tarkasti. Valitse tekstin perusteella parhaiten sopivat signaalit. Palauta VAIN signaalin 'AVAIN' (keyword). Älä palauta nimeä tai kuvausta.\n\nSALLITUT SIGNAALIT:\n${triggersContext}` 
                 },
+                // --------------------------------
+                
                 language_req: { type: SchemaType.STRING, description: "Vaadittu suomen kielen taito CEFR-asteikolla (esim. B1.1)." },
                 brochure_url: { type: SchemaType.STRING, description: "Linkki ladattavaan suomenkieliseen esitteeseen." },
                 provider: { type: SchemaType.STRING, description: "Koulutuksen tai palvelun järjestäjä (oppilaitos tai yritys)." },
@@ -53,7 +63,6 @@ exports.handler = async function(event, context) {
                     type: SchemaType.STRING, 
                     description: "Hakuaika päättyy. Palauta EHDOTTOMASTI muodossa VVVV-KK-PP (esim. '2026-04-30'). Älä palauta kellonaikoja." 
                 },
-                // UUSI KENTTÄ TEKOÄLYLLE:
                 esco_title: { 
                     type: SchemaType.STRING, 
                     description: "Ammatin tai ammattiryhmän nimi, johon tämä tähtää (esim. 'Ohjelmistokehittäjä', 'Lähihoitaja'). Palauta vain yksi selkeä ammattinimike ilman lisätekstejä. Jos ei löydy, palauta tyhjä merkkijono." 
@@ -69,32 +78,28 @@ exports.handler = async function(event, context) {
         if (mode === 'url') aiData.ura_number = '';
 
         // --- ESCO API:N AUTOMAATTINEN HAKU (Konepellin alla) ---
-        aiData.esco_uri = ''; // Oletuksena tyhjä
+        aiData.esco_uri = ''; 
 
         if (aiData.esco_title) {
             try {
-                // Tehdään hiljainen haku EU:n rajapintaan tekoälyn löytämällä sanalla
                 console.log(`🔍 Etsitään ESCO-rajapinnasta ammattia tekoälyn sanalla: "${aiData.esco_title}"`);
                 const escoRes = await fetch(`https://ec.europa.eu/esco/api/search?text=${encodeURIComponent(aiData.esco_title)}&language=fi&type=occupation`);
                 const escoJson = await escoRes.json();
                 
-                // Jos löytyy täsmääviä virallisia ammatteja...
                 if (escoJson._embedded && escoJson._embedded.results && escoJson._embedded.results.length > 0) {
                     const bestMatch = escoJson._embedded.results[0];
                     console.log(`✅ Virallinen ESCO-ammatti löytyi: ${bestMatch.title}`);
-                    // Korvataan AI:n arvaus EU:n virallisella nimellä ja tallennetaan URI
                     aiData.esco_title = bestMatch.title;
                     aiData.esco_uri = bestMatch.uri;
                 } else {
                     console.log(`⚠️ ESCO-osumaa ei löytynyt, jätetään tyhjäksi.`);
-                    aiData.esco_title = ''; // Tyhjennetään, jotta asiantuntija näkee että haku pitää tehdä käsin
+                    aiData.esco_title = ''; 
                 }
             } catch (e) {
                 console.error("ESCO API taustahaun virhe:", e);
                 aiData.esco_title = '';
             }
         }
-        // --------------------------------------------------------
 
         console.log(`🐝 AI DATA RAW (Mode: ${mode}):`, JSON.stringify(aiData, null, 2));
 

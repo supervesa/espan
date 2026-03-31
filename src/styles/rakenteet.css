@@ -9,8 +9,18 @@
 
 .main-grid {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 350px; /* Tai mikä leveyden onkaan tarkoitus olla */
     gap: 2rem;
+    align-items: start; /* 1. ESTÄÄ VENYMISEN */
+}
+
+.summary-sticky-container {
+    position: sticky;   /* 2. AKTIVOI STICKYN */
+    top: 20px;          /* 3. KERTOO MIHIN TARTTUA */
+    
+    /* Vapaaehtoinen: Jos sivupalkkisi on erittäin pitkä, salli sen sisäinen skrollaus */
+    max-height: calc(100vh - 40px);
+    overflow-y: auto; 
 }
 
 @media (min-width: 1024px) {

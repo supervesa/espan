@@ -1,13 +1,13 @@
 // --- src/components/admin/ServicesAdmin.jsx ---
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Compass, Sparkles, Link as LinkIcon, Save, Plus, Trash2, Info, AlertCircle, FileText, Globe, Type, Briefcase, Search, X } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
 
 const initialFormState = { 
     url: '', title: '', service_type: 'palvelu', category: 'Yleinen', description: '', plan_text: '', triggers: '',
     language_req: '', brochure_url: '', provider: '', ura_number: '', start_date: '', enrollment_deadline: '',
-    esco_title: '', esco_uri: '' // UUDET ESCO-KENTÄT
+    esco_title: '', esco_uri: ''
 };
 
 const DEFAULT_CATEGORIES = ['Yleinen', 'Koulutus', 'Työnhaku', 'Terveys ja työkyky', 'Arjen tuki', 'Digituki'];
@@ -23,9 +23,10 @@ const ServicesAdmin = () => {
     const [aiInput, setAiInput] = useState(''); 
     
     const [knownCategories, setKnownCategories] = useState([]);
-    const [knownTriggers, setKnownTriggers] = useState([]);
+    
+    // UUSI: Master-sanakirja, joka sisältää objektit (keyword, label, category, description)
+    const [masterDictionary, setMasterDictionary] = useState([]);
 
-    // --- ESCO-HAUN TILAMUUTTUJAT ---
     const [escoQuery, setEscoQuery] = useState('');
     const [escoResults, setEscoResults] = useState([]);
     const [isEscoSearching, setIsEscoSearching] = useState(false);
@@ -39,8 +40,6 @@ const ServicesAdmin = () => {
 
     useEffect(() => { 
         fetchServices(); 
-        
-        // Sulje ESCO-valikko jos klikataan muualle
         const handleClickOutside = (event) => {
             if (escoDropdownRef.current && !escoDropdownRef.current.contains(event.target)) {
                 setShowEscoDropdown(false);
@@ -50,7 +49,6 @@ const ServicesAdmin = () => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    // --- ESCO API HAKU (Viiveellä, ettei EU:n palvelin tukkiudu) ---
     useEffect(() => {
         const fetchEsco = async () => {
             if (escoQuery.length < 3) {
@@ -59,11 +57,10 @@ const ServicesAdmin = () => {
             }
             setIsEscoSearching(true);
             try {
-                // Virallinen ESCO API -haku (suomeksi, vain ammatit)
                 const res = await fetch(`https://ec.europa.eu/esco/api/search?text=${encodeURIComponent(escoQuery)}&language=fi&type=occupation`);
                 const data = await res.json();
                 if (data._embedded && data._embedded.results) {
-                    setEscoResults(data._embedded.results.slice(0, 10)); // Otetaan 10 parasta tulosta
+                    setEscoResults(data._embedded.results.slice(0, 10));
                     setShowEscoDropdown(true);
                 }
             } catch (e) {
@@ -75,10 +72,10 @@ const ServicesAdmin = () => {
 
         const timeoutId = setTimeout(() => {
             if (escoQuery && !formData.esco_uri) fetchEsco();
-        }, 400); // 400ms viive kirjoituksen jälkeen
+        }, 400);
 
         return () => clearTimeout(timeoutId);
-    }, [escoQuery]);
+    }, [escoQuery, formData.esco_uri]);
 
     const handleSelectEsco = (profession) => {
         setFormData(prev => ({ ...prev, esco_title: profession.title, esco_uri: profession.uri }));
@@ -90,7 +87,6 @@ const ServicesAdmin = () => {
         setFormData(prev => ({ ...prev, esco_title: '', esco_uri: '' }));
         setEscoQuery('');
     };
-    // ----------------------------------------------------------------
 
     const fetchServices = async () => {
         setIsLoading(true);
@@ -103,11 +99,10 @@ const ServicesAdmin = () => {
                 setKnownCategories([...new Set([...DEFAULT_CATEGORIES, ...fetchedCats])]);
             }
 
-            const { data: dictData, error: dictError } = await supabase.from('view_master_dictionary').select('*');
+            // UUSI: Haetaan täysi sanakirja näkymästä
+            const { data: dictData, error: dictError } = await supabase.from('view_master_dictionary').select('keyword, label, category, description');
             if (!dictError && dictData) {
-                setKnownTriggers(dictData.map(d => d.keyword));
-            } else if (data) {
-                setKnownTriggers([...new Set(data.flatMap(s => (s.triggers || '').split(',').map(t => t.trim()).filter(Boolean)))].sort());
+                setMasterDictionary(dictData);
             }
         } catch (error) {
             console.error("Latausvirhe:", error);
@@ -181,6 +176,12 @@ const ServicesAdmin = () => {
         if (!aiInput) return alert("Syötä kenttään sisältöä ensin!");
         setIsGenerating(true);
         try {
+          // Lähetetään tekoälylle avaimen lisäksi myös ihmisluettava nimi ja selite!
+const knownTriggers = masterDictionary.map(d => ({
+    keyword: d.keyword,
+    label: d.label || d.keyword,
+    description: d.description || ''
+}));
             const payload = { knownCategories, knownTriggers, mode: aiMode, aiInput: aiInput.trim() };
 
             const response = await fetch('/.netlify/functions/extract_service', {
@@ -207,10 +208,7 @@ const ServicesAdmin = () => {
                 language_req: aiData.language_req || prev.language_req, brochure_url: aiData.brochure_url || prev.brochure_url,
                 provider: aiData.provider || prev.provider, ura_number: aiData.ura_number || prev.ura_number, 
                 start_date: aiData.start_date || prev.start_date, enrollment_deadline: formattedDeadline || prev.enrollment_deadline,
-                
-                // NÄMÄ KAKSI RIVIÄ PUUTTUIVAT:
-                esco_title: aiData.esco_title || '',
-                esco_uri: aiData.esco_uri || ''
+                esco_title: aiData.esco_title || '', esco_uri: aiData.esco_uri || ''
             }));
         } catch (error) {
             alert(error.message);
@@ -242,6 +240,17 @@ const ServicesAdmin = () => {
     };
 
     const isCategoryNew = formData.category && !knownCategories.includes(formData.category);
+
+    const groupedDictionary = useMemo(() => {
+        const groups = {};
+        masterDictionary.forEach(item => {
+            if (currentTriggersArray.includes(item.keyword)) return;
+            const cat = item.category || 'Muu (Luokittelematon)';
+            if (!groups[cat]) groups[cat] = [];
+            groups[cat].push(item);
+        });
+        return groups;
+    }, [masterDictionary, currentTriggersArray]);
 
     if (isLoading) return <div className="section-container"><p>Ladataan...</p></div>;
 
@@ -346,7 +355,6 @@ const ServicesAdmin = () => {
                                     </div>
                                 </div>
 
-                                {/* UUSI ESCO AMMATTIHAKU */}
                                 <div style={{ position: 'relative', zIndex: 50 }} ref={escoDropdownRef}>
                                     <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: formData.esco_uri ? 'var(--color-success)' : 'inherit' }}>
                                         <Briefcase size={18} /> Tavoiteammatti (ESCO)
@@ -382,7 +390,6 @@ const ServicesAdmin = () => {
                                                 </div>
                                             )}
                                             
-                                            {/* ESCO Pudotusvalikko */}
                                             {showEscoDropdown && escoResults.length > 0 && (
                                                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', backgroundColor: 'white', border: '1px solid var(--color-border)', borderRadius: '6px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', maxHeight: '250px', overflowY: 'auto' }}>
                                                     {escoResults.map((res, idx) => (
@@ -400,7 +407,7 @@ const ServicesAdmin = () => {
                                             )}
                                         </div>
                                     )}
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '0.4rem', margin: '0.4rem 0 0 0' }}>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', margin: '0.4rem 0 0 0' }}>
                                         Virallinen EU:n ammattiluokitus. Tekoäly pyrkii löytämään tämän automaattisesti tekstistä.
                                     </p>
                                 </div>
@@ -460,54 +467,82 @@ const ServicesAdmin = () => {
                                     <textarea className="form-input" rows="4" style={{ borderLeft: '3px solid var(--color-primary)', backgroundColor: '#fffaf5' }} value={formData.plan_text} onChange={(e) => setFormData({...formData, plan_text: e.target.value})} disabled={isSaving} />
                                 </div>
 
-                                <div style={{ backgroundColor: '#f9fafb', padding: '1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
-                                    <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
-                                        <Info size={16} color="var(--color-text-secondary)" /> Laukaisevat signaalit (Tagit)
+                                <div style={{ backgroundColor: '#f9fafb', padding: '1.5rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
+                                    <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                                        <Info size={18} color="var(--color-text-secondary)" /> Laukaisevat signaalit (Tagit)
                                     </label>
-                                    <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0 0 1rem 0' }}>
-                                        Poista huonot ehdotukset ruksilla ja klikkaa tilalle oikea olemassa oleva signaali.
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', margin: '0 0 1.5rem 0' }}>
+                                        Valitut signaalit liitetään tähän palveluun. Näytetään vain järjestelmän tunnistamat inhimilliset nimet, mutta taustalla tallentuvat viralliset koodiavaimet.
                                     </p>
 
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', minHeight: '38px', padding: '0.5rem', backgroundColor: '#fff', border: '1px dashed var(--color-border)', borderRadius: '4px' }}>
-                                        {currentTriggersArray.length === 0 && <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', fontStyle: 'italic', padding: '0.2rem' }}>Ei valittuja signaaleja...</span>}
+                                    <h5 style={{ fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--color-text-primary)' }}>Valitut signaalit:</h5>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '2rem', minHeight: '48px', padding: '0.75rem', backgroundColor: '#fff', border: '1px dashed var(--color-border)', borderRadius: '6px' }}>
+                                        {currentTriggersArray.length === 0 && <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', fontStyle: 'italic' }}>Ei valittuja signaaleja...</span>}
                                         {currentTriggersArray.map((trigger, idx) => {
-                                            const isTriggerNew = !knownTriggers.includes(trigger);
+                                            const dictItem = masterDictionary.find(d => d.keyword === trigger);
+                                            const isTriggerNew = !dictItem;
+                                            const displayLabel = dictItem && dictItem.label ? dictItem.label : trigger;
+
                                             return (
-                                                <span key={idx} className={`tag ${isTriggerNew ? 'tag--warning' : 'tag--success'}`} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}>
+                                                <span 
+                                                    key={idx} 
+                                                    title={dictItem?.description || trigger}
+                                                    className={`tag ${isTriggerNew ? 'tag--warning' : 'tag--success'}`} 
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.6rem', fontSize: '0.85rem', cursor: 'default' }}
+                                                >
                                                     {isTriggerNew && <AlertCircle size={14} />}
-                                                    {trigger} {isTriggerNew && '(Uusi)'}
-                                                    <button onClick={() => handleRemoveTrigger(trigger)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center', padding: 0, marginLeft: '0.2rem' }}>✕</button>
+                                                    <span style={{ fontWeight: '600' }}>{displayLabel}</span> {isTriggerNew && '(Tuntematon)'}
+                                                    <button 
+                                                        onClick={() => handleRemoveTrigger(trigger)} 
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center', padding: '0 0 0 0.4rem', marginLeft: '0.2rem', borderLeft: '1px solid currentColor', opacity: 0.7 }}
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
                                                 </span>
                                             );
                                         })}
                                     </div>
 
-                                    {knownTriggers.length > 0 && (
-                                        <div style={{ marginBottom: '1rem' }}>
-                                            <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--color-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>
-                                                Lisää olemassa oleva signaali klikkaamalla:
+                                    {Object.keys(groupedDictionary).length > 0 && (
+                                        <div style={{ padding: '1rem', backgroundColor: 'white', border: '1px solid var(--color-border)', borderRadius: '6px' }}>
+                                            <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--color-text-primary)', display: 'block', marginBottom: '1rem' }}>
+                                                Lisää olemassa oleva signaali:
                                             </span>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto', padding: '0.5rem', backgroundColor: 'white', border: '1px solid var(--color-border)', borderRadius: '4px' }}>
-                                                {knownTriggers.filter(t => !currentTriggersArray.includes(t)).map(t => (
-                                                    <button 
-                                                        key={t} onClick={() => handleAddTrigger(t)} 
-                                                        style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: '999px', padding: '0.3rem 0.7rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--color-text-secondary)', transition: 'all 0.2s' }}
-                                                    >
-                                                        + {t}
-                                                    </button>
-                                                ))}
-                                            </div>
+                                            
+                                            {Object.entries(groupedDictionary)
+                                                .sort(([a], [b]) => a.localeCompare(b))
+                                                .map(([category, items]) => (
+                                                <div key={category} style={{ marginBottom: '1.25rem' }}>
+                                                    <h6 style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem 0' }}>
+                                                        {category}
+                                                    </h6>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                                        {items.map(item => (
+                                                            <button 
+                                                                key={item.keyword} 
+                                                                onClick={() => handleAddTrigger(item.keyword)}
+                                                                title={item.description || item.keyword}
+                                                                style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '0.3rem 0.6rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--color-text-primary)', transition: 'all 0.15s' }}
+                                                                onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.color = 'var(--color-primary)'; }}
+                                                                onMouseOut={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = 'var(--color-text-primary)'; }}
+                                                            >
+                                                                + {item.label || item.keyword}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     )}
 
-                                    <div>
+                                    <div style={{ marginTop: '1rem' }}>
                                         <input 
                                             type="text" 
                                             className="form-input" 
-                                            placeholder="Kirjoita uusi signaali ja paina Enter (esim. mt_ongelmat)..." 
+                                            placeholder="Kirjoita uuden signaalin raaka-avain (esim. mt_ongelmat) ja paina Enter..." 
                                             onKeyDown={handleCustomTriggerKeyDown} 
                                             disabled={isSaving} 
-                                            style={{ fontSize: '0.85rem', padding: '0.5rem' }} 
+                                            style={{ fontSize: '0.85rem', padding: '0.75rem' }} 
                                         />
                                     </div>
                                 </div>

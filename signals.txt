@@ -1,0 +1,28 @@
+A. Globaalit Signaalit (Tilat - haetaan: state.signals?.['nimi'])
+
+tuettu_opiskelu_omaehtoinen
+
+tuettu_opiskelu_kotoutuja
+
+tuettu_opiskelu_lyhytkestoinen
+
+tuettu_opiskelu_sivutoiminen
+
+B. Pysyvät Muuttujat (Tilat - haetaan: state['avain'])
+
+custom-tuettu_aktiivinen (Boolean: true/false)
+
+custom-tuettu_tyyppi (String: 'omaehtoinen', 'lyhytkestoinen', 'kotoutuja', 'sivutoiminen')
+
+custom-tuettu_opinnon_nimi (String: Vapaa teksti)
+
+custom-tuettu_alku_pvm (String: YYYY-MM-DD)
+
+custom-tuettu_loppu_pvm (String: YYYY-MM-DD)
+
+C. Radiolähetys (Tapahtumakuuntelija - window.addEventListener)
+
+Tapahtuman nimi: palvelu_ajankohta_paivitetty
+
+Payload (e.detail): detail.alku, detail.loppu, detail.tyyppi
+

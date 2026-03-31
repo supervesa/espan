@@ -1,12 +1,11 @@
 // --- src/components/sections/Tyotilanne.jsx ---
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { PhraseOption } from '../PhraseOption';
 import { planData } from '../../data/planData';
 import { Wand2, Sparkles, Briefcase, CalendarClock } from 'lucide-react'; 
 import UraAnalyzerModal from './UraAnalyzerModal';
 
-// Tuodaan siirretyt päivämäärätyökalut:
 import { parseFinnishDate, toISODate, calculateMonthsDifference } from '../../utils/dateUtils';
 
 const Tyotilanne = ({ state, actions, knowledgeData }) => {
@@ -25,6 +24,11 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
         start: currentSectionState.palvelu_alku || state.asiakas?.palvelu_alku || "",
         end: currentSectionState.palvelu_loppu || state.asiakas?.palvelu_loppu || ""
     });
+
+    // UUDET ÄLYKKÄÄT TUNNISTIMET
+    const hasTyokokeilu = useMemo(() => Object.keys(currentSectionState).some(k => k.includes('tyokokeilu') && currentSectionState[k]), [currentSectionState]);
+    const hasPalkkatuki = useMemo(() => Object.keys(currentSectionState).some(k => k.includes('palkkatuki') && currentSectionState[k]), [currentSectionState]);
+    const hasTyovoimakoulutus = useMemo(() => Object.keys(currentSectionState).some(k => k.includes('tyovoimakoulutus') && currentSectionState[k]), [currentSectionState]);
 
     const transformVariables = (varsArray) => {
         if (!varsArray || !Array.isArray(varsArray) || varsArray.length === 0) return null;
@@ -100,32 +104,85 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
     }, [serviceDates]);
 
 
-    // === RADIOLÄHETIN ===
+    // === SUOJATTU RADIOLÄHETIN (Estää Infinite Loopin!) ===
+    const lastDispatched = useRef(""); // Tallentaa viimeisimmän lähetetyn tiedon
+
     useEffect(() => {
         if (serviceDates.start && serviceDates.end) {
             let palveluTyyppi = "tuntematon";
-            if (currentSectionState.tyokokeilu) palveluTyyppi = "tyokokeilu";
-            if (currentSectionState.palkkatuki) palveluTyyppi = "palkkatuki";
-            if (currentSectionState.tyovoimakoulutus) palveluTyyppi = "tyovoimakoulutus";
+            if (hasTyokokeilu) palveluTyyppi = "tyokokeilu";
+            else if (hasPalkkatuki) palveluTyyppi = "palkkatuki";
+            else if (hasTyovoimakoulutus) palveluTyyppi = "tyovoimakoulutus";
 
-            const payload = {
+            // Rakennetaan datapaketti vertailua varten
+            const payloadStr = JSON.stringify({
                 alku: serviceDates.start,
                 loppu: serviceDates.end,
                 tyyppi: palveluTyyppi
-            };
-            window.dispatchEvent(new CustomEvent('palvelu_ajankohta_paivitetty', { detail: payload }));
-        }
-    }, [serviceDates.start, serviceDates.end, currentSectionState.tyokokeilu, currentSectionState.palkkatuki, currentSectionState.tyovoimakoulutus]);
+            });
 
+            // LÄHETETÄÄN VAIN, JOS TIETO ON OIKEASTI MUUTTUNUT
+            if (lastDispatched.current !== payloadStr) {
+                lastDispatched.current = payloadStr;
+                const payload = JSON.parse(payloadStr);
+                window.dispatchEvent(new CustomEvent('palvelu_ajankohta_paivitetty', { detail: payload }));
+            }
+        }
+    }, [serviceDates.start, serviceDates.end, hasTyokokeilu, hasPalkkatuki, hasTyovoimakoulutus]);
+
+
+    // === TURVALLINEN TEKSTIN RAKENTAJA ===
+    const updateServiceText = (startStr, endStr) => {
+        const safeStart = toISODate(startStr);
+        const safeEnd = toISODate(endStr);
+        
+        const currentText = state[`custom-${UI_KEY}`] || '';
+        const regex = /(?:\n\n)?Asiakas osallistuu työllisyyttä edistävään palveluun ajalla \d{1,2}\.\d{1,2}\.\d{4}–\d{1,2}\.\d{1,2}\.\d{4}\.( Kyseessä on yli kuukauden kestävä palvelu \(46 §\)\.)?/g;
+
+        if (safeStart && safeEnd) {
+            const s = new Date(safeStart);
+            const e = new Date(safeEnd);
+            const startFi = s.toLocaleDateString('fi-FI');
+            const endFi = e.toLocaleDateString('fi-FI');
+            const durationDays = Math.ceil((e - s) / (1000 * 60 * 60 * 24));
+            
+            onUpdateVariable(UI_KEY, 'palvelu_yli_1kk', durationDays >= 30);
+            
+            let printText = `Asiakas osallistuu työllisyyttä edistävään palveluun ajalla ${startFi}–${endFi}.`;
+            if (durationDays >= 30) {
+                printText += ` Kyseessä on yli kuukauden kestävä palvelu (46 §).`;
+            }
+            
+            let updatedText = currentText;
+            if (regex.test(currentText)) {
+                updatedText = currentText.replace(regex, printText);
+            } else {
+                updatedText = currentText ? `${currentText}\n\n${printText}` : printText;
+            }
+            
+            if (currentText !== updatedText) {
+                onUpdateCustomText(UI_KEY, updatedText);
+            }
+        } else {
+            onUpdateVariable(UI_KEY, 'palvelu_yli_1kk', false);
+            const updatedText = currentText.replace(regex, '').trim();
+            if (currentText !== updatedText) {
+                onUpdateCustomText(UI_KEY, updatedText);
+            }
+        }
+    };
 
     const handleDateChange = (type, value) => {
-        setServiceDates(prev => ({ ...prev, [type]: value }));
+        const newDates = { ...serviceDates, [type]: value };
+        setServiceDates(newDates);
         
         const key = type === 'start' ? 'palvelu_alku' : 'palvelu_loppu';
         onUpdateVariable(UI_KEY, key, value);
         if (typeof actions.onUpdateAsiakas === 'function') {
             actions.onUpdateAsiakas(key, value);
         }
+        
+        updateServiceText(newDates.start, newDates.end);
     };
 
     const handlePasteChange = (val) => {
@@ -142,6 +199,8 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                     actions.onUpdateAsiakas('palvelu_alku', s);
                     actions.onUpdateAsiakas('palvelu_loppu', e);
                 }
+                
+                updateServiceText(s, e);
                 setPasteArea(""); 
             }
         }
@@ -189,7 +248,7 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
     
     if (loading) return <div className="section-container">Ladataan työtilannetta...</div>;
 
-    const showsServiceBox = currentSectionState.palkkatuki || currentSectionState.tyokokeilu || currentSectionState.tyovoimakoulutus;
+    const showsServiceBox = hasTyokokeilu || hasPalkkatuki || hasTyovoimakoulutus;
 
     return (
         <section className="section-container">
@@ -335,7 +394,7 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                 <p>A-TMT suositus: <strong className="recommended-status">{aTmtRecommendation.status}</strong> ({aTmtRecommendation.months} kk)</p>
             </div>
             
-<UraAnalyzerModal 
+            <UraAnalyzerModal 
                 isOpen={isAnalyzerOpen} 
                 onClose={() => setIsAnalyzerOpen(false)} 
                 actions={actions} 
