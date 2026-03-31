@@ -26,3 +26,5 @@ Tapahtuman nimi: palvelu_ajankohta_paivitetty
 
 Payload (e.detail): detail.alku, detail.loppu, detail.tyyppi
 
+tähän lisää
+
