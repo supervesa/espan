@@ -8,7 +8,7 @@ import { usePlanState } from './hooks/usePlanState';
 import LoginScreen from './components/LoginScreen';
 
 import SummaryPanel from './components/SummaryPanel';
-import Scraper from './components/Scraper';
+import ScraperModal from './components/scraper/ScraperModal';
 import MessageGenerator from './components/MessageGenerator';
 import SuunnitelmanTyyppi from './components/sections/SuunnitelmanTyyppi';
 import Perustiedot from './components/sections/Perustiedot';
@@ -34,6 +34,7 @@ function App() {
     // --- 1. LISÄTTY KIRJAUTUMISLOGIIKKA ---
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+    const [isScraperOpen, setIsScraperOpen] = useState(false);
 
     // Tarkistetaan localStorage heti latauksessa
     useEffect(() => {
@@ -100,6 +101,68 @@ function App() {
         { id: 'osio-tyonhaku', name: 'Työnhakuvelv.' },
     ];
 
+    const handleApplyParsedData = (parsedData) => {
+        // Ladataan kaikki olemassa olevat välilehdet, jotta tiedämme minne mikäkin ruksi kuuluu
+        const allSections = [...(dbPlanData?.aihealueet || [])];
+        
+        // 1. Ruksitaan vakiolauseet ja syötetään niiden päivämäärät
+        if (parsedData.phrases) {
+            parsedData.phrases.forEach(phrase => {
+                let sectionId = null;
+                let isMulti = false;
+
+                // Etsitään mihin välilehteen tämä rasti kuuluu
+                for (const sec of allSections) {
+                    if (sec.fraasit && sec.fraasit.some(f => f.avainsana === phrase.id)) {
+                        sectionId = sec.id;
+                        isMulti = sec.monivalinta;
+                        break;
+                    }
+                }
+
+                if (sectionId) {
+                    // Laitetaan rasti ruutuun!
+                    actions.onSelect(sectionId, phrase.id, isMulti);
+                    
+                    // Syötetään poimitut muuttujat (esim. [PÄIVÄMÄÄRÄ]) kenttiin
+                    if (phrase.variables) {
+                        Object.entries(phrase.variables).forEach(([vKey, vVal]) => {
+                            actions.onUpdateVariable(sectionId, phrase.id, vKey, vVal);
+                        });
+                    }
+                } else {
+                    // Hätävara signaaleille/erikoisille säännöille
+                    actions.onAddSignal(phrase.id);
+                }
+            });
+        }
+
+        // 2. Aktivoidaan erilliset signaalit (kielitasot, ammattikortit)
+        if (parsedData.signals) {
+            parsedData.signals.forEach(signal => {
+                actions.onAddSignal(signal.id);
+            });
+        }
+
+        // 3. Viedään vapaat tekstit välilehtien tekstikenttiin
+        if (parsedData.customTexts) {
+            Object.entries(parsedData.customTexts).forEach(([sectionId, text]) => {
+                if (text && text.trim()) {
+                    actions.onUpdateCustomText(sectionId, text.trim());
+                }
+            });
+        }
+
+        // 4. Tallennetaan erikoismuuttujat globaalisti asiakkaan tietoihin (esco, palvelu_alku)
+        if (parsedData.variables) {
+            Object.entries(parsedData.variables).forEach(([key, value]) => {
+                actions.onUpdateAsiakas(key, value);
+            });
+        }
+
+        console.log("✅ URA-imurin tiedot injektoitu lomakkeelle onnistuneesti!");
+    };
+
     // --- 3. RENDERÖINNIN EHDOT (Auth & Loading) ---
 
     if (isCheckingAuth) {
@@ -137,7 +200,19 @@ function App() {
             {activeTab === 'suunnitelma' && (
                 <div className="main-grid">
                     <main className="sections-container">
-                        <Scraper onScrape={actions.handleScrape} />
+                      <button className="btn" onClick={() => setIsScraperOpen(true)}>
+   🪄 Pura vanha suunnitelma (URA-imuri)
+</button>
+
+<ScraperModal 
+        isOpen={isScraperOpen} 
+        onClose={() => setIsScraperOpen(false)} 
+        // Kutsumme suoraan luomaasi putkimiestä ja varmistamme, ettei tule tuplakutsuja
+        onApply={(data) => {
+            console.log("Valmiit tiedot lähetettiin tilakoneelle!", data);
+            handleApplyParsedData(data); 
+        }} 
+    />
 
                         <section id="osio-suunnitelman-tyyppi"><SuunnitelmanTyyppi state={state} actions={actions} /></section>
                         <section id="osio-suunnitelman-perustiedot"><Perustiedot state={state} actions={actions} planData={dbPlanData} /></section>
