@@ -1,11 +1,10 @@
 // --- src/components/scraper/ScraperModal.jsx ---
 
 import React, { useState } from 'react';
-import { FileText, BrainCircuit, CheckCircle, AlertCircle, X, Trash2, Calendar, Briefcase, Zap } from 'lucide-react';
+import { FileText, BrainCircuit, CheckCircle, X, Calendar, Briefcase, Zap } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
 import { parsePlanText } from './planParser';
 
-// HUOM: Ei enää allSections-proppia!
 const ScraperModal = ({ isOpen, onClose, onApply }) => {
     const [step, setStep] = useState('input');
     const [rawText, setRawText] = useState('');
@@ -23,7 +22,7 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         setIsAnalyzing(true);
         
         try {
-            // HAETAAN SUORAAN DB:STÄ (Tämä toimi viimeksi virheettömästi!)
+            // 1. Haetaan tarvittavat tietosanakirjat Supabasesta
             const { data: dbPhrases, error: err1 } = await supabase
                 .from('phrases')
                 .select('phrase_key, short_title, base_text');
@@ -35,15 +34,16 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
             if (err1) throw err1;
             if (err2) throw err2;
 
-            // SYÖTETÄÄN DB-DATA PARSERILLE
+            // 2. Syötetään teksti ja sanakirjat älykkäälle parserille
             const extractedData = parsePlanText(rawText, dbPhrases || [], dbSignals || []);
             
+            // 3. Tallennetaan tulos ja vaihdetaan näkymää
             setParsedData(extractedData);
             setStep('review');
             
         } catch (err) {
-            console.error("Virhe:", err);
-            alert("Virhe analysoinnissa.");
+            console.error("Virhe analysoinnissa:", err);
+            alert("Virhe analysoitaessa tekstiä. Tarkista tietokantayhteys.");
         } finally {
             setIsAnalyzing(false);
         }
@@ -79,8 +79,9 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
 
     const handleApply = () => {
         if (typeof onApply === 'function') {
-            onApply(parsedData);
+            onApply(parsedData); // TÄMÄ TRIGGAA useScraperAdapterin!
         }
+        // Nollataan tila valmiiksi seuraavaa kertaa varten
         setStep('input');
         setRawText('');
         onClose();
@@ -111,7 +112,7 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                     <div className="admin-modal-body" style={{ display: 'block', padding: '2rem' }}>
                         <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
                             Kopioi ja liitä aiempi työllisyyssuunnitelma tai asiantuntijan muistiinpanot tähän. 
-                            Järjestelmä etsii tekstistä automaattisesti vakiolausekkeita, signaaleja ja päivämääriä.
+                            Järjestelmä "syö" tekstistä automaattisesti vakiolausekkeet, signaalit ja päivämäärät, ja jakaa loput tekstistä automaattisesti oikeille välilehdille lisätietoihin.
                         </p>
                         <textarea 
                             className="form-input text-mono"
@@ -144,7 +145,7 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                                     Analyysi valmis!
                                 </div>
                                 <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>
-                                    Järjestelmä on poiminut tekstistä tutut elementit. Voit muokata tai poistaa yksittäisiä valintoja oikealla olevasta sarakkeesta ennen hyväksymistä.
+                                    Järjestelmä on poiminut tekstistä tutut elementit. Voit muokata poimintoja tai poistaa yksittäisiä valintoja oikealla olevasta sarakkeesta ennen hyväksymistä.
                                 </p>
                                 
                                 <div className="grid-cols-2-tight">
@@ -161,21 +162,26 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
 
                             <div className="card-inner flex-grow">
                                 <h4 className="icon-heading" style={{ fontSize: '1rem', marginBottom: '1rem' }}>
-                                    <FileText size={18} /> Tunnistamaton teksti (Siirretään lisätietoihin)
+                                    <FileText size={18} /> Vapaa teksti (Siirretään lisätietoihin)
                                 </h4>
                                 <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
-                                    Seuraavia kappaleita ei tunnistettu vakiolauseiksi. Ne lisätään automaattisesti kyseisten välilehtien "Vapaa sana" -kenttiin. Voit muokata niitä tässä.
+                                    Näitä kappaleita ei tunnistettu vakiolauseiksi, joten ne siirretään suoraan kyseisten välilehtien tekstikenttiin.
                                 </p>
 
                                 <div className="flex-col-gap">
+                                    {Object.keys(parsedData.customTexts).length === 0 && (
+                                        <p style={{ fontSize: '0.9rem', fontStyle: 'italic', color: 'var(--color-text-muted)' }}>
+                                            Kaikki teksti tunnistettiin vakiolauseiksi. Ei vapaata tekstiä.
+                                        </p>
+                                    )}
                                     {Object.entries(parsedData.customTexts).map(([section, text]) => (
                                         <div key={section}>
                                             <label className="stat-label" style={{ fontWeight: '600', color: 'var(--color-text-primary)' }}>
-                                                Osio: {section.toUpperCase()}
+                                                Välilehti: {section.toUpperCase()}
                                             </label>
                                             <textarea 
                                                 className="form-input" 
-                                                rows="3" 
+                                                rows="4" 
                                                 value={text}
                                                 onChange={(e) => updateCustomText(section, e.target.value)}
                                             />
@@ -189,7 +195,7 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                             
                             <div className="panel-gray" style={{ margin: 0, padding: '1rem 1.5rem' }}>
                                 <h4 style={{ margin: '0 0 1rem 0', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                    <Calendar size={18} color="var(--color-primary)"/> Poimitut muuttujat
+                                    <Calendar size={18} color="var(--color-primary)"/> Poimitut erikoismuuttujat
                                 </h4>
                                 <div className="grid-cols-2-tight">
                                     <div>
@@ -236,6 +242,12 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                                             />
                                             <label htmlFor={`phrase-${phrase.id}`} className="modern-checkbox-label" style={{ margin: 0, fontWeight: '500' }}>
                                                 {phrase.label}
+                                                {/* Näytetään myös fraasista poimitut muuttujat, jos niitä on (esim pvm) */}
+                                                {phrase.variables && Object.keys(phrase.variables).length > 0 && (
+                                                    <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--color-primary)' }}>
+                                                        Muuttujat: {Object.entries(phrase.variables).map(([k,v]) => `${k}=${v}`).join(', ')}
+                                                    </span>
+                                                )}
                                             </label>
                                         </div>
                                     ))}

@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI, SchemaType } = require("@google/generative-ai");
+const { generateWithFallback, SchemaType } = require("./utils/aiRouter");
 const { SYSTEM_PERSONA } = require("./aiPersona"); // Ladataan yhteinen äänensävy
 
 exports.handler = async (event, context) => {
@@ -7,8 +7,8 @@ exports.handler = async (event, context) => {
 
     try {
         const { prompt, availablePieces } = JSON.parse(event.body);
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         
+        // 1. Määritellään skeema
         const schema = {
             type: SchemaType.OBJECT,
             properties: {
@@ -18,27 +18,29 @@ exports.handler = async (event, context) => {
             required: ["ydinviesti", "ehdotetut_palikat"]
         };
 
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-2.5-flash",
-            // Yhdistetään äänensävy ja tämän toiminnon tarkat säännöt:
-            systemInstruction: `${SYSTEM_PERSONA}
+        // 2. Määritellään järjestelmäohje (Persona + säännöt)
+        const systemInstruction = `${SYSTEM_PERSONA}
 
 EHDOTTOMAT RAKENNESÄÄNNÖT TÄHÄN TEHTÄVÄÄN:
 1. Älä koskaan aloita viestiä tervehdyksellä (kuten "Hei", "Terve").
 2. Älä koskaan päätä viestiä lopputervehdykseen tai allekirjoitukseen (kuten "Ystävällisin terveisin", oma nimesi).
 3. Tuota vain itse asiasisältö. Kirjoittamasi teksti upotetaan osaksi viestipohjaa, jossa tervehdykset on jo hoidettu.
 
-TEHTÄVÄSI: Kirjoita käyttäjän ohjeista selkeä viestin ydin. Valitse lisäksi 'availablePieces' -listalta 0-3 sopivimman palikan ID:tä, jotka täydentäisivät tätä viestiä (esim. lakitekstit laiminlyönnistä tai ohjeet).`,
-            generationConfig: { responseMimeType: "application/json", responseSchema: schema }
-        });
+TEHTÄVÄSI: Kirjoita käyttäjän ohjeista selkeä viestin ydin. Valitse lisäksi 'availablePieces' -listalta 0-3 sopivimman palikan ID:tä, jotka täydentäisivät tätä viestiä (esim. lakitekstit laiminlyönnistä tai ohjeet).`;
 
+        // 3. Valmistellaan varsinainen prompti
         const piecesMenu = availablePieces.map(p => `${p.id} | ${p.title} | ${p.category}`).join('\n');
         const fullPrompt = `Käyttäjän ohje: ${prompt}\n\nSaatavilla olevat lisäpalikat:\n${piecesMenu}`;
 
-        const result = await model.generateContent(fullPrompt);
-        return { statusCode: 200, headers, body: result.response.text() };
+        // 4. Kutsutaan reititintä
+        // Reititin parsii JSONin valmiiksi, koska annoimme sille scheman
+        const resultObject = await generateWithFallback(fullPrompt, schema, systemInstruction);
+
+        // 5. Palautetaan vastaus merkkijonona (stringify)
+        return { statusCode: 200, headers, body: JSON.stringify(resultObject) };
         
     } catch (error) {
+        console.error("Generointivirhe:", error);
         return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
     }
 };

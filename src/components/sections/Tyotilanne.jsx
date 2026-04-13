@@ -23,7 +23,23 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
     const [serviceDates, setServiceDates] = useState({
         start: currentSectionState.palvelu_alku || state.asiakas?.palvelu_alku || "",
         end: currentSectionState.palvelu_loppu || state.asiakas?.palvelu_loppu || ""
+
+        
     });
+
+    // --- LISÄÄ TÄMÄ TÄHÄN VÄLIIN! ---
+    // Tämä pakottaa Työtilanne-välilehden päivittämään päivämäärät, 
+    // kun Scraper (adapteri) injektoi ne asiakas-stateen!
+    useEffect(() => {
+        if (state.asiakas?.palvelu_alku || state.asiakas?.palvelu_loppu) {
+            setServiceDates({
+                start: state.asiakas?.palvelu_alku || "",
+                end: state.asiakas?.palvelu_loppu || ""
+            });
+        }
+    }, [state.asiakas?.palvelu_alku, state.asiakas?.palvelu_loppu]);
+    // --------------------------------
+    
 
     // UUDET ÄLYKKÄÄT TUNNISTIMET
     const hasTyokokeilu = useMemo(() => Object.keys(currentSectionState).some(k => k.includes('tyokokeilu') && currentSectionState[k]), [currentSectionState]);
