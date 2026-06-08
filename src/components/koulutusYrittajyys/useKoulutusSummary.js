@@ -18,6 +18,7 @@ export const useKoulutusSummary = (
         let yrittajyysLause = '';
         let ammattikorttiLause = '';
         let kielitaitoLause = '';
+        let digitaidotLause = '';
         let ideatLause = '';
         let tuettuOpiskeluLause = '';
         let generatedParts = [];
@@ -37,13 +38,18 @@ export const useKoulutusSummary = (
             }
         }
 
-        // --- 2. Yrittäjyys ---
-        if (yrittajyysState?.avainsana) {
-             const phrase = yrittajyysPhrases.find(f => f.phrase_key === yrittajyysState.avainsana);
-             if (phrase?.base_text) {
-                 yrittajyysLause = phrase.base_text.trim();
-                 generatedParts.push(yrittajyysLause);
-             }
+        // --- 2. Yrittäjyys (Päivitetty lukemaan uutta tekstiä) ---
+        const yrittajyysUusiTeksti = customTekstit?.yrittajyys_teksti;
+        if (yrittajyysUusiTeksti) {
+            yrittajyysLause = yrittajyysUusiTeksti;
+            generatedParts.push(yrittajyysLause);
+        } else if (yrittajyysState?.avainsana) {
+            // Vanha logiikka varalta taaksepäin yhteensopivuuden vuoksi
+            const phrase = yrittajyysPhrases.find(f => f.phrase_key === yrittajyysState.avainsana);
+            if (phrase?.base_text) {
+                yrittajyysLause = phrase.base_text.trim();
+                generatedParts.push(yrittajyysLause);
+            }
         }
 
         // --- 3. Ammattikortit ---
@@ -79,7 +85,36 @@ export const useKoulutusSummary = (
         }
         if (kielitaitoLause) generatedParts.push(kielitaitoLause.trim());
 
-        // --- 5. Tekoälyn valitut koulutusideat ---
+        // --- 5. Digitaidot ja asiointi ---
+        const digitaidot = customTekstit?.digitaidot;
+        const pankkitunnukset = customTekstit?.pankkitunnukset;
+
+        if (digitaidot || pankkitunnukset) {
+            let osat = [];
+            
+            if (digitaidot === 'hyvat') osat.push('hyvät digitaidot');
+            else if (digitaidot === 'perusteet') osat.push('perustason digitaidot');
+            else if (digitaidot === 'heikot') osat.push('puutteelliset digitaidot tai niitä ei ole lainkaan');
+
+            if (pankkitunnukset === 'kylla') osat.push('hänellä on käytössään vahva tunnistautuminen');
+            else if (pankkitunnukset === 'ei') osat.push('hänellä ei ole käytössään vahvaa tunnistautumista');
+            else if (pankkitunnukset === 'selvitettava') osat.push('vahvan tunnistautumisen tilanne on selvitettävä');
+
+            if (osat.length === 2) {
+                digitaidotLause = `Asiakkaalla on ${osat[0]} ja ${osat[1]}.`;
+            } else if (digitaidot) {
+                digitaidotLause = `Asiakkaalla on ${osat[0]}.`;
+            } else if (pankkitunnukset) {
+                digitaidotLause = osat[0].charAt(0).toUpperCase() + osat[0].slice(1) + '.';
+            }
+            
+            if (digitaidotLause) {
+                digitaidotLause = digitaidotLause.charAt(0).toUpperCase() + digitaidotLause.slice(1);
+                generatedParts.push(digitaidotLause);
+            }
+        }
+
+        // --- 6. Tekoälyn valitut koulutusideat ---
         try {
             if (customTekstit?.valitutAiIdeat) {
                 const ideatArray = JSON.parse(customTekstit.valitutAiIdeat);
@@ -93,7 +128,7 @@ export const useKoulutusSummary = (
             console.error("Virhe AI-ideoiden parsinnassa:", e);
         }
 
-        // --- 6. Tuettu Opiskelu (SIIRRETTY VIIMEISEKSI) ---
+        // --- 7. Tuettu Opiskelu ---
         if (customTekstit?.tuettu_aktiivinen) {
             let opiskelunTyyppi = "";
             switch (customTekstit.tuettu_tyyppi) {
@@ -138,6 +173,7 @@ export const useKoulutusSummary = (
             yrittajyysLause,
             ammattikorttiLause,
             kielitaitoLause,
+            digitaidotLause,
             ideatLause,
             tuettuOpiskeluLause,
             yhdistettyLause: yhdistettyLause + (yhdistettyLause && !yhdistettyLause.endsWith('.') ? '.' : '')

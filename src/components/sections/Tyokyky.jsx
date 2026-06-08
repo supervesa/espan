@@ -51,7 +51,8 @@ const KeskusteluOsa = ({ title, questions, answers, onAnswerChange }) => {
 };
 
 const Tyokyky = ({ state, actions }) => {
-    const { onUpdateTyokyky } = actions;
+    // LISÄTTY: Otetaan actions-oliosta käyttöön myös imurin käyttämät funktiot
+    const { onUpdateTyokyky, onUpdateVariable, onUpdateCustomText } = actions;
     const tyokykyState = state.tyokyky || {};
 
     const [dbData, setDbData] = useState({
@@ -109,6 +110,45 @@ const Tyokyky = ({ state, actions }) => {
 
         fetchTyokykyData();
     }, []);
+
+// -----------------------------------------------------------------------------
+    // TURVALLINEN SILTA URA-IMURILLE: Kääntää imurin käskyt Työkyvyn omaan formaattiin
+    // -----------------------------------------------------------------------------
+    useEffect(() => {
+        if (!dbData.paavalinnat.length) return;
+
+        // 1. Käännetään Päävalinnat (Etsitään, onko imuri laittanut jonkin true-tilaan)
+        const activatedPaavalinta = dbData.paavalinnat.find(p => state.tyokyky?.[p.avainsana] === true);
+        
+        // Jos imuri laittoi jonkin päälle, JOTA meillä ei vielä ole valittuna
+        if (activatedPaavalinta && tyokykyState.paavalinta?.avainsana !== activatedPaavalinta.avainsana) {
+            onUpdateTyokyky('paavalinta', activatedPaavalinta);
+        }
+
+        // 2. Käännetään Palveluohjaukset
+        dbData.palveluohjaukset.forEach(p => {
+            if (state.tyokyky?.[p.avainsana] === true && !tyokykyState.palveluohjaukset?.[p.avainsana]) {
+                onUpdateTyokyky('togglePalveluohjaus', p);
+            }
+        });
+
+        // 3. Siirretään URA-imurin vapaa teksti Työkyvyn "Asiantuntijan vapaa sana" -laatikkoon
+        const scrapedText = state['custom-tyokyky'];
+        if (scrapedText) {
+            const nykyinen = tyokykyState.lisatietoa || '';
+            // Varmistetaan, ettei samaa tekstiä lisätä kahta kertaa peräkkäin
+            if (!nykyinen.includes(scrapedText)) {
+                const uusi = nykyinen ? `${nykyinen}\n\n${scrapedText}` : scrapedText;
+                onUpdateTyokyky('lisatietoa', uusi);
+                if (actions.onUpdateCustomText) {
+                    actions.onUpdateCustomText('tyokyky', ''); // Tyhjennetään lähde turvallisesti
+                }
+            }
+        }
+        
+    // HUOM: Riippuvuudet (dependencies) on minimoitu, jotta ikuista silmukkaa ei voi syntyä!
+    }, [state.tyokyky, state['custom-tyokyky'], dbData.paavalinnat, dbData.palveluohjaukset]); 
+    // -----------------------------------------------------------------------------
 
     const handleKoontiUpdate = () => {
         const answers = tyokykyState.keskustelunTiedot || {};

@@ -1,80 +1,67 @@
-// --- src/components/signals/SignalPanel.jsx ---
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../../utils/supabaseClient'; // LISÄTTY SUPABASE
-import { Activity, Plus, X, Eye, EyeOff, Bell, BellOff, Info } from 'lucide-react';
+import { supabase } from '../../utils/supabaseClient';
+import { Activity, Plus, X, Eye, EyeOff, Bell, BellOff, Info, Sparkles } from 'lucide-react';
 
-const SignalPanel = ({ activeSignals = {}, dbPlanData, actions }) => {
+const SignalPanel = ({ activeSignals = {}, actions }) => {
+    // dbPlanData on poistettu propseista, emme tarvitse sitä enää!
     
-    // UUSI: Tila järjestelmän dynaamisille signaaleille
     const [systemSignals, setSystemSignals] = useState([]);
+    const [allPhrases, setAllPhrases] = useState([]);
 
-    // Haetaan dynaamiset signaalit tietokannasta, kun komponentti ladataan
+    // Haetaan MOLEMMAT tietokantataulut kerralla!
     useEffect(() => {
-        const fetchSystemSignals = async () => {
+        const fetchDictionaries = async () => {
             try {
-                const { data, error } = await supabase.from('system_signals').select('*');
-                if (!error && data) {
-                    setSystemSignals(data);
-                }
+                const [sigRes, phraseRes] = await Promise.all([
+                    supabase.from('system_signals').select('*'),
+                    supabase.from('phrases').select('phrase_key, short_title, section_id')
+                ]);
+                
+                if (sigRes.data) setSystemSignals(sigRes.data);
+                if (phraseRes.data) setAllPhrases(phraseRes.data);
             } catch (err) {
-                console.error("Virhe system_signals haussa:", err);
+                console.error("Virhe sanakirjojen haussa:", err);
             }
         };
-        fetchSystemSignals();
+        fetchDictionaries();
     }, []);
 
-    // 1. Rakennetaan ja YHDISTETÄÄN sanakirja (Vanha dbPlanData + Uusi systemSignals)
+    // Yhdistetään kannan tiedot yhdeksi isoksi, fiksuksi pudotusvalikoksi
     const combinedDictionary = useMemo(() => {
-        // A. Alustetaan vanhalla datalla
-        let dict = [];
-        if (dbPlanData && dbPlanData.aihealueet) {
-            dict = dbPlanData.aihealueet.map(section => ({
-                category: section.otsikko,
-                options: (section.fraasit || []).map(phrase => ({
-                    key: phrase.avainsana,
-                    label: phrase.lyhenne || phrase.teksti.substring(0, 30) + '...',
-                    description: null // Vanhalla datalla ei välttämättä ole erillistä selitettä
-                }))
-            })).filter(section => section.options.length > 0);
-        }
+        const dict = {};
 
-        // B. Yhdistetään uudet dynaamiset signaalit listaan
-        if (systemSignals.length > 0) {
-            // Ryhmitellään uudet signaalit kategorioittain
-            const sysCategories = {};
-            systemSignals.forEach(sig => {
-                if (!sysCategories[sig.category]) {
-                    sysCategories[sig.category] = { category: sig.category, options: [] };
-                }
-                sysCategories[sig.category].options.push({
-                    key: sig.signal_key,
-                    label: sig.label,
-                    description: sig.description
+        // 1. LISÄTÄÄN JÄRJESTELMÄN SIGNAALIT
+        systemSignals.forEach(sig => {
+            const cat = sig.category || 'Muut signaalit';
+            if (!dict[cat]) dict[cat] = { category: cat, options: [] };
+            
+            dict[cat].options.push({
+                key: sig.signal_key,
+                label: sig.label,
+                description: sig.description
+            });
+        });
+
+        // 2. LISÄTÄÄN VAKIOLAUSEET (Jotta nekin näkyvät nätisti, jos imuri on ne lisännyt)
+        allPhrases.forEach(phrase => {
+            // Emme tiedä suoraan mihin "kategoriaan" (välilehteen) phrase kuuluu ilman joinia, 
+            // joten käytetään selkeää yhteiskategoriaa, ellemme tiedä tarkasti.
+            const cat = 'Lomakkeen valinnat'; 
+            if (!dict[cat]) dict[cat] = { category: cat, options: [] };
+            
+            // Estetään tuplat, jos sama id on jo olemassa system_signals -puolella
+            if (!dict[cat].options.find(o => o.key === phrase.phrase_key)) {
+                dict[cat].options.push({
+                    key: phrase.phrase_key,
+                    label: phrase.short_title || phrase.phrase_key,
+                    description: null
                 });
-            });
+            }
+        });
 
-            // Sulautetaan ryhmät perussanakirjaan
-            Object.values(sysCategories).forEach(sysCat => {
-                const existingCat = dict.find(c => c.category === sysCat.category);
-                if (existingCat) {
-                    // Kategoria löytyy jo (esim. "Koulutus"), lisätään uudet avaimet sen alle
-                    sysCat.options.forEach(opt => {
-                        if (!existingCat.options.find(o => o.key === opt.key)) {
-                            existingCat.options.push(opt);
-                        }
-                    });
-                } else {
-                    // Täysin uusi kategoria, lisätään listan hännille
-                    dict.push(sysCat);
-                }
-            });
-        }
+        return Object.values(dict).filter(section => section.options.length > 0);
+    }, [systemSignals, allPhrases]);
 
-        return dict;
-    }, [dbPlanData, systemSignals]);
-
-    // 2. Käsittelijä uuden signaalin valinnalle (pudotusvalikosta)
     const handleAddSignal = (e) => {
         const selectedKey = e.target.value;
         if (selectedKey && actions.onAddSignal) {
@@ -83,17 +70,36 @@ const SignalPanel = ({ activeSignals = {}, dbPlanData, actions }) => {
         e.target.value = "";
     };
 
-    // 3. Hae signaalin tiedot (Nimi ja Ohje)
     const getSignalInfo = (signalKey) => {
+        if (!signalKey) return { label: 'Tuntematon', description: null, isAi: false };
+
+        // 1. Erikoiskäsittely dynaamisille tekoäly-signaaleille
+        if (signalKey.startsWith('AI_FINESCO_')) {
+            return { 
+                label: signalKey.replace('AI_FINESCO_', ''), 
+                description: 'Tekoälyn tunnistama ammattiala',
+                isAi: true 
+            };
+        }
+        if (signalKey.startsWith('AI_ESCO_')) {
+            return { 
+                label: signalKey.replace('AI_ESCO_', ''), 
+                description: 'Tekoälyn tunnistama tavoiteammatti',
+                isAi: true
+            };
+        }
+
+        // 2. Normaali haku yhdistetystä sanakirjasta (Signals + Phrases)
         for (const section of combinedDictionary) {
             const found = section.options.find(opt => opt.key === signalKey);
-            if (found) return { label: found.label, description: found.description };
+            if (found) return { label: found.label, description: found.description, isAi: false };
         }
-        // Fallback jos ei löydy kummastakaan
-        return { label: signalKey.replace(/_/g, ' '), description: null };
+        
+        // 3. Hätävara (Fallback): Muutetaan alaviivat välilyönneiksi
+        return { label: signalKey.replace(/_/g, ' '), description: null, isAi: false };
     };
 
-    const activeSignalKeys = Object.keys(activeSignals);
+    const activeSignalKeys = Object.keys(activeSignals || {});
 
     return (
         <div className="smart-analysis-box signal-panel-container">
@@ -107,7 +113,6 @@ const SignalPanel = ({ activeSignals = {}, dbPlanData, actions }) => {
                 Tähän kerätään asiakkaan ydintiedot. Signaalit ohjaavat järjestelmän automaatiota ja sääntömoottoria.
             </p>
 
-            {/* MANUAALINEN LISÄYSTYÖKALU */}
             <div className="signal-select-wrapper">
                 <div className="signal-select-inner">
                     <select 
@@ -134,7 +139,6 @@ const SignalPanel = ({ activeSignals = {}, dbPlanData, actions }) => {
                 </div>
             </div>
 
-            {/* AKTIIVISTEN SIGNAALIEN LISTA */}
             {activeSignalKeys.length === 0 ? (
                 <div className="signal-empty-state">
                     Ei aktiivisia signaaleja. Tee valintoja lomakkeella tai lisää havainto yltä.
@@ -143,28 +147,29 @@ const SignalPanel = ({ activeSignals = {}, dbPlanData, actions }) => {
                 <div className="signal-list-container">
                     {activeSignalKeys.map(key => {
                         const signalData = activeSignals[key];
-                        const isMuted = signalData?.isMuted || false;
-                        const isPrintable = signalData?.isPrintable || false;
+                        // Varmistetaan että signalData on objekti
+                        const isMuted = typeof signalData === 'object' ? signalData.isMuted : false;
+                        const isPrintable = typeof signalData === 'object' ? signalData.isPrintable : false;
                         
-                        // Haetaan nimi ja mahdollinen ohjeteksti
-                        const { label, description } = getSignalInfo(key);
+                        const { label, description, isAi } = getSignalInfo(key);
 
                         return (
                             <div 
                                 key={key} 
                                 className={`signal-item ${isMuted ? 'signal-item--muted' : ''}`}
+                                style={isAi ? { backgroundColor: 'var(--color-ai-bg)', borderColor: 'var(--color-ai-border)' } : {}}
                             >
                                 <span 
                                     className={`signal-item-label ${isMuted ? 'signal-item-label--muted' : ''}`}
-                                    title={description || label} // Näytetään tooltip, kun hiiri on päällä
+                                    title={description || label}
                                 >
+                                    {isAi && <Sparkles size={12} color="var(--color-ai)" style={{ marginRight: '6px', display: 'inline', verticalAlign: 'text-bottom' }} />}
                                     {label}
-                                    {description && <Info size={12} style={{ marginLeft: '4px', opacity: 0.6, display: 'inline' }} />}
+                                    {description && !isAi && <Info size={12} style={{ marginLeft: '4px', opacity: 0.6, display: 'inline' }} />}
                                 </span>
                                 
                                 <div className="signal-actions">
                                     
-                                    {/* Tulostuksen hallinta (Silmä) */}
                                     <button 
                                         type="button"
                                         onClick={() => actions.onToggleSignalSetting(key, 'isPrintable')}
@@ -174,7 +179,6 @@ const SignalPanel = ({ activeSignals = {}, dbPlanData, actions }) => {
                                         {isPrintable ? <Eye size={16} /> : <EyeOff size={16} />}
                                     </button>
 
-                                    {/* Sääntömoottorin hiljennys (Kello) */}
                                     <button 
                                         type="button"
                                         onClick={() => actions.onToggleSignalSetting(key, 'isMuted')}
@@ -184,7 +188,6 @@ const SignalPanel = ({ activeSignals = {}, dbPlanData, actions }) => {
                                         {isMuted ? <BellOff size={16} /> : <Bell size={16} />}
                                     </button>
 
-                                    {/* Poisto (X) */}
                                     <button 
                                         type="button"
                                         onClick={() => actions.onRemoveSignal(key)}

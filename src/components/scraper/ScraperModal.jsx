@@ -22,20 +22,29 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         setIsAnalyzing(true);
         
         try {
-            // 1. Haetaan tarvittavat tietosanakirjat Supabasesta
-            const { data: dbPhrases, error: err1 } = await supabase
-                .from('phrases')
-                .select('phrase_key, short_title, base_text');
+            console.log("Käynnistetään URA-imuri... Haetaan dynaamiset säännöt tietokannasta.");
+            
+            // 1. Haetaan KAIKKI tarvittavat tietosanakirjat Supabasesta
+      const [secRes, phraseRes, sigRes, varRes] = await Promise.all([
+    supabase.from('sections').select('id, section_key, title, is_multi_select'), // <-- LISÄTTY id ja is_multi_select
+    supabase.from('phrases').select('id, phrase_key, short_title, base_text, extraction_pattern, section_id'), // <-- LISÄTTY section_id
+    supabase.from('system_signals').select('signal_key, label'),
+    supabase.from('variables').select('phrase_id, variable_key, import_behavior')
+]);
                 
-            const { data: dbSignals, error: err2 } = await supabase
-                .from('system_signals')
-                .select('signal_key, label');
-                
-            if (err1) throw err1;
-            if (err2) throw err2;
+            if (secRes.error) throw secRes.error;
+            if (phraseRes.error) throw phraseRes.error;
+            if (sigRes.error) throw sigRes.error;
+            if (varRes.error) throw varRes.error;
 
-            // 2. Syötetään teksti ja sanakirjat älykkäälle parserille
-            const extractedData = parsePlanText(rawText, dbPhrases || [], dbSignals || []);
+            // 2. Syötetään teksti ja KAIKKI sanakirjat älykkäälle kapellimestarille
+            const extractedData = parsePlanText(
+                rawText, 
+                secRes.data || [], 
+                phraseRes.data || [], 
+                sigRes.data || [], 
+                varRes.data || []
+            );
             
             // 3. Tallennetaan tulos ja vaihdetaan näkymää
             setParsedData(extractedData);

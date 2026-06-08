@@ -1,32 +1,39 @@
-// --- src/components/sections/Tyottomyysturva.jsx ---
-import React, { useState, useMemo } from 'react';
-import { AlertCircle, Sparkles, AlertTriangle } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { AlertCircle, AlertTriangle, CheckCircle, Info, FileText, Sparkles, ArrowRight } from 'lucide-react';
 
-const sectionData = {
-    questions: [
-        { id: "tyonhaku_voimassa", teksti: "Minne saakka työnhaku on voimassa?", tyyppi: "teksti", placeholder: "esim. 31.12.2025" },
-        { id: "hakee_kokoaikatyota", teksti: "Hakeeko asiakas kokoaikatyötä?", tyyppi: "boolean" },
-        { id: "suomen_kansalainen", teksti: "Onko asiakas Suomen kansalainen?", tyyppi: "boolean" },
-        { id: "oleskelulupa", teksti: "Mikä on oleskeluluvan tilanne?", tyyppi: "teksti", ehto: { id: "suomen_kansalainen", arvo: false } },
-        { id: "tyosuhde_paattyminen_45pv", teksti: "Onko työsuhde päättynyt viim. 45 pv aikana (muu kuin tu-ta)?", tyyppi: "boolean" },
-        { id: "vapaaehtoistyo", teksti: "Onko asiakas vapaaehtoistyössä tai palkattomassa työssä?", tyyppi: "boolean" },
-        { id: "oma_tyo", teksti: "Työllistyykö asiakas omassa työssä (esim. omaishoitajana)?", tyyppi: "teksti" },
-        { id: "yritystoiminta", teksti: "Onko asiakkaalla yritystoimintaa tai osuutta yrityksestä?", tyyppi: "boolean" },
-        { id: "yritystoiminta_selvitys", teksti: "Selvitä yritystoiminnan laajuus ja luonne.", tyyppi: "teksti", ehto: { id: "yritystoiminta", arvo: true } },
-        { id: "opiskelija", teksti: "Onko asiakas opiskelija tai alkamassa opinnot lähiaikoina?", tyyppi: "boolean" },
-        { id: "alle25_puuttuva_tutkinto", teksti: "Puuttuuko ammatillinen tutkinto?", tyyppi: "boolean", ehto: "alle25" },
-        { id: "alle25_laiminlyoty_haku", teksti: "Onko koulutushakuvelvoite laiminlyöty?", tyyppi: "boolean", ehto: "alle25" },
-        { id: "estava_lausunto", teksti: "Onko voimassaolevaa työssäolovelvoitetta tai muuta estävää lausuntoa?", tyyppi: "boolean" },
-        { id: "estava_lausunto_selvitys", teksti: "Kirjaa tiedot lausunnosta.", tyyppi: "teksti", ehto: { id: "estava_lausunto", arvo: true } },
-    ]
-};
+// ==========================================
+// 1. KYSYMYSPATTERISTON MÄÄRITTELY
+// ==========================================
+
+const EHDOTTOMAT_KYSYMYKSET = [
+    { id: "rekisteroitynyt", teksti: "Työnhakija on rekisteröitynyt työnhakijaksi / ilmoittanut muutoksesta." },
+    { id: "hakee_kokoaikatyota", teksti: "Työnhakija hakee kokoaikatyötä." },
+    { id: "hakee_etuutta", teksti: "Työnhakija hakee työttömyysetuutta." }
+];
+
+const YLEISET_KYSYMYKSET = [
+    { id: "estava_lausunto", teksti: "Onko työnhakijalla aiemmin ollut voimassa työssäolovelvoite tai muu estävä lausunto?", syyTeksti: "Aiempi työssäolovelvoite tai estävä lausunto" },
+    { id: "tyosuhde_voimassa", teksti: "Onko työnhakijalla työsuhde voimassa?", syyTeksti: "Voimassa oleva työsuhde" },
+    { id: "yritystoiminta_perhe", teksti: "Onko työnhakijalla tai hänen perheenjäsenellään yritystoimintaa?", syyTeksti: "Oma tai perheen yritystoiminta" },
+    { id: "opiskelija", teksti: "Onko työnhakija opiskelija?", syyTeksti: "Opinnot" },
+    { id: "omassa_tyossa", teksti: "Työllistyykö työnhakija omassa työssä?", syyTeksti: "Omassa työssä työllistyminen" },
+    { id: "palkaton_tyo", teksti: "Työskenteleekö työnhakija palkattomasti tai onko hän palkattomassa harjoittelussa?", syyTeksti: "Palkaton työ tai harjoittelu" },
+    { id: "paattynyt_2kk", teksti: "Onko työsuhde päättynyt viim. 2 kk aikana (muu syy kuin tu-ta tai määräaikaisuus)?", syyTeksti: "Työsuhteen päättyminen viim. 2 kk aikana" },
+    { id: "alle25_tutkinto_laiminlyonti", teksti: "Puuttuuko ammatillisia valmiuksia antava tutkinto tai onko koulutushakuvelvoite laiminlyöty?", ehto: "alle25", syyTeksti: "Koulutushakuvelvoite (Alle 25v)" },
+    { id: "suomen_kansalainen", teksti: "Onko asiakas Suomen kansalainen?", neutraali: true },
+    { id: "ei_kansalainen_este", teksti: "Onko olemassa jokin este rekisteröityä työnhakijaksi?", ehto: { id: "suomen_kansalainen", arvo: false }, syyTeksti: "Esteet rekisteröitymiselle (Ei kansalainen)" }
+];
+
+// ==========================================
+// 2. PÄÄKOMPONENTTI
+// ==========================================
 
 const Tyottomyysturva = ({ state, actions }) => {
     const { onUpdateTyottomyysturva, onUpdateCustomText } = actions;
     const ttState = state.tyottomyysturva || {};
+    const answers = ttState.answers || {};
 
-    const [ehdotetutFraasit, setEhdotetutFraasit] = useState([]);
-    const [valittuFraasi, setValittuFraasi] = useState('');
+    // --- APUMUUTTUJAT JA LASKENTA ---
 
     const tyotilanneInfo = useMemo(() => {
         const tilanteet = state.tyotilanne
@@ -45,195 +52,259 @@ const Tyottomyysturva = ({ state, actions }) => {
         return age < 25;
     }, [state.suunnitelman_perustiedot]);
 
+    // Vaihe 1: Ehdottomien edellytysten tarkistus
+    const kaikkiEhdottomatVastattu = EHDOTTOMAT_KYSYMYKSET.every(q => answers[q.id] !== undefined);
+    const kaikkiEhdottomatToteutuu = EHDOTTOMAT_KYSYMYKSET.every(q => answers[q.id] === true);
+    const ehdotonEiValittu = EHDOTTOMAT_KYSYMYKSET.some(q => answers[q.id] === false);
+
+    // Vaihe 2: Yleisten edellytysten tarkistus (haetaan ne asiat, joihin on vastattu "Kyllä" -> vaatii selvitystä)
+    const selvitettavatAsiat = useMemo(() => {
+        const selvitettavat = [];
+        YLEISET_KYSYMYKSET.forEach(q => {
+            // Ohitetaan ehtojen taakse piilotetut kysymykset
+            if (q.ehto === "alle25" && !asiakasAlle25) return;
+            if (typeof q.ehto === 'object' && answers[q.ehto.id] !== q.ehto.arvo) return;
+            
+            // Suomen kansalainen on vain reitittävä kysymys, ei aiheuta sellaisenaan selvitystä
+            if (q.neutraali) return;
+
+            // Jos yleiseen kysymykseen vastataan "Kyllä", se vaatii yleensä selvitystä
+            if (answers[q.id] === true) {
+                selvitettavat.push(q.syyTeksti);
+            }
+        });
+        return selvitettavat;
+    }, [answers, asiakasAlle25]);
+
+    const showUnder25Warning = asiakasAlle25 && answers['alle25_tutkinto_laiminlyonti'] === true;
+
+    // --- TILA- JA TEKSTIPÄIVITYKSET ---
+
     const handleAnswerChange = (id, value) => {
         onUpdateTyottomyysturva('updateKysymys', { id, value });
-        
-        // VETO-OIKEUS: Jos asiantuntija muuttaa tekoälyn automaatiota, poistetaan AI-tägi näkyvistä.
         if (ttState[`ai_tunnistus_${id}`]) {
             onUpdateTyottomyysturva(`ai_tunnistus_${id}`, false);
         }
     };
 
-    const generateSummaryPhrases = (answers) => {
-        const phrases = [];
-        const huomiot = [];
+    const handleGenerateText = () => {
+        let ehdotettuTeksti = "";
 
-        if (answers.opiskelija) huomiot.push("opintoja");
-        if (answers.yritystoiminta) huomiot.push("yritystoimintaa");
-        if (answers.oma_tyo) huomiot.push("omaa työtä");
-        if (answers.estava_lausunto) huomiot.push("estävän lausunnon");
-        if (answers.tyosuhde_paattyminen_45pv) huomiot.push("työsuhteen päättymisen, joka vaatii selvitystä");
-        if (answers.alle25_puuttuva_tutkinto) huomiot.push("puuttuvan tutkinnon (Alle 25v)");
-
-        if (huomiot.length === 0) {
-            phrases.push("Työttömyysturvan kannalta ei ilmennyt huomioitavia seikkoja: ei opintoja, ei yritystoimintaa, ei muuta työnhakuun vaikuttavaa.");
-            phrases.push("Asiakkaan tilanteessa ei ole työttömyysturvalain mukaisia rajoitteita tai odotusaikoja.");
+        if (ehdotonEiValittu) {
+            ehdotettuTeksti = "Työttömyysetuuden ehdottomat edellytykset eivät täyty. Työnhakijan tilanne lausutaan työnhakijan ilmoituksen mukaan.";
+        } else if (kaikkiEhdottomatToteutuu && selvitettavatAsiat.length > 0) {
+            ehdotettuTeksti = `Työttömyysturvaoikeuden edellytyksiä selvitetään.\n\nSelvityspyyntö tehdään seuraavista asioista:\n- ${selvitettavatAsiat.join('\n- ')}\n\nSelvityspyynnön alkupäivä: ${ttState.selvitysAlkupvm || '[Lisää päivämäärä]'}`;
+        } else if (kaikkiEhdottomatToteutuu && selvitettavatAsiat.length === 0) {
+            ehdotettuTeksti = "Työttömyysetuuden ehdottomat ja yleiset edellytykset täyttyvät.\nAutomaattilausunto tarkistettu ja oikeellinen / Lausunto T001 annettu.\nAlkupäivä: Työnhaun ensimmäinen voimassaolopäivä.";
         } else {
-            phrases.push(`Työttömyysturvaan vaikuttavat tekijät: ${huomiot.join(', ')}.`);
-            if (answers.yritystoiminta) phrases.push("Työttömyysturvan selvitys edellyttää yritystoiminnan laajuuden arviointia.");
-            if (answers.tyosuhde_paattyminen_45pv) phrases.push("Asiakkaalle on mahdollisesti asetettava työssäolovelvoite työsuhteen päättymisen vuoksi.");
-            if (answers.alle25_puuttuva_tutkinto) phrases.push("Koulutushakuvelvoitteen täyttyminen tarkistettava puuttuvan ammatillisen tutkinnon vuoksi.");
+            ehdotettuTeksti = "Lomakkeen täyttö on kesken. Vastaa kaikkiin edellytyksiin saadaksesi tarkan tulosteen.";
         }
-        return phrases;
-    };
 
-    const handleGenerateSuggestions = () => {
-        const answers = ttState.answers || {};
-        let koontiText = '';
-        sectionData.questions.forEach(q => {
-            if (answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== '') {
-                const vastaus = answers[q.id];
-                koontiText += `- ${q.teksti}: ${vastaus === true ? 'Kyllä' : vastaus === false ? 'Ei' : vastaus}\n`;
-            }
-        });
-        onUpdateTyottomyysturva('koonti', koontiText.trim());
-        setEhdotetutFraasit(generateSummaryPhrases(answers));
-        setValittuFraasi('');
-    };
-
-    const handleMoveToSummary = () => {
-        if (!valittuFraasi) return;
-        
-        // Siirretään valittu fraasi asiantuntijan vapaaseen tekstikenttään
+        // Lisätään olemassa olevan tekstin perään
         const currentText = state['custom-tyottomyysturva'] || '';
-        const newText = currentText ? `${currentText}\n\n${valittuFraasi}` : valittuFraasi;
+        const newText = currentText ? `${currentText}\n\n${ehdotettuTeksti}` : ehdotettuTeksti;
         onUpdateCustomText('tyottomyysturva', newText);
-        
-        setEhdotetutFraasit([]);
-        setValittuFraasi('');
     };
 
-    // Varoitusvalot alle 25-vuotiaille
-    const showUnder25Warning = asiakasAlle25 && ttState.answers?.alle25_puuttuva_tutkinto;
+    // Apukomponentti Kyllä/Ei napeille
+    const BooleanButtons = ({ questionId, currentAnswer }) => (
+        <div className="boolean-buttons" style={{ display: 'flex', gap: '0.5rem' }}>
+            <button 
+                className={currentAnswer === true ? 'selected' : ''} 
+                onClick={() => handleAnswerChange(questionId, true)}
+            >
+                Kyllä
+            </button>
+            <button 
+                className={currentAnswer === false ? 'selected' : ''} 
+                onClick={() => handleAnswerChange(questionId, false)}
+                style={{
+                    backgroundColor: currentAnswer === false ? '#475569' : '',
+                    color: currentAnswer === false ? 'white' : ''
+                }}
+            >
+                Ei
+            </button>
+        </div>
+    );
 
     return (
         <section className="section-container">
-            <h2 className="section-title">Työttömyysturva</h2>
+            <h2 className="section-title icon-heading">
+                <AlertCircle size={24} /> Työttömyysturvan edellytykset
+            </h2>
 
-            <div className="side-bordered-panel">
+            <div className="alert-box" style={{ backgroundColor: 'var(--color-surface)', marginBottom: '2rem', border: '1px solid var(--color-border)' }}>
+                <p className="stat-label">Taustatiedot:</p>
+                <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}><b>Työtilanne-osio:</b> {tyotilanneInfo}</p>
+                {asiakasAlle25 && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-warning)', fontWeight: 600 }}>Asiakas on alle 25-vuotias</p>}
+            </div>
+
+            {/* VAIHE 1: EHDOTTOMAT EDELLYTYKSET */}
+            <div className="side-bordered-panel" style={{ borderLeftColor: ehdotonEiValittu ? 'var(--color-danger)' : (kaikkiEhdottomatToteutuu ? 'var(--color-success)' : 'var(--color-primary)') }}>
                 <h3 className="icon-heading">
-                    <AlertCircle size={20} /> Keskustelun tuki ja selvitykset
+                    <span className="tag" style={{ marginRight: '0.5rem', backgroundColor: 'var(--color-primary)', color: 'white' }}>Vaihe 1</span>
+                    Ehdottomat edellytykset
                 </h3>
-                
-                <div className="alert-box" style={{ backgroundColor: 'var(--color-surface)', marginBottom: '1.5rem', border: '1px solid var(--color-border)' }}>
-                    <p className="stat-label" style={{ marginBottom: '0.5rem' }}>Triggeiden tarkistus:</p>
-                    <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}><b>Työtilanne-välilehdeltä valittu:</b> {tyotilanneInfo}</p>
-                    {asiakasAlle25 && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-warning)', fontWeight: 600 }}>Asiakas on alle 25-vuotias!</p>}
+                <p style={{ marginBottom: '1.5rem', color: 'var(--color-text-secondary)' }}>Kaikkiin on vastattava "Kyllä", jotta prosessi etenee yleisiin edellytyksiin.</p>
+
+                <div className="flex-col-gap" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {EHDOTTOMAT_KYSYMYKSET.map(q => (
+                        <div key={q.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', alignItems: 'center', paddingBottom: '0.75rem', borderBottom: '1px dashed var(--color-border)' }}>
+                            <label style={{ fontSize: '0.95rem', fontWeight: 500, color: 'var(--color-text-primary)' }}>
+                                {q.teksti}
+                            </label>
+                            <BooleanButtons questionId={q.id} currentAnswer={answers[q.id]} />
+                        </div>
+                    ))}
                 </div>
 
-                {showUnder25Warning && (
-                    <div className="alert-box alert-box--warning" style={{ marginBottom: '1.5rem' }}>
+                {ehdotonEiValittu && (
+                    <div className="alert-box alert-box--danger" style={{ marginTop: '1.5rem' }}>
                         <div className="alert-box-content">
                             <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
                             <span className="alert-box-text">
-                                <strong>HUOM: Tutkintoa vailla oleva alle 25v!</strong><br/>
-                                Tarkista välittömästi koulutushakuvelvoitteen täyttyminen mahdollisten menetysten (esim. 5 kk odotusaika) varalta.
+                                <strong>Ehdoton edellytys ei täyty.</strong><br/>
+                                Työnhakijan tilanne lausutaan työnhakijan ilmoituksen mukaan tai tehdään selvityspyyntö. Yleisiä edellytyksiä ei tarvitse tarkistaa.
                             </span>
                         </div>
                     </div>
                 )}
+            </div>
 
-                <div className="card-inner flex-col-gap">
-                    {sectionData.questions.map(q => {
-                        if (q.ehto) {
+            {/* VAIHE 2: YLEISET EDELLYTYKSET */}
+            {kaikkiEhdottomatToteutuu && (
+                <div className="side-bordered-panel" style={{ borderLeftColor: selvitettavatAsiat.length > 0 ? 'var(--color-warning)' : 'var(--color-success)', animation: 'fadeIn 0.3s ease-out' }}>
+                    <h3 className="icon-heading">
+                        <span className="tag" style={{ marginRight: '0.5rem', backgroundColor: 'var(--color-text-secondary)', color: 'white' }}>Vaihe 2</span>
+                        Yleiset edellytykset
+                    </h3>
+                    <p style={{ marginBottom: '1.5rem', color: 'var(--color-text-secondary)' }}>Tarkista onko seuraavissa asioissa työttömyysetuutta estäviä tekijöitä.</p>
+
+                    {showUnder25Warning && (
+                        <div className="alert-box alert-box--warning" style={{ marginBottom: '1.5rem' }}>
+                            <div className="alert-box-content">
+                                <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                <span className="alert-box-text">
+                                    <strong>HUOM: Tutkintoa vailla oleva alle 25v!</strong><br/>
+                                    Tarkista koulutushakuvelvoitteen täyttyminen mahdollisten menetysten (esim. 5 kk odotusaika) varalta.
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex-col-gap" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        {YLEISET_KYSYMYKSET.map(q => {
+                            // Ehtojen tarkistus näyttämiselle
                             if (q.ehto === "alle25" && !asiakasAlle25) return null;
-                            if (typeof q.ehto === 'object' && ttState.answers?.[q.ehto.id] !== q.ehto.arvo) return null;
-                        }
+                            if (typeof q.ehto === 'object' && answers[q.ehto.id] !== q.ehto.arvo) return null;
 
-                        const isAiFilled = ttState[`ai_tunnistus_${q.id}`] && ttState.answers?.[q.id] === true;
+                            return (
+                                <div key={q.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', alignItems: 'center', paddingBottom: '0.75rem', borderBottom: '1px dashed var(--color-border)' }}>
+                                    <label style={{ fontSize: '0.95rem', fontWeight: 500, color: 'var(--color-text-primary)' }}>
+                                        {q.teksti}
+                                    </label>
+                                    <BooleanButtons questionId={q.id} currentAnswer={answers[q.id]} />
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
-                        return (
-                            <div key={q.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'center', paddingBottom: '0.75rem', borderBottom: '1px dashed var(--color-border)' }}>
-                                <label htmlFor={q.id} style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--color-text-primary)' }}>
-                                    {q.teksti}
-                                </label>
+            {/* RATKAISUKESKUS (Analyysi) */}
+            <div className="smart-analysis-box" style={{ marginTop: '2rem' }}>
+                <div className="smart-analysis-header">
+                    <Sparkles size={20} /> Järjestelmän analyysi & Ohjeistus
+                </div>
+                
+                <div className="smart-analysis-grid">
+                    <div className="smart-analysis-column">
+                        <p className="smart-analysis-title">TILANNEKARTTA</p>
+                        
+                        {!kaikkiEhdottomatVastattu ? (
+                            <div style={{ color: 'var(--color-text-secondary)' }}>Vastaa kaikkiin edellytyksiin saadaksesi tilannekuvan.</div>
+                        ) : ehdotonEiValittu ? (
+                            <div className="status-text--danger">
+                                <AlertTriangle size={18} /> Ehdottomat edellytykset eivät täyty
+                            </div>
+                        ) : selvitettavatAsiat.length > 0 ? (
+                            <div>
+                                <div style={{ color: 'var(--color-warning)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                                    <AlertTriangle size={18} /> Selvitystä vaativat asiat ({selvitettavatAsiat.length}):
+                                </div>
+                                <ul style={{ margin: 0, paddingLeft: '1.2rem', color: 'var(--color-text-primary)', fontSize: '0.9rem' }}>
+                                    {selvitettavatAsiat.map((syy, i) => <li key={i} style={{ marginBottom: '0.2rem' }}>{syy}</li>)}
+                                </ul>
+                            </div>
+                        ) : (
+                            <div className="status-text--success">
+                                <CheckCircle size={18} /> Kaikki edellytykset kunnossa. Ei esteitä.
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="smart-analysis-column">
+                        <p className="smart-analysis-title">TOIMENPIDESUOSITUS</p>
+                        
+                        {!kaikkiEhdottomatVastattu ? (
+                            <span style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>Odottaa syötteitä...</span>
+                        ) : ehdotonEiValittu || selvitettavatAsiat.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                <div style={{ backgroundColor: '#fff', padding: '0.75rem', borderRadius: '4px', border: '1px solid var(--color-warning)', fontSize: '0.9rem', lineHeight: 1.4 }}>
+                                    <strong style={{ display: 'block', marginBottom: '0.25rem', color: '#b45309' }}>Tee selvityspyyntö ja/tai kuuleminen.</strong>
+                                    Käytä URA-järjestelmän valtakunnallisia selvityspyyntöpohjia ja yksilöi pyyntö asiakkaan tilanteen mukaan.
+                                </div>
                                 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                    {q.tyyppi === 'boolean' ? (
-                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                            <button 
-                                                onClick={() => handleAnswerChange(q.id, true)} 
-                                                className="btn" 
-                                                style={{ padding: '0.3rem 1rem', backgroundColor: ttState.answers?.[q.id] === true ? 'var(--color-primary)' : 'var(--color-surface)', color: ttState.answers?.[q.id] === true ? '#fff' : 'var(--color-text-secondary)', borderColor: ttState.answers?.[q.id] === true ? 'var(--color-primary)' : 'var(--color-border)' }}
-                                            >
-                                                Kyllä
-                                            </button>
-                                            <button 
-                                                onClick={() => handleAnswerChange(q.id, false)} 
-                                                className="btn" 
-                                                style={{ padding: '0.3rem 1rem', backgroundColor: ttState.answers?.[q.id] === false ? '#475569' : 'var(--color-surface)', color: ttState.answers?.[q.id] === false ? '#fff' : 'var(--color-text-secondary)', borderColor: ttState.answers?.[q.id] === false ? '#475569' : 'var(--color-border)' }}
-                                            >
-                                                Ei
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <input type="text" id={q.id} className="form-input" placeholder={q.placeholder || ''} value={ttState.answers?.[q.id] || ''} onChange={(e) => handleAnswerChange(q.id, e.target.value)} />
-                                    )}
-
-                                    {/* AI Vihje */}
-                                    {isAiFilled && (
-                                        <span style={{ fontSize: '0.75rem', color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-                                            <Sparkles size={12} /> Poimittu URA-historiasta
-                                        </span>
-                                    )}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                    <label htmlFor="selvitys-alkupvm" style={{ fontSize: '0.85rem', fontWeight: 600 }}>Selvityspyynnön alkupäivä:</label>
+                                    <input 
+                                        type="text" 
+                                        id="selvitys-alkupvm" 
+                                        className="form-input text-mono" 
+                                        placeholder="esim. 1.1.2025 tai työnhaun alku"
+                                        value={ttState.selvitysAlkupvm || ''}
+                                        onChange={(e) => onUpdateTyottomyysturva('selvitysAlkupvm', e.target.value)}
+                                        style={{ maxWidth: '250px' }}
+                                    />
                                 </div>
                             </div>
-                        )
-                    })}
+                        ) : (
+                            <div style={{ backgroundColor: '#fff', padding: '0.75rem', borderRadius: '4px', border: '1px solid var(--color-success)', fontSize: '0.9rem', lineHeight: 1.4 }}>
+                                <strong style={{ display: 'block', marginBottom: '0.25rem', color: 'var(--color-success)' }}>Anna lausunto T001</strong>
+                                Tarkasta onko automaattilausunto annettu ja oikein. Jos ei, anna lausunto T001. Lausunnon alkupäivä on työnhaun ensimmäinen voimassaolopäivä.
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            <div className="grid-cols-2">
-                <div className="flex-col-gap">
-                    <label htmlFor="tt-koonti-textarea" className="icon-label">Koonti lomakkeesta (Muistiinpanot)</label>
-                    <textarea 
-                        id="tt-koonti-textarea" 
-                        className="form-input text-mono"
-                        rows="6" 
-                        placeholder="Tähän kerätään muistiinpanot keskustelusta..." 
-                        value={ttState.koonti || ''} 
-                        onChange={(e) => onUpdateTyottomyysturva('koonti', e.target.value)} 
-                    />
-                    <button className="btn btn--secondary" onClick={handleGenerateSuggestions}>Päivitä koonti ja luo lause-ehdotukset</button>
-                </div>
+            {/* LOPULLINEN TULOSTE */}
+            <div style={{ marginTop: '2rem', padding: '1.5rem', backgroundColor: '#f9fafb', borderRadius: 'var(--border-radius)', border: '1px solid var(--color-border)' }}>
+                <h3 className="icon-heading" style={{ marginBottom: '1rem' }}>
+                    <FileText size={20} /> Tuloste asiakirjaan
+                </h3>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <button 
+                        className="btn btn--secondary" 
+                        onClick={handleGenerateText}
+                        style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    >
+                        <ArrowRight size={16} /> Kirjoita ratkaisukeskuksen suositus tekstikenttään
+                    </button>
 
-                <div className="flex-col-gap">
-                    <label className="icon-label">Lopullinen tuloste asiakirjaan:</label>
                     <textarea 
                         className="form-input"
                         rows="6" 
-                        placeholder="Kirjoita lopullinen asiateksti tähän tai poimi se alla olevista ehdotuksista..." 
+                        placeholder="Lopullinen asiateksti työttömyysturvasta tulostuu tähän..." 
                         value={state['custom-tyottomyysturva'] || ''} 
                         onChange={(e) => onUpdateCustomText('tyottomyysturva', e.target.value)} 
+                        style={{ fontSize: '0.95rem', lineHeight: 1.5 }}
                     />
                 </div>
             </div>
 
-            {/* FRAASIEHDOTUKSET */}
-            {ehdotetutFraasit.length > 0 && (
-                <div className="panel-gray" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe', marginTop: '1.5rem', animation: 'fadeIn 0.3s ease-out' }}>
-                    <h4 className="icon-label" style={{ color: '#1e40af', marginBottom: '1rem' }}><Sparkles size={16}/> Ehdotetut fraasit yhteenvetoon:</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {ehdotetutFraasit.map((phrase, index) => {
-                            const isSelected = valittuFraasi === phrase;
-                            return (
-                                <div
-                                    key={index}
-                                    style={{ padding: '0.75rem 1rem', backgroundColor: isSelected ? '#dbeafe' : '#fff', border: `1px solid ${isSelected ? '#3b82f6' : '#93c5fd'}`, borderRadius: '6px', cursor: 'pointer', transition: 'all 0.2s', color: '#1e3a8a' }}
-                                    onClick={() => setValittuFraasi(phrase)}
-                                >
-                                    {phrase}
-                                </div>
-                            )
-                        })}
-                    </div>
-                    {valittuFraasi && (
-                        <button className="btn" onClick={handleMoveToSummary} style={{ marginTop: '1rem', backgroundColor: '#3b82f6', borderColor: '#3b82f6' }}>
-                            Siirrä valittu teksti tulosteeseen
-                        </button>
-                    )}
-                </div>
-            )}
         </section>
     );
 };

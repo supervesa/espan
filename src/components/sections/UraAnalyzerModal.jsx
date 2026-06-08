@@ -1,6 +1,6 @@
 // --- src/components/sections/UraAnalyzerModal.jsx ---
-import React, { useState, useEffect } from 'react';
-import { X, Wand2, FileText, Briefcase, Tag, Check, AlertCircle, Loader2, Info, GraduationCap, CalendarClock } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Wand2, FileText, Briefcase, Tag, Check, AlertCircle, Loader2, Info, GraduationCap, CalendarClock, ShieldAlert, ShieldCheck, Eye, Layers } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
 
 const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
@@ -10,17 +10,25 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState(null);
 
+    const textareaRef = useRef(null);
+
     // AI-tilat
     const [workDraft, setWorkDraft] = useState('');
     const [eduDraft, setEduDraft] = useState('');
     const [tkDraft, setTkDraft] = useState(''); 
     
-    // UUDET: ESCO ja Koulutusideat
+    // ESCO, Finesco ja Koulutusideat
+    const [finescoSector, setFinescoSector] = useState('');
     const [escoProfession, setEscoProfession] = useState('');
     const [altProfessions, setAltProfessions] = useState([]);
     const [selectedAltProfessions, setSelectedAltProfessions] = useState([]);
     const [educationIdeas, setEducationIdeas] = useState([]);
     
+    // LOMAKE-AUTOMAATION TILAT (UUDET)
+    const [tilaTyokokeilu, setTilaTyokokeilu] = useState(false);
+    const [tilaPalkkatuki, setTilaPalkkatuki] = useState(false);
+    const [tilaTyoton, setTilaTyoton] = useState(false);
+
     const [activeTriggers, setActiveTriggers] = useState([]);
     const [knownTriggers, setKnownTriggers] = useState([]);
     
@@ -31,7 +39,8 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
         if (isOpen) {
             fetchDictionary();
             setStep(1); setRawData(''); setWorkDraft(''); setEduDraft(''); setTkDraft(''); 
-            setEscoProfession(''); setAltProfessions([]); setSelectedAltProfessions([]); setEducationIdeas([]);
+            setFinescoSector(''); setEscoProfession(''); setAltProfessions([]); setSelectedAltProfessions([]); setEducationIdeas([]);
+            setTilaTyokokeilu(false); setTilaPalkkatuki(false); setTilaTyoton(false);
             setActiveTriggers([]); setError(null);
         }
     }, [isOpen]);
@@ -45,23 +54,57 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
         }
     };
 
-    const anonymizeData = (text) => {
-        let clean = text;
-        clean = clean.replace(/\b\d{6}[A-Y+-]\d{3}[A-Z0-9]\b/gi, '[HETU]');
-        clean = clean.replace(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/g, (match, d, m, y) => `${m.padStart(2, '0')}/${y}`);
-        return clean;
+    // --- VISUAALINEN ANONYMISOINTI JA YKSINKERTAISTUS ---
+
+    const companyRegex = /\b([A-ZÅÄÖ][a-zA-ZåäöÅÄÖ0-9]*[\s-]){1,4}(Oy|Oyj|Ab|Tmi|Ky|Ay|ry|säätiö|osuuskunta|kaupunki|kunta)\b/gi;
+    const schoolRegex = /\b([A-ZÅÄÖ][a-zA-ZåäöÅÄÖ0-9]*[\s-]){1,4}(yliopisto|lukio|ammattiopisto|amk|ammattikorkeakoulu|opisto|akatemia|koulu|koulutuskeskus|instituutti|aikuisopisto|kansanopisto)\b/gi;
+    const hetuRegex = /\b\d{6}[A-Y+-]\d{3}[A-Z0-9]\b/gi;
+    const dateRegex = /\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/g;
+
+    const hasRisks = rawData.match(companyRegex) || rawData.match(schoolRegex) || rawData.match(hetuRegex) || rawData.match(dateRegex);
+
+    const getHighlightedHTML = (text) => {
+        if (!text) return '<span style="color: var(--color-text-muted); font-style: italic;">Liitä teksti alla olevaan kenttään nähdäksesi esikatselun...</span>';
+        
+        let html = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        const greenStyle = 'background-color: #d1fae5; color: #065f46; padding: 2px 4px; border-radius: 4px; font-weight: 600; border: 1px solid #34d399; font-size: 0.85em; margin: 0 2px;';
+        const redStyle = 'background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 4px; font-weight: 600; border: 1px dashed #f87171; font-size: 0.85em; margin: 0 2px; cursor: help;';
+        const warningStyle = 'background-color: #fffbeb; color: #b45309; padding: 2px 4px; border-radius: 4px; font-weight: 600; border: 1px dashed #fbbf24; font-size: 0.85em; margin: 0 2px; cursor: help;';
+
+        // PVM Muotoiltu tukemaan kuukautta
+        html = html.replace(/(\[ORGANISAATIO\]|\[OPPILAITOS\]|\[HETU\]|\[PVM: \d{2}\/\d{4}\])/g, `<span style="${greenStyle}">$1</span>`);
+
+        html = html.replace(companyRegex, `<span style="${redStyle}" title="Tekoälylle ei tulisi lähettää työnantajien nimiä">$&</span>`);
+        html = html.replace(schoolRegex, `<span style="${redStyle}" title="Tekoälylle ei tulisi lähettää oppilaitosten nimiä">$&</span>`);
+        html = html.replace(hetuRegex, `<span style="${redStyle}" title="Sisältää henkilötunnuksen!">$&</span>`);
+        html = html.replace(dateRegex, `<span style="${warningStyle}" title="Päivämäärä yksinkertaistetaan muotoon KK/VVVV">$&</span>`);
+
+        return html.replace(/\n/g, '<br />');
     };
 
+    const handleAutoAnonymize = () => {
+        let cleaned = rawData;
+        cleaned = cleaned.replace(companyRegex, '[ORGANISAATIO]');
+        cleaned = cleaned.replace(schoolRegex, '[OPPILAITOS]');
+        cleaned = cleaned.replace(hetuRegex, '[HETU]');
+        // Säilytetään kuukausi AI:n aikalaskuja varten!
+        cleaned = cleaned.replace(dateRegex, (match, d, m, y) => `[PVM: ${m.padStart(2, '0')}/${y}]`);
+        setRawData(cleaned); 
+    };
+
+    // --- TEKOÄLYLLE LÄHETYS ---
     const handleAnalyze = async () => {
         if (!rawData.trim()) return setError("Syötä URA-historia ensin.");
         setError(null); setIsAnalyzing(true);
 
-        const safeData = anonymizeData(rawData);
+        // Lähetetään tekoälylle nykypäivä, jotta se voi laskea 12kk säännön
+        const todayDate = new Date().toISOString().split('T')[0]; 
 
         try {
             const response = await fetch('/.netlify/functions/analyze_ura', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ rawText: safeData, knownTriggers })
+                body: JSON.stringify({ rawText: rawData, knownTriggers, currentDate: todayDate })
             });
 
             if (!response.ok) throw new Error("Aivoissa ruuhkaa. Yritä hetken kuluttua uudelleen.");
@@ -71,11 +114,15 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
             setEduDraft(aiData.koulutushistoria || '');
             setTkDraft(aiData.tyokokeilut_pvm || ''); 
             
-            // UUDET KENTÄT BACKENDISTÄ (kun se päivitetään)
+            setFinescoSector(aiData.finesco_ammattiala || ''); 
             setEscoProfession(aiData.esco_ammatti || '');
             setAltProfessions(aiData.vaihtoehtoiset_ammatit || []);
             setEducationIdeas(aiData.koulutusehdotukset || []);
             
+            setTilaTyokokeilu(aiData.tila_tyokokeilu === true);
+            setTilaPalkkatuki(aiData.tila_palkkatuki === true);
+            setTilaTyoton(aiData.tila_tyoton === true);
+
             setActiveTriggers(aiData.loydetyt_triggerit || []);
             setIsStudent(aiData.nykyinen_opiskelija === true);
             setIsEntrepreneur(aiData.nykyinen_yrittaja === true);
@@ -87,44 +134,50 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
         }
     };
 
+    // --- HYVÄKSYNTÄ JA TALLENNUS ---
     const handleAccept = async () => {
         setIsSaving(true);
         try {
-            // 1. Tekstien rakennus Työtilanteeseen (Ensin työhistoria, sitten ammatit)
-            let tyotilanneLisatiedot = state['custom-tyotilanne'] || '';
-            let aiKoonti = '';
-
-            // A) Työhistoria ensin
-            if (workDraft) {
-                aiKoonti = workDraft;
+            
+            // 1. ÄLYKÄS TEKSTIN YHDISTÄMINEN (Ei duplikaatteja)
+            const AI_DIVIDER = "--- AI-YHTEENVETO URA-HISTORIASTA ---";
+            let existingText = state['custom-tyotilanne'] || '';
+            
+            // Jos vanha AI-yhteenveto löytyy, poistetaan se ja kaikki sen alla oleva
+            if (existingText.includes(AI_DIVIDER)) {
+                existingText = existingText.split(AI_DIVIDER)[0].trim();
             }
 
-            // B) Sitten ESCO-pääammatti ja vaihtoehdot
-            if (escoProfession) {
-                let escoSentence = `Asiakkaan tavoiteammattina on ${escoProfession.toLowerCase()}.`;
-                
+            let aiKoonti = '';
+            if (workDraft) aiKoonti = workDraft;
+
+            if (finescoSector || escoProfession) {
+                let escoSentence = '';
+                if (finescoSector && escoProfession) {
+                    escoSentence = `Asiakkaan tavoitteena on työllistyä alalle: ${finescoSector.toLowerCase()}. Tarkempana tavoiteammattina on ${escoProfession.toLowerCase()}.`;
+                } else if (escoProfession) {
+                    escoSentence = `Asiakkaan tavoiteammattina on ${escoProfession.toLowerCase()}.`;
+                } else if (finescoSector) {
+                    escoSentence = `Asiakkaan tavoitteena on työllistyä alalle: ${finescoSector.toLowerCase()}.`;
+                }
+
                 if (selectedAltProfessions.length > 0) {
                     const altText = selectedAltProfessions.join(' ja ');
-                    escoSentence += ` Asiakkaalla on kiinnostusta myös seuraaviin aloihin: ${altText.toLowerCase()}.`;
+                    escoSentence += ` Asiakkaalla on kiinnostusta myös seuraaviin suuntiin: ${altText.toLowerCase()}.`;
                 }
-                
                 aiKoonti = aiKoonti ? `${aiKoonti}\n\n${escoSentence}` : escoSentence;
             }
 
-            // Yhdistetään olemassa olevaan tekstiin
-            if (aiKoonti) {
-                tyotilanneLisatiedot = tyotilanneLisatiedot ? `${tyotilanneLisatiedot}\n\n${aiKoonti}` : aiKoonti;
-                actions.onUpdateCustomText('tyotilanne', tyotilanneLisatiedot);
-            }
+            // Yhdistetään lopuksi vanha oma teksti ja uusi AI-blokki
+            const finalNotes = existingText 
+                ? `${existingText}\n\n${AI_DIVIDER}\n${aiKoonti}` 
+                : `${AI_DIVIDER}\n${aiKoonti}`;
+
+            actions.onUpdateCustomText('tyotilanne', finalNotes);
 
             if (eduDraft) actions.onUpdateCustomText('ai_koulutushistoria', eduDraft);
+            if (educationIdeas.length > 0) actions.onUpdateCustomText('ai_koulutus_ideat', JSON.stringify(educationIdeas));
             
-            // 2. Koulutusideat piiloon odottamaan Koulutus-välilehteä
-            if (educationIdeas.length > 0) {
-                actions.onUpdateCustomText('ai_koulutus_ideat', JSON.stringify(educationIdeas));
-            }
-            
-            // 3. Työkokeilut Palkkatukilaskuriin
             if (tkDraft) {
                 if (typeof actions.onUpdatePalkkatuki === 'function') {
                     actions.onUpdatePalkkatuki('tyokokeilu_historia', tkDraft);
@@ -133,25 +186,40 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                 }
             }
 
-            // 4. Triggerit
+            // 2. LOMAKKEEN AUTOMAATIOTÄPÄT (TÄRKEÄÄ: Vaihda avaimet tarvittaessa)
+            if (tilaTyokokeilu) actions.onSelect('tyokokeilu', true);
+            if (tilaPalkkatuki) actions.onSelect('palkkatuki', true);
+            if (tilaTyoton) actions.onSelect('tyoton_tyonhakija', true); // Esim. avain voi olla tyoton_tyonhakija
+
+            // 3. SIGNAALIT
             activeTriggers.forEach(trigger => {
                 actions.onUpdateVariable('tyotilanne', trigger, true);
                 if (typeof actions.updateSignal === 'function') actions.updateSignal(trigger, true);
                 if (typeof actions.onAddSignal === 'function') actions.onAddSignal(trigger); 
             });
 
-            // 5. Virallinen ESCO-ammatti (Vain pääammatti menee tilastoihin)
+            if (finescoSector && typeof actions.onAddSignal === 'function') actions.onAddSignal(`AI_FINESCO_${finescoSector}`);
+            if (escoProfession && typeof actions.onAddSignal === 'function') actions.onAddSignal(`AI_ESCO_${escoProfession}`);
+
+            // 4. ESCO-TALLENNUS DATAAN
+            if (finescoSector) {
+                if (typeof actions.onUpdateAsiakas === 'function') actions.onUpdateAsiakas('tavoiteammatti_finesco_ala', finescoSector);
+                else actions.onUpdateVariable('asiakas', 'tavoiteammatti_finesco_ala', finescoSector);
+            }
+
             if (escoProfession) {
-                const escoRes = await fetch(`https://ec.europa.eu/esco/api/search?text=${encodeURIComponent(escoProfession)}&language=fi&type=occupation`);
-                const escoJson = await escoRes.json();
-                
-                let uri = '';
+                let uri = ''; 
                 let title = escoProfession; 
-                
-                if (escoJson._embedded && escoJson._embedded.results && escoJson._embedded.results.length > 0) {
-                    uri = escoJson._embedded.results[0].uri;
-                    title = escoJson._embedded.results[0].title;
-                }
+                try {
+                    const escoRes = await fetch(`https://ec.europa.eu/esco/api/search?text=${encodeURIComponent(escoProfession)}&language=fi&type=occupation`);
+                    if (escoRes.ok) {
+                        const escoJson = await escoRes.json();
+                        if (escoJson._embedded && escoJson._embedded.results && escoJson._embedded.results.length > 0) {
+                            uri = escoJson._embedded.results[0].uri;
+                            title = escoJson._embedded.results[0].title;
+                        }
+                    }
+                } catch (escoErr) { console.warn("ESCO API virhe", escoErr); }
 
                 if (typeof actions.onUpdateAsiakas === 'function') {
                     actions.onUpdateAsiakas('tavoiteammatti_esco_uri', uri);
@@ -162,12 +230,12 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                 }
             }
 
-            // --- 6. UUSI: SILTA TYÖTTÖMYYSTURVAAN (Tämä on nyt oikeassa paikassa!) ---
+            // 5. OPISKELIJA/YRITTÄJÄ -TUNNISTUS
             if (isStudent || isEntrepreneur) {
                 if (typeof actions.onUpdateTyottomyysturva === 'function') {
                     if (isStudent) {
                         actions.onUpdateTyottomyysturva('updateKysymys', { id: 'opiskelija', value: true });
-                        actions.onUpdateTyottomyysturva('ai_tunnistus_opiskelija', true); // Visuaalista merkkiä varten
+                        actions.onUpdateTyottomyysturva('ai_tunnistus_opiskelija', true);
                     }
                     if (isEntrepreneur) {
                         actions.onUpdateTyottomyysturva('updateKysymys', { id: 'yritystoiminta', value: true });
@@ -189,9 +257,8 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
 
     return (
         <div className="admin-modal-overlay">
-            <div className="admin-modal-content" style={{ maxWidth: '850px', padding: 0, overflow: 'hidden' }}>
+            <div className="admin-modal-content" style={{ maxWidth: '900px', padding: 0, overflow: 'hidden' }}>
                 
-                {/* Header */}
                 <div className="admin-modal-header">
                     <h3 className="icon-heading text-primary" style={{ marginBottom: 0 }}>
                         <Wand2 size={20} /> Työ- ja palveluhistorian AI-analyysi
@@ -201,7 +268,6 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                     </button>
                 </div>
 
-                {/* Body */}
                 <div className="admin-modal-body-scroll">
                     {error && (
                         <div className="alert-box alert-box--danger">
@@ -213,15 +279,77 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                     )}
 
                     {step === 1 && (
-                        <div>
-                            <label className="icon-label"><FileText size={16} /> Liitä URA-historia tähän</label>
-                            <textarea 
-                                className="form-input text-mono" 
-                                rows="12" 
-                                value={rawData} 
-                                onChange={(e) => setRawData(e.target.value)} 
-                                disabled={isAnalyzing} 
-                            />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                            <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
+                                Liitä asiakkaan URA-historia alle. Tietosuoja turvataan ja tarkat päivämäärät yksinkertaistetaan automaattisesti vuosiksi tekoälyä varten.
+                            </p>
+
+                            <div 
+                                className="card-inner-sm" 
+                                style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', cursor: 'text' }}
+                                onClick={() => textareaRef.current && textareaRef.current.focus()}
+                                title="Klikkaa muokataksesi (Siirtää kursorin alempaan kenttään)"
+                            >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
+                                    <label className="icon-label text-primary" style={{ margin: 0 }}>
+                                        <Eye size={16} /> Koneen lukema esikatselu
+                                    </label>
+                                    {hasRisks ? (
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#b91c1c', fontSize: '0.85rem', fontWeight: 600 }}>
+                                            <ShieldAlert size={16} /> Data vaatii siistimistä
+                                        </span>
+                                    ) : rawData.length > 0 ? (
+                                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#059669', fontSize: '0.85rem', fontWeight: 600 }}>
+                                            <ShieldCheck size={16} /> Teksti on puhdas
+                                        </span>
+                                    ) : null}
+                                </div>
+                                <div 
+                                    style={{ 
+                                        minHeight: '80px', 
+                                        maxHeight: '200px', 
+                                        overflowY: 'auto', 
+                                        fontFamily: 'monospace', 
+                                        fontSize: '0.9rem', 
+                                        lineHeight: '1.6',
+                                        color: '#334155'
+                                    }}
+                                    dangerouslySetInnerHTML={{ __html: getHighlightedHTML(rawData) }}
+                                />
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'center', margin: '-0.5rem 0' }}>
+                                <button 
+                                    className={`btn ${hasRisks ? 'btn--primary' : 'btn--secondary'}`}
+                                    onClick={handleAutoAnonymize}
+                                    disabled={!hasRisks}
+                                    style={{ 
+                                        display: 'flex', alignItems: 'center', gap: '0.5rem', 
+                                        borderRadius: '999px', padding: '0.5rem 1.5rem',
+                                        boxShadow: hasRisks ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' : 'none',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {hasRisks ? <ShieldAlert size={18} /> : <ShieldCheck size={18} />}
+                                    Siisti tiedot automaattisesti
+                                </button>
+                            </div>
+
+                            <div>
+                                <label className="icon-label" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                                    <span><FileText size={16} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: '0.4rem' }}/> Muokattava tekstikenttä</span>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', fontWeight: 'normal' }}>Voit muokata tekstiä myös vapaasti käsin</span>
+                                </label>
+                                <textarea 
+                                    ref={textareaRef}
+                                    className="form-input text-mono" 
+                                    rows="10" 
+                                    value={rawData} 
+                                    onChange={(e) => setRawData(e.target.value)} 
+                                    disabled={isAnalyzing}
+                                    placeholder="Liitä URA-historia tänne..."
+                                />
+                            </div>
                         </div>
                     )}
 
@@ -238,6 +366,21 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                                 </div>
                             </div>
 
+                            {/* UUSI: LOMAKKEEN AUTOMAATION NÄKYMÄ */}
+                            {(tilaTyoton || tilaTyokokeilu || tilaPalkkatuki) && (
+                                <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-success)', marginBottom: '1rem' }}>
+                                    <label className="icon-label text-success"><Layers size={16} /> Automaattiset lomakevalinnat</label>
+                                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                                        {tilaTyoton && <span className="tag-dismissible tag-dismissible--success">✓ Työtön</span>}
+                                        {tilaTyokokeilu && <span className="tag-dismissible tag-dismissible--success">✓ Työkokeilu</span>}
+                                        {tilaPalkkatuki && <span className="tag-dismissible tag-dismissible--success">✓ Palkkatuki</span>}
+                                    </div>
+                                    <span style={{ display: 'block', marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                                        Nämä laatikot ruksitaan automaattisesti Työtilanne-lomakkeella.
+                                    </span>
+                                </div>
+                            )}
+
                             {tkDraft && (
                                 <div className="panel-ai-tk">
                                     <label className="icon-label"><CalendarClock size={16} /> Löydetyt työkokeilut (Siirretään palkkatukilaskuriin)</label>
@@ -245,19 +388,27 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                                 </div>
                             )}
 
-                            {/* Info koulutusehdotuksista, jos niitä löytyi */}
                             {educationIdeas.length > 0 && (
                                 <div className="panel-ai-edu" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                                     <Info size={20} color="#b45309" style={{ flexShrink: 0 }} />
                                     <span style={{ fontSize: '0.9rem', color: '#b45309' }}>
-                                        <strong>Tekoäly ideoi asiakkaalle {educationIdeas.length} uutta koulutuspolkua.</strong> Nämä siirretään automaattisesti "Koulutus ja yrittäjyys" -välilehdelle yhteistä tarkastelua varten.
+                                        <strong>Tekoäly ideoi asiakkaalle {educationIdeas.length} uutta koulutuspolkua.</strong> Nämä siirretään automaattisesti "Koulutus ja yrittäjyys" -välilehdelle.
                                     </span>
                                 </div>
                             )}
 
                             <div className="grid-cols-2-tight">
                                 <div className="card-inner-sm">
-                                    <label className="icon-label text-success"><Briefcase size={16} /> Tunnistetut ammattisuunnat (ESCO)</label>
+                                    <label className="icon-label text-success"><Layers size={16} /> Tunnistettu ammattialue</label>
+                                    
+                                    {finescoSector && (
+                                        <div className="tag-dismissible" style={{ alignSelf: 'flex-start', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', color: '#334155', marginBottom: '1rem' }}>
+                                            {finescoSector}
+                                            <button onClick={() => setFinescoSector('')} className="btn-tag-dismiss" title="Poista ammattiala"><X size={14} /></button>
+                                        </div>
+                                    )}
+
+                                    <label className="icon-label text-success" style={{ marginTop: finescoSector ? '0' : '0' }}><Briefcase size={16} /> Tunnistettu ESCO ammatti</label>
                                     
                                     {escoProfession ? (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -266,7 +417,6 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                                                 <button onClick={() => setEscoProfession('')} className="btn-tag-dismiss" title="Poista pääammatti"><X size={14} /></button>
                                             </div>
                                             
-                                            {/* Vaihtoehtoiset ammatit */}
                                             {altProfessions.length > 0 && (
                                                 <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed var(--color-border)' }}>
                                                     <span className="stat-label">Muut kiinnostuksen kohteet (Klikkaa valitaksesi):</span>
@@ -298,7 +448,6 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                                         </div>
                                     ) : <span className="stat-label" style={{ fontStyle: 'italic', marginBottom: '1rem', display: 'block' }}>Ei tunnistettu.</span>}
 
-                                    {/* SIIRRETTY TÄNNE ALAS: Näytetään aina, jos opiskelija/yrittäjä tunnistettiin */}
                                     {(isStudent || isEntrepreneur) && (
                                         <div className="alert-box" style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', borderColor: 'rgba(139, 92, 246, 0.3)', color: '#6d28d9', marginTop: '1rem' }}>
                                             <div className="alert-box-content">
@@ -331,11 +480,16 @@ const UraAnalyzerModal = ({ isOpen, onClose, actions, state }) => {
                     )}
                 </div>
 
-                {/* Footer */}
                 <div className="admin-modal-footer" style={{ backgroundColor: 'var(--color-background)' }}>
                     <button className="btn btn--secondary" onClick={onClose} disabled={isAnalyzing || isSaving}>Peruuta</button>
                     {step === 1 ? (
-                        <button className="btn" onClick={handleAnalyze} disabled={isAnalyzing || !rawData.trim()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button 
+                            className="btn" 
+                            onClick={handleAnalyze} 
+                            disabled={isAnalyzing || !rawData.trim() || hasRisks} 
+                            title={hasRisks ? "Piilota tunnistetut kohteet ensin" : ""}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                        >
                             {isAnalyzing ? <><Loader2 size={16} className="animate-spin" /> Analysoidaan...</> : <><Wand2 size={16} /> Pura ja jäsennä historia</>}
                         </button>
                     ) : (

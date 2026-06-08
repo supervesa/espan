@@ -43,7 +43,7 @@ const Jalkimarkkinointi = ({ state }) => {
         fetchSnippets();
     }, []);
 
-    // 3. SUUNNITELMAN KÄÄNNÖS
+// 3. SUUNNITELMAN KÄÄNNÖS
     useEffect(() => {
         const fetchPlanDetails = async () => {
             const rawPlan = masterAsiakas.valitut_palvelut_id || state?.suunnitelma || [];
@@ -55,10 +55,29 @@ const Jalkimarkkinointi = ({ state }) => {
             }
 
             try {
-                const [phrasesRes, servicesRes] = await Promise.all([
-                    supabase.from('phrases').select('phrase_key, short_title').in('phrase_key', validPlanArray),
-                    supabase.from('services').select('id, title').in('id', validPlanArray)
-                ]);
+                // SUODATUS: Erotellaan puhtaat UUID:t (palvelut) ja tekstiavaimet (fraasit) toisistaan
+                // UUID formaatti on tyypillisesti: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                
+                const uuidKeys = validPlanArray.filter(key => uuidRegex.test(key));
+                const textKeys = validPlanArray.filter(key => !uuidRegex.test(key));
+
+                // Ajetaan haut erikseen vain, jos listoilla on tavaraa
+                const promises = [];
+                
+                if (textKeys.length > 0) {
+                    promises.push(supabase.from('phrases').select('phrase_key, short_title').in('phrase_key', textKeys));
+                } else {
+                    promises.push(Promise.resolve({ data: [] })); // Tyhjä lupaus, jotta taulukot pysyvät järjestyksessä
+                }
+
+                if (uuidKeys.length > 0) {
+                    promises.push(supabase.from('services').select('id, title').in('id', uuidKeys));
+                } else {
+                    promises.push(Promise.resolve({ data: [] })); 
+                }
+
+                const [phrasesRes, servicesRes] = await Promise.all(promises);
 
                 const items = [];
                 if (phrasesRes.data) phrasesRes.data.forEach(p => items.push(`Toimenpide: ${p.short_title}`));
@@ -85,21 +104,28 @@ const Jalkimarkkinointi = ({ state }) => {
             return str.toLowerCase().replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/å/g, 'a').trim();
         };
 
-        const allContext = [
-            ...Object.keys(userSignals).filter(key => 
+        // Otetaan talteen aktiiviset signaalit omana listanaan täsmäosumia varten
+        const activeSignalKeys = Object.keys(userSignals)
+            .filter(key => 
                 userSignals[key] === true || 
                 userSignals[key] === "true" || 
                 (typeof userSignals[key] === 'object' && !userSignals[key].isMuted)
-            ),
+            )
+            .map(normalize);
+
+        const allContext = [
+            ...activeSignalKeys,
             ...validPlanArray,
             ...planItems, 
-            masterAsiakas.tavoiteammatti_esco_nimi || ''
+            masterAsiakas.tavoiteammatti_esco_nimi || '',
+            finalPlanText // TÄRKEÄÄ: Lisätään koko lopullinen teksti mukaan turvaverkoksi
         ].map(normalize).join(' ');
 
         const contextString = allContext.replace(/helsinki-lisa/g, 'helsinkilisa').replace(/helsinki-lisä/g, 'helsinkilisa');
         
-        // UUSI LAYER: Ohitetaan super-yleiset triggerit, jotta koko ruutu ei mene ruksille!
-        const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irtisanottu', 'alle_6kk_tyossa'];
+        // Ohitetaan super-yleiset triggerit, jotta koko ruutu ei mene ruksille
+   // UUSI LAYER: Ohitetaan super-yleiset triggerit, jotta koko ruutu ei mene ruksille!
+const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irtisanottu', 'alle_6kk_tyossa', 'yrittajyys_kiinnostus'];
 
         const preSelected = [];
         snippets.forEach(snippet => {
@@ -109,12 +135,16 @@ const Jalkimarkkinointi = ({ state }) => {
                 const isMatch = triggersArray.some(trigger => {
                     const cleanTrigger = trigger.replace('_puollettu', '').replace('_valittu', '');
                     
-                    // 1. Estetään liian yleiset sanat (työtön, lomautettu)
+                    // 1. Estetään liian yleiset sanat
                     if (ignoredTriggers.includes(cleanTrigger)) return false; 
                     
-                    // 2. Estetään liian lyhyet haamusomat (esim. vahinkolyhenteet)
+                    // 2. Estetään liian lyhyet haamusomat
                     if (cleanTrigger.length < 3) return false; 
 
+                    // 3. TASO 1 (Täsmäosuma): Löytyykö trigger suoraan asiakkaan signaaleista? (esim. yrittajyys_kiinnostus)
+                    if (activeSignalKeys.includes(cleanTrigger)) return true;
+
+                    // 4. TASO 2 (Turvaverkko): Löytyykö trigger laajemmasta tekstianalyysistä?
                     return contextString.includes(cleanTrigger);
                 });
 
@@ -123,7 +153,7 @@ const Jalkimarkkinointi = ({ state }) => {
         });
         
         setSelectedSnippetIds(preSelected);
-    }, [snippets, JSON.stringify(state?.signals), JSON.stringify(masterAsiakas), JSON.stringify(state?.suunnitelma), planItems]);
+    }, [snippets, JSON.stringify(state?.signals), JSON.stringify(masterAsiakas), JSON.stringify(state?.suunnitelma), planItems, finalPlanText]);
 
     const toggleSnippet = (id) => {
         setSelectedSnippetIds(prev => 

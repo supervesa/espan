@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { PhraseOption } from '../PhraseOption';
 import { planData } from '../../data/planData';
-import { Wand2, Sparkles, Briefcase, CalendarClock } from 'lucide-react'; 
+import { Wand2, Sparkles, Briefcase, CalendarClock, Layers } from 'lucide-react'; 
 import UraAnalyzerModal from './UraAnalyzerModal';
 
 import { parseFinnishDate, toISODate, calculateMonthsDifference } from '../../utils/dateUtils';
@@ -23,11 +23,8 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
     const [serviceDates, setServiceDates] = useState({
         start: currentSectionState.palvelu_alku || state.asiakas?.palvelu_alku || "",
         end: currentSectionState.palvelu_loppu || state.asiakas?.palvelu_loppu || ""
-
-        
     });
 
-    // --- LISÄÄ TÄMÄ TÄHÄN VÄLIIN! ---
     // Tämä pakottaa Työtilanne-välilehden päivittämään päivämäärät, 
     // kun Scraper (adapteri) injektoi ne asiakas-stateen!
     useEffect(() => {
@@ -38,8 +35,6 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
             });
         }
     }, [state.asiakas?.palvelu_alku, state.asiakas?.palvelu_loppu]);
-    // --------------------------------
-    
 
     // UUDET ÄLYKKÄÄT TUNNISTIMET
     const hasTyokokeilu = useMemo(() => Object.keys(currentSectionState).some(k => k.includes('tyokokeilu') && currentSectionState[k]), [currentSectionState]);
@@ -121,7 +116,7 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
 
 
     // === SUOJATTU RADIOLÄHETIN (Estää Infinite Loopin!) ===
-    const lastDispatched = useRef(""); // Tallentaa viimeisimmän lähetetyn tiedon
+    const lastDispatched = useRef("");
 
     useEffect(() => {
         if (serviceDates.start && serviceDates.end) {
@@ -130,14 +125,12 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
             else if (hasPalkkatuki) palveluTyyppi = "palkkatuki";
             else if (hasTyovoimakoulutus) palveluTyyppi = "tyovoimakoulutus";
 
-            // Rakennetaan datapaketti vertailua varten
             const payloadStr = JSON.stringify({
                 alku: serviceDates.start,
                 loppu: serviceDates.end,
                 tyyppi: palveluTyyppi
             });
 
-            // LÄHETETÄÄN VAIN, JOS TIETO ON OIKEASTI MUUTTUNUT
             if (lastDispatched.current !== payloadStr) {
                 lastDispatched.current = payloadStr;
                 const payload = JSON.parse(payloadStr);
@@ -259,12 +252,15 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
     }, [currentSectionState, state.suunnitelman_perustiedot, aTmtGuide]);
 
 
+    // AI-tiedot asiakas-statesta
+    const finescoAla = state.asiakas?.tavoiteammatti_finesco_ala;
     const escoNimi = state.asiakas?.tavoiteammatti_esco_nimi; 
     const tkHistoria = state.palkkatuki?.tyokokeilu_historia;
     
     if (loading) return <div className="section-container">Ladataan työtilannetta...</div>;
 
     const showsServiceBox = hasTyokokeilu || hasPalkkatuki || hasTyovoimakoulutus;
+    const showsAiPanel = finescoAla || escoNimi || tkHistoria;
 
     return (
         <section className="section-container">
@@ -278,13 +274,22 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                 </button>
             </div>
 
-            {(escoNimi || tkHistoria) && (
+            {showsAiPanel && (
                 <div className="panel-gray" style={{ backgroundColor: 'var(--color-ai-bg)', borderColor: 'var(--color-ai-border)', animation: 'fadeIn 0.3s ease-out' }}>
                     <label className="icon-label" style={{ marginBottom: '1rem' }}>
                         <Sparkles size={18} color="var(--color-ai)" /> AI-analyysin tulokset (URA-historia)
                     </label>
 
                     <div className="grid-cols-2-tight">
+                        {finescoAla && (
+                            <div className="card-inner-sm">
+                                <label className="icon-label" style={{ fontSize: '0.8rem', color: 'var(--color-success)', marginBottom: '0.25rem' }}>
+                                    <Layers size={14} /> Ammattiala (Finesco)
+                                </label>
+                                <span style={{ fontWeight: '500', color: 'var(--color-text-primary)' }}>{finescoAla}</span>
+                            </div>
+                        )}
+
                         {escoNimi && (
                             <div className="card-inner-sm">
                                 <label className="icon-label" style={{ fontSize: '0.8rem', color: 'var(--color-success)', marginBottom: '0.25rem' }}>

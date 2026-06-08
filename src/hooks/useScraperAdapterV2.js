@@ -1,45 +1,50 @@
 import { useCallback } from 'react';
 
-export const useScraperAdapter = (actions) => {
+export const useScraperAdapterV2 = (actions) => {
     
     const injectScrapedData = useCallback((parsedData) => {
         if (!parsedData) return;
 
-        // 1. KÄSITELLÄÄN VAKIOLAUSEET (Phrases)
+        // 1. INJEKTOIDAAN FRAASIT (Vakiolauseet)
         if (parsedData.phrases && Array.isArray(parsedData.phrases)) {
             parsedData.phrases.forEach(phrase => {
-                
                 if (phrase.sectionKey) {
-                    // Pakotetaan ruksi päälle välilehdellä!
+                    // Pakotetaan ruksi päälle
                     actions.onUpdateVariable(phrase.sectionKey, phrase.id, true);
                     
-                    // TÄMÄ RIVI PUUTTUI: Pakotetaan tieto myös Signaalipaneeliin!
-                    if (actions.onAddSignal) {
-                        actions.onAddSignal(phrase.id);
-                    }
+                    // Laitetaan Signaalipaneeliin
+                    if (actions.onAddSignal) actions.onAddSignal(phrase.id);
                     
-                    // Jos parseri poimi tekstin seasta muuttujia, syötetään ne
+                    // Syötetään mahdolliset muuttujat (esim. Päivämäärä)
                     if (phrase.variables) {
                         Object.entries(phrase.variables).forEach(([vKey, vVal]) => {
                             actions.onUpdateVariable(phrase.sectionKey, phrase.id, vKey, vVal);
                         });
                     }
                 } else {
-                    actions.onAddSignal(phrase.id);
+                    if (actions.onAddSignal) actions.onAddSignal(phrase.id);
                 }
             });
         }
 
-        // 2. KÄSITELLÄÄN SIGNAALIT (System Signals)
+        // 2. INJEKTOIDAAN PALVELUT (Services)
+        // Palvelut menevät yleensä "suunnitelma" tai vastaavalle välilehdelle ja niillä on UUID
+        if (parsedData.services && Array.isArray(parsedData.services)) {
+            parsedData.services.forEach(service => {
+                // Ruksitaan palvelu aktiiviseksi suunnitelmaan (tai mihin ikinä onSelect sen laittaakaan)
+                actions.onSelect('suunnitelma', service.id, true);
+                if (actions.onAddSignal) actions.onAddSignal(service.id);
+            });
+        }
+
+        // 3. INJEKTOIDAAN SIGNAALIT
         if (parsedData.signals && Array.isArray(parsedData.signals)) {
             parsedData.signals.forEach(signal => {
-                if (actions.onAddSignal) {
-                    actions.onAddSignal(signal.id);
-                }
+                if (actions.onAddSignal) actions.onAddSignal(signal.id);
             });
         }
 
-        // 3. KÄSITELLÄÄN VAPAAT TEKSTIT
+        // 4. INJEKTOIDAAN VAPAAT TEKSTIT (Vain ne, joita asiantuntija ei hylännyt!)
         if (parsedData.customTexts) {
             Object.entries(parsedData.customTexts).forEach(([sectionKey, text]) => {
                 if (text && text.trim() && actions.onUpdateCustomText) {
@@ -48,7 +53,7 @@ export const useScraperAdapter = (actions) => {
             });
         }
 
-        // 4. KÄSITELLÄÄN GLOBAALIT MUUTTUJAT
+        // 5. INJEKTOIDAAN GLOBAALIT MUUTTUJAT
         if (parsedData.variables) {
             Object.entries(parsedData.variables).forEach(([key, value]) => {
                 if (actions.onUpdateAsiakas) {
@@ -57,7 +62,7 @@ export const useScraperAdapter = (actions) => {
             });
         }
 
-        console.log("✅ URA-imurin adapteri: Ruksit, Signaalit ja Muuttujat injektoitu onnistuneesti!");
+        console.log("🚀 URA-imuri V2: Tiedot injektoitu onnistuneesti!");
 
     }, [actions]);
 

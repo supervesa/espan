@@ -39,6 +39,10 @@ const SummaryPreview = ({ summaryData, sectionId, onUpdateCustomText, customTeks
             {summaryData?.kielitaitoLause && (
                 <p className="summary-part">{summaryData.kielitaitoLause}</p>
             )}
+            {/* Digitaidot ja asiointi */}
+            {summaryData?.digitaidotLause && (
+                <p className="summary-part">{summaryData.digitaidotLause}</p>
+            )}
             {/* AI-Koulutusehdotukset / Ideat */}
             {summaryData?.ideatLause && (
                 <p className="summary-part">{summaryData.ideatLause}</p>

@@ -2,12 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import Ammattikortit from './Ammattikortit';
-import RadioPhraseSection from './RadioPhraseSection';
 import SummaryPreview from './SummaryPreview';
 import { useKoulutusSummary } from './useKoulutusSummary';
 import { PhraseOption } from '../PhraseOption';
 import TuettuOpiskelu from './TuettuOpiskelu';
-import { GraduationCap, Award, Briefcase, Languages, User, Sparkles, CheckCircle2, Loader2, MousePointerClick, Info, Plus } from 'lucide-react';
+import YrittajyysOsio from './YrittajyysOsio'; // UUSI TUONTI
+import { GraduationCap, Award, Languages, User, Sparkles, CheckCircle2, Loader2, MousePointerClick, Info, Plus, Monitor, Key } from 'lucide-react';
 
 const KoulutusJaYrittajyys = ({ state, actions }) => {
     const DB_KOULUTUS = 'e73f3897-85e1-4c05-a601-d5a2b67e9c75';
@@ -115,6 +115,24 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         }
     };
 
+    const handleDigitaidotChange = (val) => {
+        onUpdateCustomText('digitaidot', val);
+        if (val === 'heikot') {
+            if (typeof onAddSignal === 'function') onAddSignal('puutteelliset_digitaidot');
+        } else {
+            if (typeof onRemoveSignal === 'function') onRemoveSignal('puutteelliset_digitaidot');
+        }
+    };
+
+    const handlePankkitunnuksetChange = (val) => {
+        onUpdateCustomText('pankkitunnukset', val);
+        if (val === 'ei' || val === 'selvitettava') {
+            if (typeof onAddSignal === 'function') onAddSignal('ei_pankkitunnuksia');
+        } else {
+            if (typeof onRemoveSignal === 'function') onRemoveSignal('ei_pankkitunnuksia');
+        }
+    };
+
     const handleAIParse = async () => {
         if (!pasteText) return setParseFeedback('Liitä ensin tekstiä laatikkoon.');
         setIsExtracting(true);
@@ -198,6 +216,9 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         { 
             aidinkieli: state['custom-kielitaso_aidinkieli'], 
             suomiTaso: state['custom-kielitaso_suomi'],
+            digitaidot: state['custom-digitaidot'],         
+            pankkitunnukset: state['custom-pankkitunnukset'], 
+            yrittajyys_teksti: state['custom-yrittajyys_teksti'], // LISÄTTY: Välitetään uusi yrittäjyysteksti summarylle
             valitutAiIdeat: state['custom-valitut_ai_ideat'],
             aiKoulutushistoria: state['custom-ai_koulutushistoria'],
             
@@ -270,7 +291,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                 {/* TEKOÄLYN KOULUTUSEHDOTUKSET */}
                 {aiIdeas.length > 0 && (
                  <div className="panel-gray mb-6 info-box--blue">
-    <label className="icon-label text-info-dark"><Info size={18} /> Koulutussuuntien apupilotti</label>
+                        <label className="icon-label text-info-dark"><Info size={18} /> Koulutussuuntien apupilotti</label>
                         <p className="stat-label mb-6">Tekoäly poimi nämä ideat asiakkaan historiasta. Klikkaa ehdotusta valitaksesi tai poistaaksesi sen.</p>
                         
                         <div className="ai-ideas-list">
@@ -315,7 +336,9 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             {/* --- 2. OSAAMINEN JA KIELITAITO --- */}
             <div className="subsection">
                 <h3 className="subsection-title"><Award size={20} /> Osaaminen ja kielitaito</h3>
-                <div className="grid-cols-2 mb-6">
+                
+                {/* Kielitaito Grid */}
+                <div className="grid-cols-2">
                     <div>
                         <label className="icon-label"><User size={18} /> Äidinkieli</label>
                         <input type="text" className="input-field" placeholder="Esim. suomi, arabia..." value={state['custom-kielitaso_aidinkieli'] || ''} onChange={(e) => onUpdateCustomText('kielitaso_aidinkieli', e.target.value)} />
@@ -329,13 +352,35 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                     </div>
                 </div>
 
+                {/* Digitaidot ja Asiointi Grid */}
+                <div className="grid-cols-2 mb-6" style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px dashed var(--color-border)' }}>
+                    <div>
+                        <label className="icon-label"><Monitor size={18} /> Digitaidot</label>
+                        <select className="modern-select" value={state['custom-digitaidot'] || ''} onChange={(e) => handleDigitaidotChange(e.target.value)}>
+                            <option value="">Valitse...</option>
+                            <option value="hyvat">Hyvät (Käyttää sujuvasti laitteita ja sovelluksia)</option>
+                            <option value="perusteet">Perusteet (Kaipaa ajoittain apua)</option>
+                            <option value="heikot">Heikot / Ei ollenkaan</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="icon-label"><Key size={18} /> Vahva tunnistautuminen</label>
+                        <select className="modern-select" value={state['custom-pankkitunnukset'] || ''} onChange={(e) => handlePankkitunnuksetChange(e.target.value)}>
+                            <option value="">Valitse...</option>
+                            <option value="kylla">Kyllä, pankkitunnukset tai mobiilivarmenne on</option>
+                            <option value="ei">Ei ole pankkitunnuksia</option>
+                            <option value="selvitettava">Tilanne on selvitettävä</option>
+                        </select>
+                    </div>
+                </div>
+
                 <TuettuOpiskelu state={state} actions={actions} />
 
                 <Ammattikortit sectionId={UI_KORTIT} sectionState={state[UI_KORTIT] || {}} actions={actions} korttiFraasit={data.ammattikortit.map(phrase => ({ ...phrase, avainsana: phrase.phrase_key, teksti: phrase.base_text, lyhenne: phrase.short_title, muuttujat: transformVariables(phrase.variables) }))} />
             </div>
 
-            {/* --- 3. YRITTÄJYYS --- */}
-            <RadioPhraseSection title={<><Briefcase size={20} /> Yrittäjyys</>} sectionId={UI_YRITTAJYYS} sectionState={state[UI_YRITTAJYYS] || {}} actions={actions} phrases={data.yrittajyys.map(phrase => ({ ...phrase, avainsana: phrase.phrase_key, teksti: phrase.base_text, lyhenne: phrase.short_title, muuttujat: transformVariables(phrase.variables) }))} />
+            {/* --- 3. YRITTÄJYYS (UUSI KOMPONENTTI) --- */}
+            <YrittajyysOsio state={state} actions={actions} />
 
             {/* --- 4. YHTEENVETO --- */}
             <div className="subsection" style={{ marginTop: '2rem', borderTop: '2px solid var(--color-border)' }}>

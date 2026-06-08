@@ -28,6 +28,8 @@ import Jalkimarkkinointi from './components/Jalkimarkkinointi';
 import AdminWorkspace from './components/admin/AdminWorkspace';
 import PuzzleGenerator from './components/PuzzleGenerator';
 import SignalPanel from './components/signals/SignalPanel';
+import ScraperModalV2 from './components/scraper/ScraperModalV2.jsx';
+import { useScraperAdapterV2 } from './hooks/useScraperAdapterV2';
 
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
@@ -38,6 +40,7 @@ function App() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
     const [isScraperOpen, setIsScraperOpen] = useState(false);
+    const [isScraperV2Open, setIsScraperV2Open] = useState(false);
 
     // Tarkistetaan localStorage heti latauksessa
     useEffect(() => {
@@ -94,6 +97,9 @@ function App() {
     // 3. Alustetaan URA-imurin adapteri (Välittää tiedot Modalilta tilakoneelle)
     const { injectScrapedData } = useScraperAdapter(actions, dbPlanData);
 
+    // TÄMÄ ON UUSI RIVI (Huom! Nimetään funktio uudelleen, jotta se ei mene sekaisin vanhan kanssa):
+    const { injectScrapedData: injectScrapedDataV2 } = useScraperAdapterV2(actions);
+
     const sectionsForPanel = [
         { id: 'osio-suunnitelman-tyyppi', name: 'Suunnitelman tyyppi' },
         { id: 'osio-suunnitelman-perustiedot', name: 'Perustiedot' },
@@ -145,14 +151,23 @@ function App() {
                 <div className="main-grid">
                     <main className="sections-container">
                         <button className="btn" onClick={() => setIsScraperOpen(true)}>
-                            🪄 Pura vanha suunnitelma (URA-imuri)
+                            🪄 Pura vanha suunnitelma
                         </button>
+                        <button onClick={() => setIsScraperV2Open(true)} className="btn btn--secondary">
+    🚀 Kokeile V2
+</button>
+
 
                         <ScraperModal 
                             isOpen={isScraperOpen} 
                             onClose={() => setIsScraperOpen(false)} 
                             onApply={injectScrapedData} 
                         />
+                        <ScraperModalV2 
+    isOpen={isScraperV2Open} 
+    onClose={() => setIsScraperV2Open(false)} 
+    onApply={injectScrapedDataV2} 
+/>
 
                         <section id="osio-suunnitelman-tyyppi"><SuunnitelmanTyyppi state={state} actions={actions} /></section>
                         <section id="osio-suunnitelman-perustiedot"><Perustiedot state={state} actions={actions} planData={dbPlanData} /></section>

@@ -1,8 +1,9 @@
 // --- src/components/sections/Suunnitelma.jsx ---
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabaseClient';
-import { Zap, CheckSquare, FileText, Activity, Briefcase, GraduationCap, HeartPulse, ArrowDownCircle } from 'lucide-react';
+import { Zap, CheckSquare, FileText, Activity, Briefcase, GraduationCap, HeartPulse, ArrowDownCircle, Rocket } from 'lucide-react';
 import Palveluohjaus from './Palveluohjaus';
+import Tyonhakuprofiili from './Tyonhakuprofiili';
 
 const Suunnitelma = ({ state, actions }) => {
     const DB_SUUNNITELMA = 'd76dd312-1d0d-442e-bc6a-aefea2a655f8';
@@ -123,7 +124,8 @@ const Suunnitelma = ({ state, actions }) => {
         const paths = {
             'A': { title: 'Työ edellä', icon: <Briefcase size={16} />, phrases: [] },
             'B': { title: 'Koulutus edellä', icon: <GraduationCap size={16} />, phrases: [] },
-            'C': { title: 'Työkyky ja tuki', icon: <HeartPulse size={16} />, phrases: [] }
+            'C': { title: 'Työkyky ja tuki', icon: <HeartPulse size={16} />, phrases: [] },
+            'Y': { title: 'Yrittäjyys', icon: <Rocket size={16} />, phrases: [] }
         };
 
         const activeSignals = { ...signals };
@@ -172,96 +174,100 @@ const Suunnitelma = ({ state, actions }) => {
     if (loading) return <div className="section-container">Ladataan suunnitelman fraaseja...</div>;
 
     return (
-        <div className="section-container">
-            <h2 className="section-title" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <CheckSquare size={24} color="var(--color-primary)" />
-                Työllistymissuunnitelman kokoaminen
-            </h2>
+        <>
+            <Tyonhakuprofiili state={state} actions={actions} />
 
-            <div className="thv-resolution-hub">
-                <div className="thv-resolution-header"><Zap size={20} /> Älykäs Ratkaisukeskus</div>
-                <div className="thv-resolution-grid">
-                    <div className="thv-resolution-column" style={{ flex: '0 0 30%' }}>
-                        <h4 className="thv-column-title">Havaitut signaalit</h4>
-                        {displaySignals.length > 0 ? (
-                            <ul className="thv-resolution-signals">{displaySignals.map(([key]) => <li key={key}>{key.replace(/_/g, ' ')}</li>)}</ul>
-                        ) : (
-                            <p className="thv-resolution-info">Ei vahvoja signaaleja aiemmista osioista.</p>
-                        )}
-                    </div>
-                    <div className="thv-resolution-column" style={{ flex: '1', display: 'flex', gap: '1rem' }}>
-                        {Object.keys(strategyPaths).some(k => strategyPaths[k].phrases.length > 0) ? (
-                            Object.entries(strategyPaths).map(([key, pathData]) => {
-                                if (pathData.phrases.length === 0) return null;
-                                return (
-                                    <div key={key} style={{ flex: 1, backgroundColor: 'var(--color-bg-secondary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column' }}>
-                                        <h5 style={{ margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-primary)' }}>{pathData.icon} {pathData.title}</h5>
-                                        <ul style={{ margin: '0 0 1rem 0', paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--color-text-secondary)', flex: 1 }}>
-                                            {pathData.phrases.map(p => <li key={`list-${p.id}`}>{p.lyhenne}</li>)}
-                                        </ul>
-                                        <button className="thv-action-button" onClick={() => pathData.phrases.forEach(p => { if (!isSelected(p.id)) handleTogglePhrase(p.id, true); })} style={{ backgroundColor: 'var(--color-primary)', width: '100%', justifyContent: 'center' }}>
-                                            <Activity size={16} /> Valitse polku {key}
-                                        </button>
-                                    </div>
-                                );
-                            })
-                        ) : (
-                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <p className="thv-resolution-info">Signaalit eivät vielä riitä polun automaattiseen muodostamiseen. Käytä manuaalista valintaa.</p>
-                            </div>
-                        )}
+            <div className="section-container">
+                <h2 className="section-title" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <CheckSquare size={24} color="var(--color-primary)" />
+                    Työllistymissuunnitelman kokoaminen
+                </h2>
+
+                <div className="thv-resolution-hub">
+                    <div className="thv-resolution-header"><Zap size={20} /> Älykäs Ratkaisukeskus</div>
+                    <div className="thv-resolution-grid">
+                        <div className="thv-resolution-column" style={{ flex: '0 0 30%' }}>
+                            <h4 className="thv-column-title">Havaitut signaalit</h4>
+                            {displaySignals.length > 0 ? (
+                                <ul className="thv-resolution-signals">{displaySignals.map(([key]) => <li key={key}>{key.replace(/_/g, ' ')}</li>)}</ul>
+                            ) : (
+                                <p className="thv-resolution-info">Ei vahvoja signaaleja aiemmista osioista.</p>
+                            )}
+                        </div>
+                        <div className="thv-resolution-column" style={{ flex: '1', display: 'flex', gap: '1rem' }}>
+                            {Object.keys(strategyPaths).some(k => strategyPaths[k].phrases.length > 0) ? (
+                                Object.entries(strategyPaths).map(([key, pathData]) => {
+                                    if (pathData.phrases.length === 0) return null;
+                                    return (
+                                        <div key={key} style={{ flex: 1, backgroundColor: 'var(--color-bg-secondary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column' }}>
+                                            <h5 style={{ margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-primary)' }}>{pathData.icon} {pathData.title}</h5>
+                                            <ul style={{ margin: '0 0 1rem 0', paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--color-text-secondary)', flex: 1 }}>
+                                                {pathData.phrases.map(p => <li key={`list-${p.id}`}>{p.lyhenne}</li>)}
+                                            </ul>
+                                            <button className="thv-action-button" onClick={() => pathData.phrases.forEach(p => { if (!isSelected(p.id)) handleTogglePhrase(p.id, true); })} style={{ backgroundColor: 'var(--color-primary)', width: '100%', justifyContent: 'center' }}>
+                                                <Activity size={16} /> Valitse polku {key}
+                                            </button>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <p className="thv-resolution-info">Signaalit eivät vielä riitä polun automaattiseen muodostamiseen. Käytä manuaalista valintaa.</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div style={{ marginBottom: '2rem' }}>
-                <Palveluohjaus state={state} actions={actions} onServicesLoaded={setLoadedServices} />
-            </div>
+                <div style={{ marginBottom: '2rem' }}>
+                    <Palveluohjaus state={state} actions={actions} onServicesLoaded={setLoadedServices} />
+                </div>
 
-            <div className="questions-container">
-                <h3 style={{ marginBottom: '1.5rem' }}>Käsiohjaus (Kaikki toimenpiteet)</h3>
-                {Object.keys(groupedPhrases).length > 0 ? (
-                    Object.entries(groupedPhrases).map(([groupKey, phrasesInGroup]) => (
-                        <div key={groupKey} style={{ marginBottom: '2rem' }}>
-                            <h4 className="subsection-title" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>{formatGroupName(groupKey)}</h4>
-                            <div className="perustelut-valinnat">
-                                {phrasesInGroup.map(phrase => (
-                                    <label key={phrase.id} className="custom-checkbox-row">
-                                        <input type="checkbox" className="modern-checkbox" checked={isSelected(phrase.id)} onChange={(e) => handleTogglePhrase(phrase.id, e.target.checked)} />
-                                        <span>{phrase.lyhenne}</span>
-                                    </label>
-                                ))}
+                <div className="questions-container">
+                    <h3 style={{ marginBottom: '1.5rem' }}>Käsiohjaus (Kaikki toimenpiteet)</h3>
+                    {Object.keys(groupedPhrases).length > 0 ? (
+                        Object.entries(groupedPhrases).map(([groupKey, phrasesInGroup]) => (
+                            <div key={groupKey} style={{ marginBottom: '2rem' }}>
+                                <h4 className="subsection-title" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>{formatGroupName(groupKey)}</h4>
+                                <div className="perustelut-valinnat">
+                                    {phrasesInGroup.map(phrase => (
+                                        <label key={phrase.id} className="custom-checkbox-row">
+                                            <input type="checkbox" className="modern-checkbox" checked={isSelected(phrase.id)} onChange={(e) => handleTogglePhrase(phrase.id, e.target.checked)} />
+                                            <span>{phrase.lyhenne}</span>
+                                        </label>
+                                    ))}
+                                </div>
                             </div>
+                        ))
+                    ) : (
+                        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-secondary)', border: '1px dashed var(--color-border)', borderRadius: '6px' }}>
+                            Tietokannasta ei löytynyt fraaseja.
                         </div>
-                    ))
-                ) : (
-                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-secondary)', border: '1px dashed var(--color-border)', borderRadius: '6px' }}>
-                        Tietokannasta ei löytynyt fraaseja.
-                    </div>
-                )}
-            </div>
-
-            <div className="thv-locked-text-container">
-                <div className="thv-locked-text-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><FileText size={16} /> Generoidun asiakirjan esikatselu</div>
-                    {generatedText && (
-                        <button onClick={handleMoveText} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)', padding: '0.3rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', transition: 'all 0.2s ease' }}>
-                            <ArrowDownCircle size={14} /> Siirrä muokattavaksi
-                        </button>
                     )}
                 </div>
-                <div className="thv-locked-text-body">
-                    {generatedText ? generatedText : <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Valitse toimenpiteitä yläpuolelta nähdäksesi suunnitelman luonnoksen...</span>}
+
+                <div className="thv-locked-text-container">
+                    <div className="thv-locked-text-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><FileText size={16} /> Generoidun asiakirjan esikatselu</div>
+                        {generatedText && (
+                            <button onClick={handleMoveText} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)', padding: '0.3rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', transition: 'all 0.2s ease' }}>
+                                <ArrowDownCircle size={14} /> Siirrä muokattavaksi
+                            </button>
+                        )}
+                    </div>
+                    <div className="thv-locked-text-body">
+                        {generatedText ? generatedText : <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Valitse toimenpiteitä yläpuolelta nähdäksesi suunnitelman luonnoksen...</span>}
+                    </div>
+                </div>
+
+                <div className="custom-text-container" style={{ marginTop: '1.5rem' }}>
+                    <label htmlFor="suunnitelma-custom-text" className="custom-text-label" style={{ fontWeight: 'bold' }}>
+                        Omat lisäykset ja tarkennukset (Tämä teksti tulostuu lopulliseen suunnitelmaan):
+                    </label>
+                    <textarea id="suunnitelma-custom-text" className="form-input" rows="6" value={customText} onChange={handleCustomTextChange} style={{ marginTop: '0.5rem', resize: 'vertical' }} />
                 </div>
             </div>
-
-            <div className="custom-text-container" style={{ marginTop: '1.5rem' }}>
-                <label htmlFor="suunnitelma-custom-text" className="custom-text-label" style={{ fontWeight: 'bold' }}>
-                    Omat lisäykset ja tarkennukset (Tämä teksti tulostuu lopulliseen suunnitelmaan):
-                </label>
-                <textarea id="suunnitelma-custom-text" className="form-input" rows="6" value={customText} onChange={handleCustomTextChange} style={{ marginTop: '0.5rem', resize: 'vertical' }} />
-            </div>
-        </div>
+        </>
     );
 };
 

@@ -1,12 +1,19 @@
 import { processTextChunk } from '../../utils/regex/rulesEngine';
 
-export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignals = [], dbVariables = []) => {
-    const result = { phrases: [], signals: [], variables: {}, customTexts: {} };
+export const parsePlanTextV2 = (rawText, dbSections = [], dbPhrases = [], dbSignals = [], dbVariables = [], dbServices = []) => {
+    const result = { 
+        phrases: [], 
+        services: [], // Erillinen V2 UI:ta varten
+        signals: [], 
+        variables: {}, 
+        customTexts: {} 
+    };
+    
     if (!rawText) return result;
 
     let remainingText = rawText.replace(/\u200B|\u200D|\u200C/g, '').trim();
     
-    // 1. TUHOTAAN URA-ROSKA (Esim. "Tämä suunnitelma laadittiin käyntiajalla...")
+    // 1. TUHOTAAN URA-ROSKA (V1:stä tuttu ja turvallinen)
     const uraBoilerplateRegex = /(?:Tämä\s+suunnitelma\s+laadittiin)[^\n\r]*?\d{1,2}\.\d{1,2}\.\d{4}\.?\s*/gi;
     remainingText = remainingText.replace(uraBoilerplateRegex, '');
 
@@ -17,7 +24,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         result.variables['tyonhaku_alkanut'] = tyonhakuMatch[1];
     }
     
-    // 3. URA-JÄRJESTELMÄN VAKIOTSIKOT (Tiukat ^ ja $ estävät lauseiden syömisen vahingossa)
+    // 3. URA-JÄRJESTELMÄN VAKIOTSIKOT (Pomminvarma V1-tunnistus!)
     const URA_HEADERS = [
         { match: /^Suunnitelman perustiedot$/i, key: 'perustiedot' },
         { match: /^Työttömyysturva$/i, key: 'tyottomyysturva' },
@@ -51,7 +58,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         if (!foundHeader) chunks[currentSectionKey].push(line);
     }
 
-    // 4. AJETAAN PALASET LÄPI SÄÄNTÖMOOTTORISTA
+    // 4. AJETAAN PALASET LÄPI SUPER-MOOTTORISTA
     for (const [sectionKey, linesArr] of Object.entries(chunks)) {
         const chunkText = linesArr.join('\n').trim();
         if (!chunkText) continue; 
@@ -64,7 +71,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         foundPhrases.forEach(newPhrase => {
             if (!result.phrases.some(p => p.id === newPhrase.id)) {
                 
-                // TÄMÄ ON SE RIVI, JOKA SAA ADAPTERIN RUKSIMAAN LAATIKOT PÄÄLLE!
+                // Haetaan oikea välilehti, jotta adapteri osaa ruksia sen
                 const sec = dbSections.find(s => s.id === newPhrase.section_id);
                 newPhrase.sectionKey = sec ? sec.section_key : sectionKey;
                 
@@ -80,13 +87,61 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         });
     }
 
-    // 5. POIMITAAN SIGNAALIT JA GLOBAALIT MUUTTUJAT
+    // 5. ETSITÄÄN PALVELUT (Ja erotetaan ne V2 UI:ta varten)
+    dbServices.forEach(service => {
+        let isMatched = false;
+
+        // Etsitään palvelun juridinen teksti (plan_text) vapaiden tekstien seasta
+        if (service.plan_text && service.plan_text.trim().length > 10) {
+            let cleanPlanText = service.plan_text.trim().replace(/\.$/, '');
+            const exactRegexStr = cleanPlanText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\ /g, '\\s+');
+            const exactRegex = new RegExp(`${exactRegexStr}(?:\\s*\\.?\\s*(?:\\n|$))`, 'gi');
+
+            for (const key in result.customTexts) {
+                if (exactRegex.test(result.customTexts[key])) {
+                    isMatched = true;
+                    // Tuhotaan lause vapaasta tekstistä, koska se tunnistettiin!
+                    result.customTexts[key] = result.customTexts[key].replace(exactRegex, '\n').trim();
+                }
+            }
+        }
+
+        // Jos ei löytynyt plan_textillä, tutkitaan löytyykö pelkkä otsikko
+        if (!isMatched && service.title && service.title.trim().length > 5) {
+            const titleRegex = new RegExp(service.title.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+            for (const key in result.customTexts) {
+                if (titleRegex.test(result.customTexts[key])) {
+                    isMatched = true;
+                }
+            }
+        }
+
+        if (isMatched) {
+            result.services.push({
+                id: service.id,
+                title: service.title,
+                type: service.service_type || 'palvelu'
+            });
+        }
+    });
+
+    // 6. POIMITAAN SIGNAALIT JA GLOBAALIT MUUTTUJAT
     const allCleanedText = Object.values(result.customTexts).join('\n');
     
     dbSignals.forEach(signal => {
         const searchLabel = (signal.label || '').toLowerCase();
-        if (searchLabel && searchLabel.length > 4 && allCleanedText.toLowerCase().includes(searchLabel)) {
-            if (!result.signals.some(s => s.id === signal.signal_key) && !result.phrases.some(p => p.id === signal.signal_key)) {
+        if (searchLabel && searchLabel.length > 4) {
+            let isMatched = allCleanedText.toLowerCase().includes(searchLabel);
+            
+            // Joustava haku
+            if (!isMatched && searchLabel.includes(' - ')) {
+                const shortLabel = searchLabel.split(' - ')[0].trim();
+                if (shortLabel.length > 4 && allCleanedText.toLowerCase().includes(shortLabel)) {
+                    isMatched = true;
+                }
+            }
+
+            if (isMatched && !result.signals.some(s => s.id === signal.signal_key)) {
                 result.signals.push({ id: signal.signal_key, label: signal.label });
             }
         }

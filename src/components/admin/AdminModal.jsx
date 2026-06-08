@@ -6,7 +6,7 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
     const [isSaving, setIsSaving] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     
-    // UUDET TILAT TALLENNUKSEN ILMOITUKSEEN JA SULKEMISEEN
+    // TALLENNUKSEN ILMOITUS JA SULKEMINEN
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [hasChanges, setHasChanges] = useState(false);
     
@@ -17,20 +17,24 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
     const [priority, setPriority] = useState(0);
     const [detectedVars, setDetectedVars] = useState([]);
 
+    // --- UUSI: REGEX SÄÄNTÖMOOTTORIN TILAT ---
+    const [triggerWordsInput, setTriggerWordsInput] = useState('');
+    const [generatedRegex, setGeneratedRegex] = useState('');
+
     // Viestin tilat
     const [msgTitle, setMsgTitle] = useState('');
     const [msgSubject, setMsgSubject] = useState('');
 
-    // --- SÄÄNTÖMOOTTORIN TILAT ---
+    // --- BUSINESS RULES TILAT ---
     const [rules, setRules] = useState([]);
     const [isAddingRule, setIsAddingRule] = useState(false);
     
-    // Uudet, monipuolisemmat sääntövalinnat
-    const [ruleType, setRuleType] = useState('recommendation'); // recommendation tai visibility
+    const [ruleType, setRuleType] = useState('recommendation'); 
     const [ruleSection, setRuleSection] = useState('');
-    const [ruleOperator, setRuleOperator] = useState('contains'); // contains, equals, exists
+    const [ruleOperator, setRuleOperator] = useState('contains'); 
     const [rulePhrase, setRulePhrase] = useState('');
 
+    // 1. Alustetaan tiedot kun modaali aukeaa
     useEffect(() => {
         if (item.type === 'phrase') {
             setShortTitle(item.data.short_title || '');
@@ -38,6 +42,19 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
             setBaseText(item.data.base_text || '');
             setPriority(item.data.priority_score || 0);
             
+            // --- REGEX ALUSTUS ---
+            if (item.data.extraction_pattern) {
+                // Puretaan kanta-Regex (sana1|sana2) pilkulla erotetuksi listaksi
+                let cleaned = item.data.extraction_pattern.replace(/^\(/, '').replace(/\)$/, '');
+                setTriggerWordsInput(cleaned.split('|').join(', '));
+            } else {
+                // Automaattinen ehdotus, jos kanta on tyhjä
+                const suggestion = item.data.short_title 
+                    ? item.data.short_title.toLowerCase() 
+                    : item.data.phrase_key.replace(/[-_]/g, ' ');
+                setTriggerWordsInput(suggestion);
+            }
+
             fetchPhraseRules(item.data.id).then(setRules);
         } else if (item.type === 'message') {
             setMsgTitle(item.data.title || '');
@@ -49,6 +66,29 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
         }
     }, [item]);
 
+    // 2. Reaaliaikainen Regexin generointi käyttäjän kirjoittaessa
+    useEffect(() => {
+        if (item.type !== 'phrase') return;
+
+        if (!triggerWordsInput.trim()) {
+            setGeneratedRegex('');
+            return;
+        }
+        
+        // Pilkotaan, siivotaan ja muunnetaan takaisin Regex-ryhmäksi (sana1|sana2)
+        const wordsArray = triggerWordsInput
+            .split(',')
+            .map(word => word.trim())
+            .filter(word => word.length > 0);
+            
+        if (wordsArray.length > 0) {
+            setGeneratedRegex(`(${wordsArray.join('|')})`);
+        } else {
+            setGeneratedRegex('');
+        }
+    }, [triggerWordsInput, item.type]);
+
+    // 3. Etsitään muuttujia tekstistä
     useEffect(() => {
         if (item.type === 'phrase') {
             const matches = baseText.match(/\[([A-Z_ÄÖÅ0-9]+)\]/g) || [];
@@ -67,7 +107,8 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
                     short_title: shortTitle, 
                     phrase_key: phraseKey,
                     base_text: baseText, 
-                    priority_score: priority
+                    priority_score: priority,
+                    extraction_pattern: generatedRegex || null // TALLENNETAAN REGEX KANTAAN
                 }).eq('id', item.data.id);
             } 
             else if (item.type === 'message') {
@@ -84,7 +125,6 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
                 }).eq('id', item.data.id);
             }
             
-            // Merkitään muutokset tehdyiksi ja näytetään onnistumisilmoitus
             setHasChanges(true);
             setSaveSuccess(true);
             setTimeout(() => {
@@ -98,13 +138,10 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
         setIsSaving(false);
     };
 
-    // Uusi funktio sulkemisen hallintaan (Rasti ja Sulje-nappi)
     const handleClose = () => {
         if (hasChanges) {
-            // Jos asioita tallennettiin, päivitetään lista ja suljetaan vasta nyt
             onSaveComplete();
         } else {
-            // Muutoin pelkkä sulkeminen riittää
             onClose();
         }
     };
@@ -128,10 +165,8 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
         }
     };
 
-    // Paranneltu säännön lisäys - ottaa huomioon tyypit ja operaattorit
     const handleAddRule = async () => {
         if (!ruleSection) return;
-        // Jos operaattori ei ole 'exists', meillä on pakko olla arvo valittuna
         if (ruleOperator !== 'exists' && !rulePhrase) return;
 
         const newRule = {
@@ -150,7 +185,6 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
             setRules([...rules, savedRule]);
             setIsAddingRule(false);
             
-            // Nollataan valikot
             setRuleSection('');
             setRulePhrase('');
             setRuleType('recommendation');
@@ -165,7 +199,6 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
         }
     };
 
-    // Automaattisesti päivittyvä lista mahdollisista arvoista valitun osion perusteella
     const availablePhrasesForRule = sections?.find(s => s.section_key === ruleSection)?.phrases || [];
 
     return (
@@ -195,6 +228,28 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
                                 <div>
                                     <label style={{ display: 'block', marginBottom: '0.25rem' }}>Avainsana (tunniste, esim. 'tyoton'):</label>
                                     <input type="text" className="input-field" style={{ width: '100%', padding: '0.5rem' }} value={phraseKey} onChange={e => setPhraseKey(e.target.value)} />
+                                </div>
+
+                                {/* UUSI OSIO: SÄÄNTÖMOOTTORIN LAUKAISUSANAT */}
+                                <div style={{ backgroundColor: '#f0f4f8', padding: '0.75rem', borderRadius: '4px', border: '1px solid #cce3f6', marginTop: '0.25rem' }}>
+                                    <label style={{ display: 'block', marginBottom: '0.25rem', fontWeight: 'bold', color: '#004a8f' }}>Pika-pura laukaisusanat (erota pilkulla):</label>
+                                    <p style={{ fontSize: '0.8rem', margin: '0 0 0.5rem 0', color: '#555' }}>
+                                        Mitkä sanat asiantuntijan vapaassa tekstissä laukaisevat tämän valinnan?
+                                    </p>
+                                    <input 
+                                        type="text" 
+                                        className="input-field" 
+                                        style={{ width: '100%', padding: '0.5rem', border: '1px solid #a2c6eb' }} 
+                                        value={triggerWordsInput} 
+                                        onChange={e => setTriggerWordsInput(e.target.value)} 
+                                        placeholder="esim. työkokeilu, kokeilu, te-kokeilu"
+                                    />
+                                    <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#666' }}>
+                                        <strong>Tietokantaan menevä sääntö: </strong> 
+                                        <code style={{ backgroundColor: '#e2e8f0', padding: '2px 6px', borderRadius: '4px', display: 'inline-block', marginTop: '2px' }}>
+                                            {generatedRegex || 'Ei sääntöä'}
+                                        </code>
+                                    </div>
                                 </div>
                             </>
                         )}
@@ -267,7 +322,6 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
                                         <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', margin: 0 }}>Ei sääntöjä. Fraasi näytetään aina normaalisti.</p>
                                     )}
 
-                                    {/* SÄÄNTÖEDITORIN UUSI KÄYTTÖLIITTYMÄ */}
                                     {isAddingRule ? (
                                         <div style={{ padding: '1rem', backgroundColor: '#fff', border: '1px solid var(--color-primary)', borderRadius: '4px', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                                             
@@ -330,7 +384,6 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
                     </div>
                 </div>
 
-                {/* Alapalkki: Tuplatriggeri-poisto vasemmalla, tallennus ja ilmoitus oikealla */}
                 <div className="admin-modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     
                     <div>
@@ -366,7 +419,6 @@ const AdminModal = ({ item, sections, onClose, onSaveComplete }) => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                        {/* ONNISTUMISILMOITUS TÄSSÄ */}
                         {saveSuccess && (
                             <span style={{ color: 'var(--color-success)', fontWeight: '600', fontSize: '0.9rem' }}>
                                 ✓ Tallennus onnistui
