@@ -1,7 +1,9 @@
+// --- src/components/SummaryPanel.jsx ---
 import React, { useState, useEffect, useRef } from 'react';
 import { generateSectionContent, generateFullSummary, generateHybridSummary, generateHybridSectionContent } from '../utils/summaryGenerator.js';
 import { planData } from '../data/planData.js';
 import AikatauluEhdotus from './AikatauluEhdotus';
+import CopyButton from './common/CopyButton'; // UUSI TUONTI!
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
@@ -43,7 +45,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
     const getSectionStatus = (sectionId) => {
         const simpleId = sectionId.replace('osio-', '').replace(/-/g, '_');
         
-        // STATUS HYBRIDI: Etsii sekä kannasta että koodista
         const existsInDb = dbPlanData?.aihealueet?.some(s => s.id === simpleId);
         const existsInStatic = planData.aihealueet.some(s => s.id === simpleId);
         
@@ -127,7 +128,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                      if (sectionId === 'tyonhaku') sectionId = 'tyonhakuvelvollisuus';
                      if (sectionId === 'palveluohjaus') sectionId = 'palveluunohjaus';
 
-                     // ESIKATSELU HYBRIDI: Etsii fraasit Supabasesta, jos ei löydy, hakee vanhasta koodista
                      const sectionDataFromDb = dbPlanData?.aihealueet?.find(s => s.id === sectionId);
                      const sectionDataFromPlan = sectionDataFromDb || planData.aihealueet.find(s => s.id === sectionId);
                      
@@ -149,7 +149,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                          sectionText = state['custom-suunnitelma']?.trim() || '';
                      }
                      else if (sectionDataFromPlan) { 
-                         // KÄYTTÄÄ HYBRIDI-GENERAATTORIA ESIKATSELUUN
                          sectionText = generateHybridSectionContent(sectionDataFromPlan, selection, state, dbKnowledge);
                          const customText = state[`custom-${sectionId}`]?.trim() || '';
                          if (customText && !sectionText.includes(customText)) { 
@@ -178,13 +177,22 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                             </div>
 
                             {sectionText && (
-                                <div className="summary-item-generated-text">
-                                    {sectionText.split('\n').map((line, index, arr) => (
-                                        <React.Fragment key={index}>
-                                            {line}
-                                            {index < arr.length - 1 && <br />}
-                                        </React.Fragment>
-                                    ))}
+                                <div className="summary-item-content-wrapper" style={{ marginTop: '0.5rem' }}>
+                                    <div className="summary-item-generated-text">
+                                        {sectionText.split('\n').map((line, index, arr) => (
+                                            <React.Fragment key={index}>
+                                                {line}
+                                                {index < arr.length - 1 && <br />}
+                                            </React.Fragment>
+                                        ))}
+                                    </div>
+                                    
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                                        {/* UUSI ÄLYKÄS KOPIOINTINAPPI */}
+                                        <CopyButton 
+                                            textToCopy={sectionText.replace(FINGERPRINT, '').replace(/\*\*/g, '').trim()} 
+                                        />
+                                    </div>
                                 </div>
                             )}
                         </li>

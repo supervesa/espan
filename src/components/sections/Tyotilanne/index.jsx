@@ -21,16 +21,22 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
     const [loading, setLoading] = useState(true);
     const [pasteArea, setPasteArea] = useState("");
 
+    // APUFUNKTIO: Varmistaa että päivämäärä on aina YYYY-MM-DD
+    const ensureISO = (dateStr) => {
+        if (!dateStr) return "";
+        return dateStr.includes('.') ? toISODate(dateStr) : dateStr;
+    };
+
     const [serviceDates, setServiceDates] = useState({
-        start: currentSectionState.palvelu_alku || state.asiakas?.palvelu_alku || "",
-        end: currentSectionState.palvelu_loppu || state.asiakas?.palvelu_loppu || ""
+        start: ensureISO(currentSectionState.palvelu_alku || state.asiakas?.palvelu_alku),
+        end: ensureISO(currentSectionState.palvelu_loppu || state.asiakas?.palvelu_loppu)
     });
 
     useEffect(() => {
         if (state.asiakas?.palvelu_alku || state.asiakas?.palvelu_loppu) {
             setServiceDates({
-                start: state.asiakas?.palvelu_alku || "",
-                end: state.asiakas?.palvelu_loppu || ""
+                start: ensureISO(state.asiakas?.palvelu_alku),
+                end: ensureISO(state.asiakas?.palvelu_loppu)
             });
         }
     }, [state.asiakas?.palvelu_alku, state.asiakas?.palvelu_loppu]);
@@ -88,14 +94,12 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
         fetchData();
     }, []);
 
-    // TUNNISTETAAN LOMAKKEEN VALINNAT DYNAAMISESTI! (Luodinkestävä ja turvallinen)
     const dynamicKeys = useMemo(() => ({
         tyokokeilu: phrases.find(p => p.teksti?.toLowerCase().includes('työkokeilu'))?.avainsana,
         palkkatuki: phrases.find(p => p.teksti?.toLowerCase().includes('palkkatuki'))?.avainsana,
         tyovoimakoulutus: phrases.find(p => p.teksti?.toLowerCase().includes('työvoimakoulutus') || p.teksti?.toLowerCase().includes('työvoimakoulutukseen'))?.avainsana
     }), [phrases]);
 
-    // KORJATTU JA POMMINVARMA: Aukaisee laatikon aina, jos ruksi on päällä!
     const hasTyokokeilu = useMemo(() => Object.keys(currentSectionState).some(k => 
         (k.includes('tyokokeilu') || (dynamicKeys.tyokokeilu && k === dynamicKeys.tyokokeilu)) && currentSectionState[k]
     ), [currentSectionState, dynamicKeys]);
@@ -125,10 +129,7 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
         const safeEnd = toISODate(endStr);
         let currentText = state[`custom-${UI_KEY}`] || '';
         
-        // --- 1. SIIVOTAAN TUPLAT JA VANHA LOMAKELOGIIKKA ---
-        // Poistaa kaikki "Asiakkaan työtilanne\nAsiakas on työkokeilussa" -tyyppiset roskat
         currentText = currentText.replace(/Asiakkaan työtilanne\s*\n\s*Asiakas on (työkokeilussa|palkkatuetussa työssä|opiskelee työvoimakoulutuksessa)\.?/gi, '');
-        // Poistaa myös pelkät satunnaiset "Asiakas on työkokeilussa" lauseet, joita phrase-option on sinne voinut sylkeä
         currentText = currentText.replace(/(?:^|\n)Asiakas on (työkokeilussa|palkkatuetussa työssä|opiskelee työvoimakoulutuksessa)\.?/gi, '');
 
         const regex = /(?:\n\n)?Asiakas osallistuu (työllisyyttä edistävään palveluun|työkokeiluun|palkkatukityöhön|työvoimakoulutukseen) ajalla \d{1,2}\.\d{1,2}\.\d{4}–\d{1,2}\.\d{1,2}\.\d{4}\.( Kyseessä on yli kuukauden kestävä palvelu \(46 §\)\.)?/g;
@@ -298,13 +299,13 @@ const Tyotilanne = ({ state, actions, knowledgeData }) => {
                 </div>
             )}
 
-       <TyotilanneNotes 
+            <TyotilanneNotes 
                 customText={state[`custom-${UI_KEY}`]} 
                 onUpdateCustomText={onUpdateCustomText} 
                 uiKey={UI_KEY} 
                 actions={actions}
                 dynamicKeys={dynamicKeys} 
-                phrases={phrases} // TÄMÄ ON UUSI LISÄYS!
+                phrases={phrases} 
             />
             
             <ATmtGuidance currentSectionState={currentSectionState} state={state} knowledgeData={knowledgeData} />

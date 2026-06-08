@@ -1,15 +1,15 @@
-// --- src/components/sections/useKoulutusSummary.js ---
+// --- src/components/koulutusYrittajyys/useKoulutusSummary.js ---
 import { useMemo } from 'react';
 import { toLowerFirst, createListSentence } from '../../utils/stringUtils';
 
 export const useKoulutusSummary = (
     koulutusState,
-    ammattikortitState,
+    ammattikortitState, // Pidetään mukana jotta rajapinta ei hajoa muiden komponenttien kanssa
     yrittajyysState,
     kielitasoState,
     customTekstit,
     koulutusPhrases,
-    ammattikorttiPhrases,
+    ammattikorttiPhrases, // Pidetään mukana
     yrittajyysPhrases,
     languageLevels
 ) => {
@@ -38,13 +38,12 @@ export const useKoulutusSummary = (
             }
         }
 
-        // --- 2. Yrittäjyys (Päivitetty lukemaan uutta tekstiä) ---
+        // --- 2. Yrittäjyys ---
         const yrittajyysUusiTeksti = customTekstit?.yrittajyys_teksti;
         if (yrittajyysUusiTeksti) {
             yrittajyysLause = yrittajyysUusiTeksti;
             generatedParts.push(yrittajyysLause);
         } else if (yrittajyysState?.avainsana) {
-            // Vanha logiikka varalta taaksepäin yhteensopivuuden vuoksi
             const phrase = yrittajyysPhrases.find(f => f.phrase_key === yrittajyysState.avainsana);
             if (phrase?.base_text) {
                 yrittajyysLause = phrase.base_text.trim();
@@ -52,20 +51,23 @@ export const useKoulutusSummary = (
             }
         }
 
-        // --- 3. Ammattikortit ---
-        const selectedCards = Object.keys(ammattikortitState || {})
-            .map(key => {
-                if (ammattikortitState[key]) {
-                    const phrase = ammattikorttiPhrases.find(f => f.phrase_key === key);
-                    return phrase?.base_text;
+        // --- 3. Pätevyydet ja kortit (UUSI LOGIIKKA - KORJATTU KIELIOPPI) ---
+        try {
+            if (customTekstit?.valitut_ammattikortit) {
+                const valitutKortit = JSON.parse(customTekstit.valitut_ammattikortit);
+                
+                if (Array.isArray(valitutKortit) && valitutKortit.length > 0) {
+                    // Poimitaan nimet listaksi
+                    const korttiNimetArray = valitutKortit.map(k => k.nimi);
+                    // Käytetään hienoa listanmuodostajaa ("A, B ja C")
+                    const korttiNimet = createListSentence(korttiNimetArray);
+                    
+                    ammattikorttiLause = `Asiakkaalla on voimassa olevat pätevyydet: ${korttiNimet}.`;
+                    generatedParts.push(ammattikorttiLause);
                 }
-                return null;
-            })
-            .filter(Boolean);
-
-        if (selectedCards.length > 0) {
-            ammattikorttiLause = `Asiakkaalla on voimassa mm. ${createListSentence(selectedCards)}.`;
-            generatedParts.push(ammattikorttiLause);
+            }
+        } catch(e) {
+            console.error("Virhe ammattikorttien parsinnassa:", e);
         }
 
         // --- 4. Kielitaito ---
@@ -151,7 +153,7 @@ export const useKoulutusSummary = (
             }
             alkuosa += ".";
 
-            // B. Lakipykälä-ehdot (Laitetaan siistiksi jatkolauseeksi)
+            // B. Lakipykälä-ehdot
             let ehdot = [];
             if (customTekstit.tuettu_perusopetus) ehdot.push("Opintojen tavoitteena on perusopetuksen oppimäärän suorittaminen (76 §)");
             if (customTekstit.tuettu_edellytys_suunnitelma) ehdot.push("Opiskelusta on sovittu tässä suunnitelmassa (75 §)");

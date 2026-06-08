@@ -1,24 +1,25 @@
 // --- src/components/koulutusYrittajyys/index.jsx ---
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
-import Ammattikortit from './Ammattikortit';
+// 1. KORJAUS: Tuodaan uusi PatevyydetOsio vanhan Ammattikortit-komponentin tilalle
+import PatevyydetOsio from './PatevyydetOsio';
 import SummaryPreview from './SummaryPreview';
 import { useKoulutusSummary } from './useKoulutusSummary';
 import { PhraseOption } from '../PhraseOption';
 import TuettuOpiskelu from './TuettuOpiskelu';
-import YrittajyysOsio from './YrittajyysOsio'; // UUSI TUONTI
+import YrittajyysOsio from './YrittajyysOsio'; 
+import AutocompleteSignalInput from '../common/AutocompleteSignalInput'; 
 import { GraduationCap, Award, Languages, User, Sparkles, CheckCircle2, Loader2, MousePointerClick, Info, Plus, Monitor, Key } from 'lucide-react';
 
 const KoulutusJaYrittajyys = ({ state, actions }) => {
     const DB_KOULUTUS = 'e73f3897-85e1-4c05-a601-d5a2b67e9c75';
-    const DB_KORTIT = 'fbb22c56-6a1c-49a7-8a7c-52c53f0c5dbf';
+    // const DB_KORTIT = 'fbb22c56-6a1c-49a7-8a7c-52c53f0c5dbf'; // Ei enää käytössä
     const DB_YRITTAJYYS = '29118579-1f9e-4286-a60c-7810a9adce45';
 
     const UI_KOULUTUS = 'koulutus';
-    const UI_KORTIT = 'ammattikortit';
     const UI_YRITTAJYYS = 'yrittajyys';
 
-    const [data, setData] = useState({ koulutus: [], ammattikortit: [], yrittajyys: [], languageLevels: [] });
+    const [data, setData] = useState({ koulutus: [], yrittajyys: [], languageLevels: [] });
     const [loading, setLoading] = useState(true);
     
     const [pasteText, setPasteText] = useState('');
@@ -51,7 +52,8 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         const fetchData = async () => {
             try {
                 const [phrasesRes, varsRes, langRes] = await Promise.all([
-                    supabase.from('phrases').select('*').in('section_id', [DB_KOULUTUS, DB_KORTIT, DB_YRITTAJYYS]),
+                    // 2. KORJAUS: Haetaan vain Koulutus ja Yrittäjyys -fraasit
+                    supabase.from('phrases').select('*').in('section_id', [DB_KOULUTUS, DB_YRITTAJYYS]),
                     supabase.from('variables').select('*'),
                     supabase.from('language_levels').select('*').order('sort_order')
                 ]);
@@ -68,7 +70,6 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
 
                 setData({
                     koulutus: enrichedPhrases.filter(p => p.section_id === DB_KOULUTUS),
-                    ammattikortit: enrichedPhrases.filter(p => p.section_id === DB_KORTIT),
                     yrittajyys: enrichedPhrases.filter(p => p.section_id === DB_YRITTAJYYS),
                     languageLevels: langRes.data || []
                 });
@@ -99,6 +100,32 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         registerLanguageSignals();
     }, [data.languageLevels]);
 
+    useEffect(() => {
+        if (!state.signals) return;
+
+        if (data.languageLevels.length > 0) {
+            const activeLangSignalKey = Object.keys(state.signals).find(key => key.startsWith('language_fi_') && state.signals[key]);
+            if (activeLangSignalKey) {
+                const matchedLevel = data.languageLevels.find(l => `language_fi_${l.level_key.toLowerCase().replace('.', '_')}` === activeLangSignalKey);
+                if (matchedLevel && state['custom-kielitaso_suomi'] !== matchedLevel.level_key) {
+                    onUpdateCustomText('kielitaso_suomi', matchedLevel.level_key);
+                }
+            }
+        }
+
+        if (state.signals['puutteelliset_digitaidot'] && state['custom-digitaidot'] !== 'heikot') {
+            onUpdateCustomText('digitaidot', 'heikot');
+        } else if (state.signals['hyvat_digitaidot'] && state['custom-digitaidot'] !== 'hyvat') {
+            onUpdateCustomText('digitaidot', 'hyvat');
+        }
+
+        if (state.signals['ei_pankkitunnuksia'] && state['custom-pankkitunnukset'] !== 'ei' && state['custom-pankkitunnukset'] !== 'selvitettava') {
+            onUpdateCustomText('pankkitunnukset', 'ei');
+        } else if (state.signals['on_pankkitunnukset'] && state['custom-pankkitunnukset'] !== 'kylla') {
+            onUpdateCustomText('pankkitunnukset', 'kylla');
+        }
+    }, [state.signals, data.languageLevels, state['custom-kielitaso_suomi'], state['custom-digitaidot'], state['custom-pankkitunnukset'], onUpdateCustomText]);
+
     const handleSuomiChange = (val) => {
         onUpdateCustomText('kielitaso_suomi', val);
         const currentSignals = state.signals || {};
@@ -117,19 +144,27 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
 
     const handleDigitaidotChange = (val) => {
         onUpdateCustomText('digitaidot', val);
+        if (typeof onRemoveSignal === 'function') {
+            onRemoveSignal('puutteelliset_digitaidot');
+            onRemoveSignal('hyvat_digitaidot');
+        }
         if (val === 'heikot') {
             if (typeof onAddSignal === 'function') onAddSignal('puutteelliset_digitaidot');
-        } else {
-            if (typeof onRemoveSignal === 'function') onRemoveSignal('puutteelliset_digitaidot');
+        } else if (val === 'hyvat') {
+            if (typeof onAddSignal === 'function') onAddSignal('hyvat_digitaidot');
         }
     };
 
     const handlePankkitunnuksetChange = (val) => {
         onUpdateCustomText('pankkitunnukset', val);
+        if (typeof onRemoveSignal === 'function') {
+            onRemoveSignal('ei_pankkitunnuksia');
+            onRemoveSignal('on_pankkitunnukset');
+        }
         if (val === 'ei' || val === 'selvitettava') {
             if (typeof onAddSignal === 'function') onAddSignal('ei_pankkitunnuksia');
-        } else {
-            if (typeof onRemoveSignal === 'function') onRemoveSignal('ei_pankkitunnuksia');
+        } else if (val === 'kylla') {
+            if (typeof onAddSignal === 'function') onAddSignal('on_pankkitunnukset');
         }
     };
 
@@ -170,7 +205,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         if (!textToParse) return;
         
         setIsBoxExtracting(true);
-        setBoxParseFeedback('Etsitään tutkintoja ja kortteja...');
+        setBoxParseFeedback('Etsitään tutkintoja...');
         setExtractedDegrees([]);
 
         try {
@@ -189,11 +224,6 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                 setBoxParseFeedback('Ei löytynyt selkeitä tutkintoja valittavaksi.');
             }
 
-            if (aiResult.cards && aiResult.cards.length > 0) {
-                aiResult.cards.forEach(card => {
-                    onUpdateVariable(UI_KORTIT, card, true);
-                });
-            }
         } catch (error) {
             setBoxParseFeedback('Virhe analysoinnissa.');
         } finally {
@@ -212,15 +242,18 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
     };
 
     const summary = useKoulutusSummary(
-        state[UI_KOULUTUS], state[UI_KORTIT], state[UI_YRITTAJYYS], null,
+        state[UI_KOULUTUS], null, state[UI_YRITTAJYYS], null,
         { 
             aidinkieli: state['custom-kielitaso_aidinkieli'], 
             suomiTaso: state['custom-kielitaso_suomi'],
             digitaidot: state['custom-digitaidot'],         
             pankkitunnukset: state['custom-pankkitunnukset'], 
-            yrittajyys_teksti: state['custom-yrittajyys_teksti'], // LISÄTTY: Välitetään uusi yrittäjyysteksti summarylle
+            yrittajyys_teksti: state['custom-yrittajyys_teksti'], 
             valitutAiIdeat: state['custom-valitut_ai_ideat'],
             aiKoulutushistoria: state['custom-ai_koulutushistoria'],
+
+            // 3. KORJAUS: Välitetään uudet kortit summarylle
+            valitut_ammattikortit: state['custom-valitut_ammattikortit'],
             
             tuettu_aktiivinen: state['custom-tuettu_aktiivinen'],
             tuettu_tyyppi: state['custom-tuettu_tyyppi'],
@@ -232,7 +265,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             tuettu_edellytys_tarkoituksenmukaisuus: state['custom-tuettu_edellytys_tarkoituksenmukaisuus'],
             tuettu_edellytys_seuranta: state['custom-tuettu_edellytys_seuranta']
         },
-        data.koulutus, data.ammattikortit, data.yrittajyys, data.languageLevels
+        data.koulutus, null, data.yrittajyys, data.languageLevels
     );
 
     let aiIdeas = [];
@@ -258,7 +291,11 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                         <div className="ai-import-header">
                             <label className="ai-import-label"><Sparkles size={18} /> URA-historiasta tuodut tutkinnot ja kortit (AI)</label>
                             <button onClick={handleBoxAIParse} disabled={isBoxExtracting} className="btn-ai-action">
-                                {isBoxExtracting ? <><Loader2 size={14} className="animate-spin" /> Etsitään...</> : <><MousePointerClick size={14} /> Poimi tiedot lomakkeelle</>}
+                                {isBoxExtracting ? (
+                                    <><Loader2 size={14} className="animate-spin" /> Etsitään...</>
+                                ) : (
+                                    <><MousePointerClick size={14} /> Poimi tiedot lomakkeelle</>
+                                )}
                             </button>
                         </div>
                         
@@ -288,7 +325,6 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                     </div>
                 )}
 
-                {/* TEKOÄLYN KOULUTUSEHDOTUKSET */}
                 {aiIdeas.length > 0 && (
                  <div className="panel-gray mb-6 info-box--blue">
                         <label className="icon-label text-info-dark"><Info size={18} /> Koulutussuuntien apupilotti</label>
@@ -298,11 +334,14 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                             {aiIdeas.map((idea, idx) => {
                                 const isSelected = valitutAiIdeat.includes(idea);
                                 return (
-                                    <button key={idx} className={`btn-ai-idea ${isSelected ? 'btn-ai-idea--selected' : ''}`}
+                                    <button 
+                                        key={idx} 
+                                        className={`btn-ai-idea ${isSelected ? 'btn-ai-idea--selected' : ''}`}
                                         onClick={() => {
                                             let uudetValitut = isSelected ? valitutAiIdeat.filter(i => i !== idea) : [...valitutAiIdeat, idea];
                                             onUpdateCustomText('valitut_ai_ideat', JSON.stringify(uudetValitut));
-                                        }}>
+                                        }}
+                                    >
                                         <span className="ai-idea-icon">{isSelected ? <CheckCircle2 size={18} /> : <Plus size={18} />}</span> 
                                         {idea}
                                     </button>
@@ -313,12 +352,18 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                 )}
                 
                 <div className="paste-area-container" style={{ opacity: aiTuotuKoulutushistoria ? 0.6 : 1 }}>
-                    <textarea rows="2" placeholder="Liitä yksittäinen uusi tutkintotieto tähän (esim. Koski-palvelusta kopioitu)..."
-                        value={pasteText} onChange={(e) => setPasteText(e.target.value)} className="paste-area-textarea" />
+                    <textarea 
+                        rows="2" 
+                        placeholder="Liitä yksittäinen uusi tutkintotieto tähän (esim. Koski-palvelusta kopioitu)..."
+                        value={pasteText} 
+                        onChange={(e) => setPasteText(e.target.value)} 
+                        className="paste-area-textarea" 
+                    />
                     <button onClick={handleAIParse} disabled={isExtracting} type="button" className="btn btn--secondary paste-area-button">
                         {isExtracting ? 'Poimitaan...' : <><Sparkles size={16} /> Poimi (AI)</>}
                     </button>
                 </div>
+                
                 {parseFeedback && (
                     <p className={`parse-feedback ${parseFeedback.includes('onnistuneesti') ? 'parse-feedback--success' : 'parse-feedback--error'}`}>
                         {parseFeedback}
@@ -327,8 +372,14 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
 
                 <div className="options-container">
                     {data.koulutus.map(phrase => (
-                        <PhraseOption key={phrase.id} phrase={{ ...phrase, avainsana: phrase.phrase_key, teksti: phrase.base_text, lyhenne: phrase.short_title, muuttujat: transformVariables(phrase.variables) }}
-                            section={{ id: UI_KOULUTUS, monivalinta: false }} isSelected={state[UI_KOULUTUS]?.avainsana === phrase.phrase_key ? state[UI_KOULUTUS] : null} onSelect={onSelect} onUpdateVariable={onUpdateVariable} />
+                        <PhraseOption 
+                            key={phrase.id} 
+                            phrase={{ ...phrase, avainsana: phrase.phrase_key, teksti: phrase.base_text, lyhenne: phrase.short_title, muuttujat: transformVariables(phrase.variables) }}
+                            section={{ id: UI_KOULUTUS, monivalinta: false }} 
+                            isSelected={state[UI_KOULUTUS]?.avainsana === phrase.phrase_key ? state[UI_KOULUTUS] : null} 
+                            onSelect={onSelect} 
+                            onUpdateVariable={onUpdateVariable} 
+                        />
                     ))}
                 </div>
             </div>
@@ -337,11 +388,18 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             <div className="subsection">
                 <h3 className="subsection-title"><Award size={20} /> Osaaminen ja kielitaito</h3>
                 
-                {/* Kielitaito Grid */}
                 <div className="grid-cols-2">
                     <div>
                         <label className="icon-label"><User size={18} /> Äidinkieli</label>
-                        <input type="text" className="input-field" placeholder="Esim. suomi, arabia..." value={state['custom-kielitaso_aidinkieli'] || ''} onChange={(e) => onUpdateCustomText('kielitaso_aidinkieli', e.target.value)} />
+                        <AutocompleteSignalInput 
+                            category="Äidinkieli"
+                            value={state['custom-kielitaso_aidinkieli']}
+                            onChange={(val) => onUpdateCustomText('kielitaso_aidinkieli', val)}
+                            onSignalToggle={(signalKey) => {
+                                if (typeof onAddSignal === 'function') onAddSignal(signalKey);
+                            }}
+                            placeholder="Esim. suomi, arabia..."
+                        />
                     </div>
                     <div>
                         <label className="icon-label"><Languages size={18} /> Suomen kielen taito (CEFR)</label>
@@ -352,7 +410,6 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                     </div>
                 </div>
 
-                {/* Digitaidot ja Asiointi Grid */}
                 <div className="grid-cols-2 mb-6" style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px dashed var(--color-border)' }}>
                     <div>
                         <label className="icon-label"><Monitor size={18} /> Digitaidot</label>
@@ -376,10 +433,12 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
 
                 <TuettuOpiskelu state={state} actions={actions} />
 
-                <Ammattikortit sectionId={UI_KORTIT} sectionState={state[UI_KORTIT] || {}} actions={actions} korttiFraasit={data.ammattikortit.map(phrase => ({ ...phrase, avainsana: phrase.phrase_key, teksti: phrase.base_text, lyhenne: phrase.short_title, muuttujat: transformVariables(phrase.variables) }))} />
+                {/* 4. KORJAUS: Tässä ainoa UI-muutos: uusi komponentti vanhan tilalle! */}
+                <PatevyydetOsio state={state} actions={actions} />
+
             </div>
 
-            {/* --- 3. YRITTÄJYYS (UUSI KOMPONENTTI) --- */}
+            {/* --- 3. YRITTÄJYYS --- */}
             <YrittajyysOsio state={state} actions={actions} />
 
             {/* --- 4. YHTEENVETO --- */}
@@ -387,7 +446,12 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                 <SummaryPreview summaryData={summary} sectionId={UI_KOULUTUS} onUpdateCustomText={onUpdateCustomText} />
                 <div className="custom-text-container">
                     <label className="custom-text-label">Lopullinen koonti (Koulutus, osaaminen ja yrittäjyys):</label>
-                    <textarea rows="4" placeholder="Siirrä yllä oleva ehdotus tähän ja muokkaa tarvittaessa..." value={state[`custom-${UI_KOULUTUS}`] || ''} onChange={(e) => onUpdateCustomText(UI_KOULUTUS, e.target.value)} />
+                    <textarea 
+                        rows="4" 
+                        placeholder="Siirrä yllä oleva ehdotus tähän ja muokkaa tarvittaessa..." 
+                        value={state[`custom-${UI_KOULUTUS}`] || ''} 
+                        onChange={(e) => onUpdateCustomText(UI_KOULUTUS, e.target.value)} 
+                    />
                 </div>
             </div>
         </section>
