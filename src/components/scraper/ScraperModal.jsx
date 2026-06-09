@@ -15,6 +15,7 @@ import ScraperServicesPanel from './ScraperServicesPanel';
 import ScraperPatevyydetPanel from './ScraperPatevyydetPanel';
 import ScraperVariablesPanel from './ScraperVariablesPanel';
 import ScraperCustomTextsPanel from './ScraperCustomTextsPanel';
+import ScraperTyokykyPanel from './ScraperTyokykyPanel';
 
 const ScraperModal = ({ isOpen, onClose, onApply }) => {
     const [step, setStep] = useState('input');
@@ -23,11 +24,20 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
     const [activeSections, setActiveSections] = useState({});
 
     const [parsedData, setParsedData] = useState({
-        phrases: [], signals: [], services: [], patevyydet: [], variables: {}, customTexts: {}
+        phrases: [], 
+        signals: [], 
+        services: [], 
+        patevyydet: [], 
+        variables: {}, 
+        customTexts: {},
+        tyokykyData: {}
     });
 
     const handleAnalyze = async () => {
-        if (!rawText.trim()) return alert("Liitä tekstiä ensin!");
+        if (!rawText.trim()) {
+            return alert("Liitä tekstiä ensin!");
+        }
+        
         setIsAnalyzing(true);
         
         try {
@@ -57,13 +67,23 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                 patevyysRes.data || []
             );
             
+            // Varmistetaan, että tyokykyData on olemassa, vaikka parseri ei sitä palauttaisi
+            if (!extractedData.tyokykyData) {
+                extractedData.tyokykyData = {};
+            }
+
+            // Asetetaan kaikki vapaan tekstin osiot oletuksena aktiivisiksi
             const initialActive = {};
-            Object.keys(extractedData.customTexts).forEach(key => { initialActive[key] = true; });
+            Object.keys(extractedData.customTexts).forEach(key => { 
+                initialActive[key] = true; 
+            });
+            
             setActiveSections(initialActive);
             setParsedData(extractedData);
             setStep('review');
             
         } catch (err) {
+            console.error("Virhe analysoinnissa:", err);
             alert("Virhe analysoitaessa tekstiä. Tarkista tietokantayhteys.");
         } finally {
             setIsAnalyzing(false);
@@ -74,9 +94,15 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         if (typeof onApply === 'function') {
             const filteredCustomTexts = {};
             Object.entries(parsedData.customTexts).forEach(([key, text]) => {
-                if (activeSections[key]) filteredCustomTexts[key] = text;
+                if (activeSections[key]) {
+                    filteredCustomTexts[key] = text;
+                }
             });
-            onApply({ ...parsedData, customTexts: filteredCustomTexts }); 
+
+            onApply({ 
+                ...parsedData, 
+                customTexts: filteredCustomTexts 
+            }); 
         }
         resetAndClose();
     };
@@ -88,27 +114,65 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         onClose();
     };
 
-    // Muutosten hallinta
-    const removeItem = (type, id) => setParsedData(prev => ({ ...prev, [type]: prev[type].filter(item => item.id !== id) }));
-    const updateVariable = (key, value) => setParsedData(prev => ({ ...prev, variables: { ...prev.variables, [key]: value } }));
-    const updateCustomText = (key, value) => setParsedData(prev => ({ ...prev, customTexts: { ...prev.customTexts, [key]: value } }));
-    const toggleSection = (key) => setActiveSections(prev => ({ ...prev, [key]: !prev[key] }));
+    // Apufunktiot tilamuutoksille
+    const removeItem = (type, id) => {
+        setParsedData(prev => ({ 
+            ...prev, 
+            [type]: prev[type].filter(item => item.id !== id) 
+        }));
+    };
+
+    const updateVariable = (key, value) => {
+        setParsedData(prev => ({ 
+            ...prev, 
+            variables: { ...prev.variables, [key]: value } 
+        }));
+    };
+
+    const updateCustomText = (key, value) => {
+        setParsedData(prev => ({ 
+            ...prev, 
+            customTexts: { ...prev.customTexts, [key]: value } 
+        }));
+    };
+
+    const toggleSection = (key) => {
+        setActiveSections(prev => ({ 
+            ...prev, 
+            [key]: !prev[key] 
+        }));
+    };
 
     // Footerin napit Modaliin
     const modalFooter = step === 'input' ? (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', width: '100%' }}>
-            <button className="btn btn--secondary" onClick={resetAndClose}>Peruuta</button>
-            <button className="btn" onClick={handleAnalyze} disabled={isAnalyzing} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button className="btn btn--secondary" onClick={resetAndClose}>
+                Peruuta
+            </button>
+            <button 
+                className="btn" 
+                onClick={handleAnalyze} 
+                disabled={isAnalyzing} 
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
                 {isAnalyzing ? 'Analysoidaan...' : <><Zap size={18}/> Pura ja analysoi teksti</>}
             </button>
         </div>
     ) : (
         <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="btn btn--secondary" onClick={resetAndClose}>Peruuta</button>
-                <button className="btn btn--secondary" onClick={() => setStep('input')}>Takaisin tekstiin</button>
+                <button className="btn btn--secondary" onClick={resetAndClose}>
+                    Peruuta
+                </button>
+                <button className="btn btn--secondary" onClick={() => setStep('input')}>
+                    Takaisin tekstiin
+                </button>
             </div>
-            <button className="btn" onClick={handleApply} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button 
+                className="btn" 
+                onClick={handleApply} 
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
                 <CheckCircle size={18} /> Vie valinnat suunnitelmaan
             </button>
         </div>
@@ -130,8 +194,12 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                         Järjestelmä "syö" tekstistä automaattisesti vakiolausekkeet, signaalit ja päivämäärät, ja jakaa loput tekstistä automaattisesti oikeille välilehdille lisätietoihin.
                     </p>
                     <textarea 
-                        className="form-input text-mono" rows="12" placeholder="Liitä teksti tähän (Ctrl+V)..."
-                        value={rawText} onChange={(e) => setRawText(e.target.value)} style={{ resize: 'vertical' }}
+                        className="form-input text-mono" 
+                        rows="12" 
+                        placeholder="Liitä teksti tähän (Ctrl+V)..."
+                        value={rawText} 
+                        onChange={(e) => setRawText(e.target.value)} 
+                        style={{ resize: 'vertical' }}
                     />
                 </div>
             ) : (
@@ -161,7 +229,9 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                                         {sig.label}
                                     </Tag>
                                 ))}
-                                {parsedData.signals.length === 0 && <span className="stat-label">Ei signaaleja.</span>}
+                                {parsedData.signals.length === 0 && (
+                                    <span className="stat-label">Ei signaaleja.</span>
+                                )}
                             </div>
                         </div>
 
@@ -180,9 +250,14 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                             />
                         </div>
 
-                        {/* OIKEA SARAKE: Muuttujat ja Lomakevalinnat (Vakiolauseet) */}
+                        {/* OIKEA SARAKE: Työkyky, Muuttujat ja Lomakevalinnat (Vakiolauseet) */}
                         <div className="flex-col-gap">
                             
+                            <ScraperTyokykyPanel 
+                                tyokykyData={parsedData.tyokykyData}
+                                onUpdate={(newData) => setParsedData(prev => ({ ...prev, tyokykyData: newData }))}
+                            />
+
                             <ScraperVariablesPanel 
                                 variables={parsedData.variables} 
                                 onUpdate={updateVariable} 
@@ -211,7 +286,9 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                                             )}
                                         </div>
                                     ))}
-                                    {parsedData.phrases.length === 0 && <span className="stat-label">Kaikki valinnat poistettu.</span>}
+                                    {parsedData.phrases.length === 0 && (
+                                        <span className="stat-label">Kaikki valinnat poistettu.</span>
+                                    )}
                                 </div>
                             </div>
 

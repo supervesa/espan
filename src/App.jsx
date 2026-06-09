@@ -4,10 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { useAppData } from './hooks/useAppData';
 import { usePlanState } from './hooks/usePlanState';
 
-// UUSI: Adapteri joka ymmärtää URA-imurin puhetta!
+// Adapteri joka ymmärtää URA-imurin puhetta!
 import { useScraperAdapter } from './hooks/useScraperAdapter';
 
-// UUSI: Kirjautumiskomponentti
+// Kirjautumiskomponentti
 import LoginScreen from './components/LoginScreen';
 
 import SummaryPanel from './components/SummaryPanel';
@@ -18,7 +18,8 @@ import Perustiedot from './components/sections/Perustiedot';
 import Tyottomyysturva from './components/sections/Tyottomyysturva';
 import Tyotilanne from './components/sections/Tyotilanne';
 import KoulutusJaYrittajyys from './components/koulutusYrittajyys';
-import Tyokyky from './components/sections/Tyokyky';
+// TÄSSÄ ON UUSI TUONTI TYÖKYVYLLE
+import TyokykyOsio from './components/sections/tyokyky';
 import PalkkatukiCalculator from "./components/sections/PalkkatukiCalculator";
 import Palveluunohjaus from './components/sections/Palveluunohjaus';
 import Suunnitelma from './components/sections/Suunnitelma';
@@ -65,15 +66,11 @@ function App() {
     }, []);
 
     const handleLogin = (password, duration) => {
-        // Luetaan salasana turvallisesti Vite-ympäristöstä
         let correctPassword = import.meta.env.VITE_ACCESS_PASSWORD;
-
-        // Fallback: Jos .env puuttuu tai muuttujaa ei löydy, käytetään oletusta
         if (!correctPassword) {
             console.warn("VITE_ACCESS_PASSWORD puuttuu. Käytetään oletusta 'admin'.");
             correctPassword = "admin";
         }
-
         if (password === correctPassword) {
             if (duration > 0) {
                 const expiry = Date.now() + duration;
@@ -94,10 +91,8 @@ function App() {
     // 2. Alustetaan sääntölogiikka ja tila toisella Hookilla
     const { state, setState, actions } = usePlanState(dbPlanData);
 
-    // 3. Alustetaan URA-imurin adapteri (Välittää tiedot Modalilta tilakoneelle)
+    // 3. Alustetaan URA-imurin adapterit
     const { injectScrapedData } = useScraperAdapter(actions, dbPlanData);
-
-    // TÄMÄ ON UUSI RIVI (Huom! Nimetään funktio uudelleen, jotta se ei mene sekaisin vanhan kanssa):
     const { injectScrapedData: injectScrapedDataV2 } = useScraperAdapterV2(actions);
 
     const sectionsForPanel = [
@@ -113,15 +108,8 @@ function App() {
         { id: 'osio-tyonhaku', name: 'Työnhakuvelv.' },
     ];
 
-    // --- 3. RENDERÖINNIN EHDOT (Auth & Loading) ---
-
-    if (isCheckingAuth) {
-        return null; // Odotetaan auth-tarkistusta
-    }
-
-    if (!isAuthenticated) {
-        return <LoginScreen onLogin={handleLogin} />;
-    }
+    if (isCheckingAuth) return null;
+    if (!isAuthenticated) return <LoginScreen onLogin={handleLogin} />;
 
     if (isLoadingData) {
         return (
@@ -133,8 +121,6 @@ function App() {
             </div>
         );
     }
-
-    // --- 4. ALKUPERÄINEN APP UI ---
 
     return (
         <div className="app-container">
@@ -154,27 +140,21 @@ function App() {
                             🪄 Pura vanha suunnitelma
                         </button>
                         <button onClick={() => setIsScraperV2Open(true)} className="btn btn--secondary">
-    🚀 Kokeile V2
-</button>
+                            🚀 Kokeile V2
+                        </button>
 
-
-                        <ScraperModal 
-                            isOpen={isScraperOpen} 
-                            onClose={() => setIsScraperOpen(false)} 
-                            onApply={injectScrapedData} 
-                        />
-                        <ScraperModalV2 
-    isOpen={isScraperV2Open} 
-    onClose={() => setIsScraperV2Open(false)} 
-    onApply={injectScrapedDataV2} 
-/>
+                        <ScraperModal isOpen={isScraperOpen} onClose={() => setIsScraperOpen(false)} onApply={injectScrapedData} />
+                        <ScraperModalV2 isOpen={isScraperV2Open} onClose={() => setIsScraperV2Open(false)} onApply={injectScrapedDataV2} />
 
                         <section id="osio-suunnitelman-tyyppi"><SuunnitelmanTyyppi state={state} actions={actions} /></section>
                         <section id="osio-suunnitelman-perustiedot"><Perustiedot state={state} actions={actions} planData={dbPlanData} /></section>
                         <section id="osio-tyottomyysturva"><Tyottomyysturva state={state} actions={actions} /></section>
                         <section id="osio-tyotilanne"><Tyotilanne state={state} actions={actions} planData={dbPlanData} knowledgeData={dbKnowledge} /></section>
                         <section id="osio-koulutus"><KoulutusJaYrittajyys state={state} actions={actions} /></section>
-                        <section id="osio-tyokyky"><Tyokyky state={state} actions={actions} /></section>
+                        
+                        {/* KORJAUS: Tässä oikea TyökykyOsio ilman virheellisiä if-lauseita ja oikealla statella! */}
+                        <section id="osio-tyokyky"><TyokykyOsio state={state} actions={actions} /></section>
+                        
                         <section id="osio-palkkatuki"><PalkkatukiCalculator state={state} actions={actions} /></section>
                         <section id="osio-palveluohjaus"><Palveluunohjaus state={state} actions={actions} /></section>
                         <section id="osio-suunnitelma"><Suunnitelma state={state} actions={actions} planData={dbPlanData} /></section>
@@ -186,11 +166,7 @@ function App() {
                     </main>
 
                     <div className="summary-sticky-container">
-                        <SignalPanel 
-                            activeSignals={state.signals || {}} 
-                            dbPlanData={dbPlanData} 
-                            actions={actions} 
-                        />
+                        <SignalPanel activeSignals={state.signals || {}} dbPlanData={dbPlanData} actions={actions} />
                         <SummaryPanel state={state} sections={sectionsForPanel} dbPlanData={dbPlanData} dbKnowledge={dbKnowledge} />
                     </div>
                 </div>
@@ -199,33 +175,21 @@ function App() {
             {activeTab === 'viestit' && (
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '2rem' }}>
-                        <button 
-                            className={`btn ${!state.usePuzzleMode ? '' : 'btn--secondary'}`} 
-                            onClick={() => setState(prev => ({ ...prev, usePuzzleMode: false }))}
-                        >
+                        <button className={`btn ${!state.usePuzzleMode ? '' : 'btn--secondary'}`} onClick={() => setState(prev => ({ ...prev, usePuzzleMode: false }))}>
                             Klassinen generaattori
                         </button>
-                        <button 
-                            className={`btn ${state.usePuzzleMode ? '' : 'btn--secondary'}`} 
-                            onClick={() => setState(prev => ({ ...prev, usePuzzleMode: true }))}
-                        >
+                        <button className={`btn ${state.usePuzzleMode ? '' : 'btn--secondary'}`} onClick={() => setState(prev => ({ ...prev, usePuzzleMode: true }))}>
                             🧩 Kokeile uutta Puzzle-generaattoria
                         </button>
                     </div>
 
-                    {state.usePuzzleMode ? (
-                        <PuzzleGenerator state={state} />
-                    ) : (
-                        <MessageGenerator state={state} templates={dbMessages} />
-                    )}
+                    {state.usePuzzleMode ? <PuzzleGenerator state={state} /> : <MessageGenerator state={state} templates={dbMessages} />}
                 </div>
             )}
 
             {activeTab === 'hallinta' && (
                  <div className="main-grid-single">
-                    <main className="sections-container">
-                        <AdminWorkspace />
-                    </main>
+                    <main className="sections-container"><AdminWorkspace /></main>
                 </div>
             )}
         </div>

@@ -150,7 +150,16 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                      }
                      else if (sectionDataFromPlan) { 
                          sectionText = generateHybridSectionContent(sectionDataFromPlan, selection, state, dbKnowledge);
-                         const customText = state[`custom-${sectionId}`]?.trim() || '';
+                         let customText = state[`custom-${sectionId}`]?.trim() || '';
+                         
+                         // KORJAUS TÄSSÄ: Tuodaan Työkyvyn oma koontilaatikko mukaan
+                         if (sectionId === 'tyokyky') {
+                             const tyokykyLopullinen = state['custom-tyokyky_lopullinen']?.trim();
+                             if (tyokykyLopullinen) {
+                                 customText = customText ? `${customText}\n\n${tyokykyLopullinen}` : tyokykyLopullinen;
+                             }
+                         }
+
                          if (customText && !sectionText.includes(customText)) { 
                             sectionText += (sectionText ? '\n\n' : '') + customText;
                          }
