@@ -1,5 +1,5 @@
 // --- src/components/sections/tyokyky/TyokykyPaaarvio.jsx ---
-import React from 'react';
+import React, { useEffect } from 'react';
 import OptionGroup from '../../common/OptionGroup';
 
 const TyokykyPaaarvio = ({ state, actions, paavalinnat = [], arvioKysymykset = [] }) => {
@@ -32,6 +32,23 @@ const TyokykyPaaarvio = ({ state, actions, paavalinnat = [], arvioKysymykset = [
             }
         }
     };
+
+    // --- UUSI LISÄYS: Synkronoidaan imurin tuoma "oma arvio" käyttöliittymään ---
+    const scrapedOmaArvio = state['custom-tyokyky_oma_arvio'];
+    useEffect(() => {
+        if (scrapedOmaArvio && arvioKysymykset.length > 0) {
+            // Otetaan kiinni arviointipatteriston ensimmäinen kysymys
+            const firstQuestionId = arvioKysymykset[0].id;
+            
+            // Simuloidaan napin painallusta, jotta myös kaikki signaalit päivittyvät!
+            handleNumberClick(firstQuestionId, scrapedOmaArvio);
+            
+            // Tyhjennetään siirtomuuttuja, jotta tämä ei jää luuppaamaan
+            onUpdateCustomText('tyokyky_oma_arvio', '');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scrapedOmaArvio, arvioKysymykset]);
+    // --------------------------------------------------------------------------
 
     const handlePaavalintaChange = (valittuOptio) => {
         const originalPhrase = paavalinnat.find(p => p.avainsana === valittuOptio.id);
