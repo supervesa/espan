@@ -1,7 +1,7 @@
-// --- src/components/koulutusYrittajyys/index.jsx ---
-import React, { useState, useEffect } from 'react';
+// --- src/components/sections/KoulutusJaYrittajyys/index.jsx ---
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../utils/supabaseClient';
-// 1. KORJAUS: Tuodaan uusi PatevyydetOsio vanhan Ammattikortit-komponentin tilalle
 import PatevyydetOsio from './PatevyydetOsio';
 import SummaryPreview from './SummaryPreview';
 import { useKoulutusSummary } from './useKoulutusSummary';
@@ -13,7 +13,6 @@ import { GraduationCap, Award, Languages, User, Sparkles, CheckCircle2, Loader2,
 
 const KoulutusJaYrittajyys = ({ state, actions }) => {
     const DB_KOULUTUS = 'e73f3897-85e1-4c05-a601-d5a2b67e9c75';
-    // const DB_KORTIT = 'fbb22c56-6a1c-49a7-8a7c-52c53f0c5dbf'; // Ei enää käytössä
     const DB_YRITTAJYYS = '29118579-1f9e-4286-a60c-7810a9adce45';
 
     const UI_KOULUTUS = 'koulutus';
@@ -37,10 +36,8 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         const transformed = varsArray.reduce((acc, curr) => {
             let parsedOptions = [];
             try {
-                if (curr.options) {
-                    parsedOptions = JSON.parse(curr.options);
-                    if (typeof parsedOptions === 'string') parsedOptions = JSON.parse(parsedOptions);
-                }
+                if (curr.options) parsedOptions = JSON.parse(curr.options);
+                if (typeof parsedOptions === 'string') parsedOptions = JSON.parse(parsedOptions);
             } catch (e) {}
             acc[curr.variable_key] = { tyyppi: curr.input_type, oletus: curr.default_value, vaihtoehdot: parsedOptions };
             return acc;
@@ -52,14 +49,12 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         const fetchData = async () => {
             try {
                 const [phrasesRes, varsRes, langRes] = await Promise.all([
-                    // 2. KORJAUS: Haetaan vain Koulutus ja Yrittäjyys -fraasit
                     supabase.from('phrases').select('*').in('section_id', [DB_KOULUTUS, DB_YRITTAJYYS]),
                     supabase.from('variables').select('*'),
                     supabase.from('language_levels').select('*').order('sort_order')
                 ]);
 
                 if (phrasesRes.error) throw phrasesRes.error;
-
                 const phrasesData = phrasesRes.data || [];
                 const variablesData = varsRes.data || [];
 
@@ -82,89 +77,117 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         fetchData();
     }, []);
 
-    useEffect(() => {
-        const registerLanguageSignals = async () => {
-            if (!data.languageLevels || data.languageLevels.length === 0) return;
-
-            const languageSignals = data.languageLevels.map(l => ({
-                signal_key: `language_fi_${l.level_key.toLowerCase().replace('.', '_')}`,
-                label: `Suomen kieli: ${l.level_key} - ${l.name}`,
-                category: 'Kielitaito',
-                description: l.work_description || `Asiakkaan suomen kielen taito on tasolla ${l.level_key}.`
-            }));
-
-            try {
-                await supabase.from('system_signals').upsert(languageSignals, { onConflict: 'signal_key' });
-            } catch (error) {}
-        };
-        registerLanguageSignals();
-    }, [data.languageLevels]);
-
+    // --- KORJATTU KOUKKU: Pakotettu synkronointi kielitason ja select-valikon välillä ---
     useEffect(() => {
         if (!state.signals) return;
+        
+        // Etsitään, mikä language_fi_-alkuinen signaali on päällä
+        const activeLangSignal = Object.keys(state.signals).find(k => k.startsWith('language_fi_'));
+        
+        if (activeLangSignal) {
+            // Muutetaan signaali (esim. language_fi_b1_2) takaisin UI-muotoon (B1.2)
+            const levelFromSignal = activeLangSignal.replace('language_fi_', '').replace('_', '.').toUpperCase();
+            
+            // Jos nykyinen valinta ei vastaa signaalia, päivitetään se
+            if (state['custom-kielitaso_suomi'] !== levelFromSignal) {
+                onUpdateCustomText('kielitaso_suomi', levelFromSignal);
+            }
+        }
+    }, [state.signals, state['custom-kielitaso_suomi']]);
 
-        if (data.languageLevels.length > 0) {
-            const activeLangSignalKey = Object.keys(state.signals).find(key => key.startsWith('language_fi_') && state.signals[key]);
-            if (activeLangSignalKey) {
-                const matchedLevel = data.languageLevels.find(l => `language_fi_${l.level_key.toLowerCase().replace('.', '_')}` === activeLangSignalKey);
-                if (matchedLevel && state['custom-kielitaso_suomi'] !== matchedLevel.level_key) {
-                    onUpdateCustomText('kielitaso_suomi', matchedLevel.level_key);
-                }
+    // --- KORJATTU GM 3.1: KAKSISUUNTAINEN SYNKRONOINTI (Imuri -> UI ja UI -> Signaalit) ---
+    useEffect(() => {
+        if (!actions || typeof actions.setSignal !== 'function') return;
+
+        // 1. Digitaidot synkronointi
+        const digi = state['custom-digitaidot'];
+        const hasPuutteellisetDigiSignal = !!state.signals?.puutteelliset_digitaidot;
+        const hasHyvatDigiSignal = !!state.signals?.hyvat_digitaidot;
+
+        if (digi) {
+            const edellyttaaPuutteelliset = digi === 'heikot';
+            const edellyttaaHyvat = digi === 'hyvat';
+            
+            if (edellyttaaPuutteelliset !== hasPuutteellisetDigiSignal) {
+                actions.setSignal('puutteelliset_digitaidot', edellyttaaPuutteelliset);
+            }
+            if (edellyttaaHyvat !== hasHyvatDigiSignal) {
+                actions.setSignal('hyvat_digitaidot', edellyttaaHyvat);
+            }
+        } else {
+            // Jos valinta on tyhjä, mutta imuri toi signaalin, täytetään valinta lennosta
+            if (hasPuutteellisetDigiSignal) {
+                onUpdateCustomText('digitaidot', 'heikot');
+            } else if (hasHyvatDigiSignal) {
+                onUpdateCustomText('digitaidot', 'hyvat');
             }
         }
 
-        if (state.signals['puutteelliset_digitaidot'] && state['custom-digitaidot'] !== 'heikot') {
-            onUpdateCustomText('digitaidot', 'heikot');
-        } else if (state.signals['hyvat_digitaidot'] && state['custom-digitaidot'] !== 'hyvat') {
-            onUpdateCustomText('digitaidot', 'hyvat');
-        }
+        // 2. Pankkitunnukset synkronointi
+        const pankki = state['custom-pankkitunnukset'];
+        const hasEiPankkiSignal = !!state.signals?.ei_pankkitunnuksia;
+        const hasOnPankkiSignal = !!state.signals?.on_pankkitunnukset;
 
-        if (state.signals['ei_pankkitunnuksia'] && state['custom-pankkitunnukset'] !== 'ei' && state['custom-pankkitunnukset'] !== 'selvitettava') {
-            onUpdateCustomText('pankkitunnukset', 'ei');
-        } else if (state.signals['on_pankkitunnukset'] && state['custom-pankkitunnukset'] !== 'kylla') {
-            onUpdateCustomText('pankkitunnukset', 'kylla');
+        if (pankki) {
+            const edellyttaaEiPankki = pankki === 'ei' || pankki === 'selvitettava';
+            const edellyttaaOnPankki = pankki === 'kylla';
+
+            if (edellyttaaEiPankki !== hasEiPankkiSignal) {
+                actions.setSignal('ei_pankkitunnuksia', edellyttaaEiPankki);
+            }
+            if (edellyttaaOnPankki !== hasOnPankkiSignal) {
+                actions.setSignal('on_pankkitunnukset', edellyttaaOnPankki);
+            }
+        } else {
+            // Jos valinta on tyhjä, otetaan imurin signaali käyttöön valinnaksi
+            if (hasEiPankkiSignal) {
+                onUpdateCustomText('pankkitunnukset', 'ei');
+            } else if (hasOnPankkiSignal) {
+                onUpdateCustomText('pankkitunnukset', 'kylla');
+            }
         }
-    }, [state.signals, data.languageLevels, state['custom-kielitaso_suomi'], state['custom-digitaidot'], state['custom-pankkitunnukset'], onUpdateCustomText]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        state['custom-digitaidot'], 
+        state['custom-pankkitunnukset'], 
+        state.signals?.puutteelliset_digitaidot, 
+        state.signals?.hyvat_digitaidot, 
+        state.signals?.ei_pankkitunnuksia, 
+        state.signals?.on_pankkitunnukset
+    ]);
+
+    const handleDigitaidotChange = (val) => {
+        onUpdateCustomText('digitaidot', val);
+        if (actions && typeof actions.setSignal === 'function') {
+            actions.setSignal('puutteelliset_digitaidot', val === 'heikot');
+            actions.setSignal('hyvat_digitaidot', val === 'hyvat');
+        }
+    };
+
+    const handlePankkitunnuksetChange = (val) => {
+        onUpdateCustomText('pankkitunnukset', val);
+        if (actions && typeof actions.setSignal === 'function') {
+            actions.setSignal('ei_pankkitunnuksia', val === 'ei' || val === 'selvitettava');
+            actions.setSignal('on_pankkitunnukset', val === 'kylla');
+        }
+    };
 
     const handleSuomiChange = (val) => {
+        // 1. Päivitetään tekstikenttä
         onUpdateCustomText('kielitaso_suomi', val);
-        const currentSignals = state.signals || {};
         
+        // 2. Poistetaan VAIKUTUKSET aiemmista kielitasosignaaleista
+        const currentSignals = state.signals || {};
         Object.keys(currentSignals).forEach(key => {
             if (key.startsWith('language_fi_')) {
                 if (typeof onRemoveSignal === 'function') onRemoveSignal(key);
             }
         });
         
+        // 3. Lisätään uusi signaali, jos valinta on tehty
         if (val) {
             const newKey = `language_fi_${val.toLowerCase().replace('.', '_')}`;
             if (typeof onAddSignal === 'function') onAddSignal(newKey);
-        }
-    };
-
-    const handleDigitaidotChange = (val) => {
-        onUpdateCustomText('digitaidot', val);
-        if (typeof onRemoveSignal === 'function') {
-            onRemoveSignal('puutteelliset_digitaidot');
-            onRemoveSignal('hyvat_digitaidot');
-        }
-        if (val === 'heikot') {
-            if (typeof onAddSignal === 'function') onAddSignal('puutteelliset_digitaidot');
-        } else if (val === 'hyvat') {
-            if (typeof onAddSignal === 'function') onAddSignal('hyvat_digitaidot');
-        }
-    };
-
-    const handlePankkitunnuksetChange = (val) => {
-        onUpdateCustomText('pankkitunnukset', val);
-        if (typeof onRemoveSignal === 'function') {
-            onRemoveSignal('ei_pankkitunnuksia');
-            onRemoveSignal('on_pankkitunnukset');
-        }
-        if (val === 'ei' || val === 'selvitettava') {
-            if (typeof onAddSignal === 'function') onAddSignal('ei_pankkitunnuksia');
-        } else if (val === 'kylla') {
-            if (typeof onAddSignal === 'function') onAddSignal('on_pankkitunnukset');
         }
     };
 
@@ -251,10 +274,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             yrittajyys_teksti: state['custom-yrittajyys_teksti'], 
             valitutAiIdeat: state['custom-valitut_ai_ideat'],
             aiKoulutushistoria: state['custom-ai_koulutushistoria'],
-
-            // 3. KORJAUS: Välitetään uudet kortit summarylle
             valitut_ammattikortit: state['custom-valitut_ammattikortit'],
-            
             tuettu_aktiivinen: state['custom-tuettu_aktiivinen'],
             tuettu_tyyppi: state['custom-tuettu_tyyppi'],
             tuettu_opinnon_nimi: state['custom-tuettu_opinnon_nimi'],
@@ -432,10 +452,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                 </div>
 
                 <TuettuOpiskelu state={state} actions={actions} />
-
-                {/* 4. KORJAUS: Tässä ainoa UI-muutos: uusi komponentti vanhan tilalle! */}
                 <PatevyydetOsio state={state} actions={actions} />
-
             </div>
 
             {/* --- 3. YRITTÄJYYS --- */}

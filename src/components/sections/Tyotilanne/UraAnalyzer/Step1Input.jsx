@@ -3,7 +3,7 @@ import React, { useRef } from 'react';
 import { Eye, ShieldAlert, ShieldCheck, FileText } from 'lucide-react';
 
 // UUSI IMPORT POLKU
-import { COMPANY_PATTERN, SCHOOL_PATTERN, HETU_PATTERN, SINGLE_DATE_PATTERN } from '../../../../utils/regex';
+import { COMPANY_PATTERN, SCHOOL_PATTERN, HETU_PATTERN, SINGLE_DATE_PATTERN } from '../../../../utils/regex/core';
 
 const Step1Input = ({ rawData, setRawData, hasRisks, onAutoAnonymize, isAnalyzing }) => {
     const textareaRef = useRef(null);

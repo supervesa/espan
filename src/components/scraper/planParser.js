@@ -6,13 +6,15 @@ import { extractSignals } from '../../utils/regex/signalExtractor';
 import { extractPatevyydet } from '../../utils/regex/patevyysExtractor';
 // LISÄTTY: Tuodaan uusi työkyky-uuttaja
 import { extractTyokyky } from '../../utils/regex/tyokykyExtractor'; 
+// LISÄTTY: Tuodaan uusi edellytykset-uuttaja
+import { extractEdellytykset } from '../../utils/regex/edellytyksetExtractor';
 
 const dateRegex = /ajalla\s*(\d{1,2}\.\d{1,2}\.\d{4})\s*[-–]\s*(\d{1,2}\.\d{1,2}\.\d{4})/gi;
 const escoRegex = /tavoiteammatti(?:na on|:)?\s+([a-zäöåA-ZÄÖÅ\s-]+)(?:\.|$|\n)/gi;
 
 export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignals = [], dbVariables = [], dbServices = [], dbPatevyydet = []) => {
-    // LISÄTTY: Alustetaan tyokykyData tyhjäksi objektiksi tulokseen
-    const result = { phrases: [], signals: [], services: [], patevyydet: [], variables: {}, customTexts: {}, tyokykyData: {} };
+    // LISÄTTY: Alustetaan tyokykyData ja edellytyksetData tyhjäksi objektiksi tulokseen
+    const result = { phrases: [], signals: [], services: [], patevyydet: [], variables: {}, customTexts: {}, tyokykyData: {}, edellytyksetData: {} };
     if (!rawText) return result;
 
     let remainingText = rawText.replace(/\u200B|\u200D|\u200C/g, '').trim();
@@ -81,7 +83,9 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         { match: /^Työttömyysturva(?:\s|:|$)/i, key: 'tyottomyysturva' },
         { match: /^Palkkatuki(?:\s|:|$)/i, key: 'palkkatuki' },
         { match: /^Suunnitelma(?:\s|:|$)/i, key: 'suunnitelma' },
-        { match: /^Työkyky(?:\s|:|$)/i, key: 'tyokyky' }
+        { match: /^Työkyky(?:\s|:|$)/i, key: 'tyokyky' },
+        { match: /^Työllistymisen edellytysten arviointi(?:\s|:|$)/i, key: 'edellytykset' }
+        
     ];
 
     let currentSectionKey = 'tyotilanne'; 
@@ -115,21 +119,28 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         let chunkText = linesArr.join('\n').trim();
         if (!chunkText) continue; 
 
-        // 4A. Työkyky (LISÄTTY TÄHÄN!)
-        // Vaikka ajamme tämän jokaiselle lohkolle, se tekee tuhojaan vain jos sieltä löytyy
-        // Työkyvyn lauseita (kuten "Työkyky on normaali").
+        // 4A. Työkyky
         const tyokykyResult = extractTyokyky(chunkText, dbPhrases);
         chunkText = tyokykyResult.remainingText;
         
-        // Yhdistetään löydökset tulokseen, jos jotain löytyi
         if (tyokykyResult.tyokykyData && (tyokykyResult.tyokykyData.paavalinta || tyokykyResult.tyokykyData.oma_arvio || tyokykyResult.tyokykyData.toimenpiteet.length > 0)) {
-            // Yhdistetään fiksusti, jos tekstiä olikin useammassa lohkossa
             result.tyokykyData = {
                 paavalinta: tyokykyResult.tyokykyData.paavalinta || result.tyokykyData.paavalinta,
                 alentuma_kuvaus: tyokykyResult.tyokykyData.alentuma_kuvaus || result.tyokykyData.alentuma_kuvaus,
                 oma_arvio: tyokykyResult.tyokykyData.oma_arvio || result.tyokykyData.oma_arvio,
                 toimenpiteet: [...(result.tyokykyData.toimenpiteet || []), ...tyokykyResult.tyokykyData.toimenpiteet]
             };
+        }
+
+        // LISÄTTY: 4A.1. Edellytykset (Ajetaan Vain "edellytykset"-lohkossa)
+        if (sectionKey === 'edellytykset') {
+            const edellytyksetResult = extractEdellytykset(chunkText, dbPhrases, dbSignals); // Lisätty dbSignals
+            chunkText = edellytyksetResult.remainingText;
+            
+            // Siirretään löydökset kokonaisuudessaan tulokseen
+            if (edellytyksetResult.edellytyksetData && Object.keys(edellytyksetResult.edellytyksetData).length > 0) {
+                result.edellytyksetData = edellytyksetResult.edellytyksetData;
+            }
         }
 
         // 4B. Palvelut
@@ -222,6 +233,27 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
 
         if (!finalClean) delete result.customTexts[key]; 
         else result.customTexts[key] = finalClean;
+    }
+
+    // =========================================================================
+    // 6. SIGNAALIEN DEDUPLIKOINTI (Esim. päällekkäiset kielitasot)
+    // =========================================================================
+    
+    // Jos imuri nappasi useita kielitasoja (esim. kuvauksien osittaisen osuman vuoksi)
+    const languageSignals = result.signals.filter(s => s.id.startsWith('language_fi_'));
+    if (languageSignals.length > 1) {
+        // Etsitään alkuperäisestä tekstistä eksplisiittinen CEFR-koodi (esim. "B1.2" tai "A1.1")
+        const explicitLevelMatch = rawText.match(/\b([A-C][1-2]\.[1-2]|[A-C][1-2])\b/i);
+        
+        // Oletuksena pidetään ensimmäinen, jos koodia ei löydy
+        let correctId = languageSignals[0].id; 
+        
+        if (explicitLevelMatch) {
+            correctId = `language_fi_${explicitLevelMatch[1].toLowerCase().replace('.', '_')}`;
+        }
+        
+        // Suodatetaan signaalilistasta pois kaikki muut kielitasot paitsi se oikea
+        result.signals = result.signals.filter(s => !s.id.startsWith('language_fi_') || s.id === correctId);
     }
 
     return result;

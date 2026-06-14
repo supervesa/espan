@@ -9,7 +9,9 @@ import { useScraperAdapter } from './hooks/useScraperAdapter';
 
 // Kirjautumiskomponentti
 import LoginScreen from './components/LoginScreen';
-
+// ... olemassa olevat tuonnit ...
+import { SignalProvider } from './components/signals/SignalContext';
+// ...
 import SummaryPanel from './components/SummaryPanel';
 import ScraperModal from './components/scraper/ScraperModal';
 import MessageGenerator from './components/MessageGenerator';
@@ -20,13 +22,14 @@ import Tyotilanne from './components/sections/Tyotilanne';
 import KoulutusJaYrittajyys from './components/koulutusYrittajyys';
 // TÄSSÄ ON UUSI TUONTI TYÖKYVYLLE
 import TyokykyOsio from './components/sections/tyokyky';
+import TyollistymisenEdellytykset from './components/sections/TyollistymisenEdellytykset';
 import PalkkatukiCalculator from "./components/sections/PalkkatukiCalculator";
 import Palveluunohjaus from './components/sections/Palveluunohjaus';
 import Suunnitelma from './components/sections/Suunnitelma';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
 import AiAnalyysi from './components/AiAnalyysi';
 import Jalkimarkkinointi from './components/Jalkimarkkinointi';
-import AdminWorkspace from './components/admin/AdminWorkspace';
+import AdminStudio from './components/admin/AdminStudio';
 import PuzzleGenerator from './components/PuzzleGenerator';
 import SignalPanel from './components/signals/SignalPanel';
 import ScraperModalV2 from './components/scraper/ScraperModalV2.jsx';
@@ -35,6 +38,7 @@ import { useScraperAdapterV2 } from './hooks/useScraperAdapterV2';
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
 import './styles/espan2.css';
+import './styles/fontit.css';
 
 function App() {
     // --- 1. LISÄTTY KIRJAUTUMISLOGIIKKA ---
@@ -102,6 +106,7 @@ function App() {
         { id: 'osio-tyotilanne', name: 'Työtilanne' },
         { id: 'osio-koulutus', name: 'Koulutus & Osaam.' },
         { id: 'osio-tyokyky', name: 'Työkyky' },
+        { id: 'osio-edellytykset', name: '33 § Edellytykset' },
         { id: 'osio-palkkatuki', name: 'Palkkatuki' },
         { id: 'osio-palveluohjaus', name: 'Palveluohjaus' },
         { id: 'osio-suunnitelma', name: 'Suunnitelma' },
@@ -123,6 +128,7 @@ function App() {
     }
 
     return (
+        <SignalProvider activeSignals={state.signals || {}} actions={actions}>
         <div className="app-container">
             <header className="app-header">
                 <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
@@ -154,6 +160,8 @@ function App() {
                         
                         {/* KORJAUS: Tässä oikea TyökykyOsio ilman virheellisiä if-lauseita ja oikealla statella! */}
                         <section id="osio-tyokyky"><TyokykyOsio state={state} actions={actions} /></section>
+                        
+                        <section id="osio-edellytykset"><TyollistymisenEdellytykset state={state} actions={actions} /></section>
                         
                         <section id="osio-palkkatuki"><PalkkatukiCalculator state={state} actions={actions} /></section>
                         <section id="osio-palveluohjaus"><Palveluunohjaus state={state} actions={actions} /></section>
@@ -189,10 +197,11 @@ function App() {
 
             {activeTab === 'hallinta' && (
                  <div className="main-grid-single">
-                    <main className="sections-container"><AdminWorkspace /></main>
+                    <main className="sections-container"><AdminStudio /></main>
                 </div>
             )}
         </div>
+        </SignalProvider>
     );
 }
 

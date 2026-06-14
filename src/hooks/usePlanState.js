@@ -22,65 +22,78 @@ const deepMerge = (target, source) => {
 };
 
 export const usePlanState = (dbPlanData) => {
-    // Alustetaan tila tyhjällä 'asiakas'-objektilla, jotta se on heti kaikkien käytettävissä
-    const [state, setState] = useState({ asiakas: {} });
+    // Alustetaan tila, jossa on mukana myös palvelut
+    const [state, setState] = useState({ asiakas: {}, signals: {}, palvelut: {} });
+
+    // --- CORE HANDLERS ---
 
     const handleScrape = useCallback((scrapedState) => {
         setState(currentState => deepMerge(currentState, scrapedState));
+    }, []);
+
+    const handleSetSignal = useCallback((signalKey, isActive) => {
+        setState(currentState => {
+            const newState = JSON.parse(JSON.stringify(currentState));
+            if (!newState.signals) newState.signals = {};
+            
+            if (isActive) {
+                newState.signals[signalKey] = { isMuted: false, isPrintable: true };
+            } else {
+                delete newState.signals[signalKey];
+            }
+            return newState;
+        });
+    }, []);
+
+    const handleUpdateSection = useCallback((sectionId, data) => {
+        setState(currentState => {
+            const newState = JSON.parse(JSON.stringify(currentState));
+            newState[sectionId] = data;
+            return newState;
+        });
+    }, []);
+
+    const handleAddService = useCallback((serviceId) => {
+        setState(currentState => {
+            const newState = JSON.parse(JSON.stringify(currentState));
+            if (!newState.palvelut) newState.palvelut = {};
+            newState.palvelut[serviceId] = true;
+            return newState;
+        });
     }, []);
 
     const handleAddSignal = useCallback((avainsana) => {
         setState(currentState => {
             const newState = JSON.parse(JSON.stringify(currentState));
             if (!newState.signals) newState.signals = {};
-            
-            if (!newState.signals[avainsana]) {
-                newState.signals[avainsana] = { isMuted: false, isPrintable: true };
-            }
+            if (!newState.signals[avainsana]) newState.signals[avainsana] = { isMuted: false, isPrintable: true };
 
+            const aihealueet = dbPlanData?.aihealueet?.length > 0 ? dbPlanData.aihealueet : planData.aihealueet;
+            
             let section = null;
             let phrase = null;
-            for (const sec of (dbPlanData.aihealueet || [])) {
+            for (const sec of aihealueet) {
                 const found = sec.fraasit?.find(f => f.avainsana === avainsana);
-                if (found) {
-                    section = sec;
-                    phrase = found;
-                    break;
-                }
+                if (found) { section = sec; phrase = found; break; }
             }
 
             if (section && phrase) {
                 const sectionId = section.id;
                 if (!newState[sectionId]) newState[sectionId] = {};
                 const currentSelections = newState[sectionId];
-
+                
                 const initialVariables = {};
                 if (phrase.muuttujat) {
                     Object.entries(phrase.muuttujat).forEach(([key, config]) => {
-                        if (config) {
-                            let defaultVal = config.oletus !== undefined && config.oletus !== '' 
-                                ? config.oletus 
-                                : (config.vaihtoehdot && Array.isArray(config.vaihtoehdot) && config.vaihtoehdot.length > 0 ? config.vaihtoehdot[0] : '');
-                            if ((key.includes('PÄIVÄMÄÄRÄ') || key.includes('PVM')) && (!defaultVal || defaultVal === '')) {
-                                defaultVal = new Date().toLocaleDateString('fi-FI');
-                            }
-                            initialVariables[key] = defaultVal;
-                        } else {
-                            initialVariables[key] = '';
+                        let defaultVal = config.oletus || (config.vaihtoehdot?.[0] || '');
+                        if ((key.includes('PÄIVÄMÄÄRÄ') || key.includes('PVM')) && (!defaultVal)) {
+                            defaultVal = new Date().toLocaleDateString('fi-FI');
                         }
+                        initialVariables[key] = defaultVal;
                     });
                 }
-
-                if (section.monivalinta) {
-                    currentSelections[avainsana] = { avainsana: avainsana, muuttujat: initialVariables };
-                } else {
-                    const oldAvainsana = currentSelections.avainsana;
-                    if (oldAvainsana && oldAvainsana !== avainsana && newState.signals[oldAvainsana]) {
-                        delete newState.signals[oldAvainsana];
-                    }
-                    currentSelections.avainsana = avainsana;
-                    currentSelections.muuttujat = initialVariables;
-                }
+                if (section.monivalinta) currentSelections[avainsana] = { avainsana, muuttujat: initialVariables };
+                else { currentSelections.avainsana = avainsana; currentSelections.muuttujat = initialVariables; }
             }
             return newState;
         });
@@ -89,34 +102,19 @@ export const usePlanState = (dbPlanData) => {
     const handleRemoveSignal = useCallback((avainsana) => {
         setState(currentState => {
             const newState = JSON.parse(JSON.stringify(currentState));
+            if (newState.signals) delete newState.signals[avainsana];
             
-            if (newState.signals && newState.signals[avainsana]) {
-                delete newState.signals[avainsana];
-            }
-
-            let section = null;
-            for (const sec of (dbPlanData.aihealueet || [])) {
-                if (sec.fraasit?.find(f => f.avainsana === avainsana)) {
-                    section = sec;
-                    break;
-                }
-            }
-
-            if (section) {
-                const sectionId = section.id;
-                if (newState[sectionId]) {
-                    if (section.monivalinta) {
-                        if (newState[sectionId][avainsana]) {
-                            delete newState[sectionId][avainsana];
-                        }
-                    } else {
-                        if (newState[sectionId].avainsana === avainsana) {
-                            delete newState[sectionId].avainsana;
-                            delete newState[sectionId].muuttujat;
-                        }
+            const aihealueet = dbPlanData?.aihealueet?.length > 0 ? dbPlanData.aihealueet : planData.aihealueet;
+            
+            aihealueet.forEach(sec => {
+                if (newState[sec.id]) {
+                    if (sec.monivalinta) delete newState[sec.id][avainsana];
+                    else if (newState[sec.id].avainsana === avainsana) {
+                        delete newState[sec.id].avainsana;
+                        delete newState[sec.id].muuttujat;
                     }
                 }
-            }
+            });
             return newState;
         });
     }, [dbPlanData]);
@@ -124,10 +122,7 @@ export const usePlanState = (dbPlanData) => {
     const handleToggleSignalSetting = useCallback((avainsana, setting) => {
         setState(currentState => {
             const newState = JSON.parse(JSON.stringify(currentState));
-            if (!newState.signals) return currentState;
-            if (newState.signals[avainsana]) {
-                newState.signals[avainsana][setting] = !newState.signals[avainsana][setting];
-            }
+            if (newState.signals?.[avainsana]) newState.signals[avainsana][setting] = !newState.signals[avainsana][setting];
             return newState;
         });
     }, []);
@@ -136,25 +131,11 @@ export const usePlanState = (dbPlanData) => {
         setState(currentState => {
             const newState = JSON.parse(JSON.stringify(currentState));
             if (!newState.signals) newState.signals = {};
+            if (updatedSelection) { newState[sectionId] = updatedSelection; return newState; }
 
-            if (updatedSelection) {
-                newState[sectionId] = updatedSelection;
-                return newState;
-            }
-
-            let section = dbPlanData.aihealueet?.find(s => s.id === sectionId);
-            if (!section) section = planData.aihealueet.find(s => s.id === sectionId);
-
-            let phrase = null;
-            if (section && section.fraasit) phrase = section.fraasit.find(f => f.avainsana === avainsana);
+            let section = dbPlanData.aihealueet?.find(s => s.id === sectionId) || planData.aihealueet.find(s => s.id === sectionId);
+            let phrase = section?.fraasit?.find(f => f.avainsana === avainsana);
             
-            if (!phrase) {
-                for (const s of (dbPlanData.aihealueet || [])) {
-                    const found = s.fraasit?.find(f => f.avainsana === avainsana);
-                    if (found) { phrase = found; break; }
-                }
-            }
-
             if (!phrase) return currentState;
 
             if (!newState[sectionId]) newState[sectionId] = {};
@@ -164,60 +145,37 @@ export const usePlanState = (dbPlanData) => {
             if (actualIsMultiSelect) {
                 if (currentSelections[avainsana]) {
                     delete currentSelections[avainsana];
-                    if (newState.signals[avainsana]) delete newState.signals[avainsana];
+                    delete newState.signals[avainsana];
                 } else {
                     const initialVariables = {};
                     if (phrase.muuttujat) {
                         Object.entries(phrase.muuttujat).forEach(([key, config]) => {
-                            if (config) {
-                                let defaultVal = config.oletus !== undefined && config.oletus !== '' 
-                                    ? config.oletus 
-                                    : (config.vaihtoehdot && Array.isArray(config.vaihtoehdot) && config.vaihtoehdot.length > 0 ? config.vaihtoehdot[0] : '');
-                                
-                                if ((key.includes('PÄIVÄMÄÄRÄ') || key.includes('PVM')) && (!defaultVal || defaultVal === '')) {
-                                    defaultVal = new Date().toLocaleDateString('fi-FI');
-                                }
-                                initialVariables[key] = defaultVal;
-                            } else {
-                                initialVariables[key] = '';
-                            }
+                            let def = config.oletus || (config.vaihtoehdot?.[0] || '');
+                            if ((key.includes('PÄIVÄMÄÄRÄ') || key.includes('PVM')) && !def) def = new Date().toLocaleDateString('fi-FI');
+                            initialVariables[key] = def;
                         });
                     }
                     currentSelections[avainsana] = { avainsana: avainsana, muuttujat: initialVariables };
-                    if (!newState.signals[avainsana]) newState.signals[avainsana] = { isMuted: false, isPrintable: true };
+                    newState.signals[avainsana] = { isMuted: false, isPrintable: true };
                 }
-            } else { 
+            } else {
                 if (currentSelections.avainsana === avainsana) {
                     delete currentSelections.avainsana;
                     delete currentSelections.muuttujat;
-                    if (newState.signals[avainsana]) delete newState.signals[avainsana];
+                    delete newState.signals[avainsana];
                 } else {
-                    const oldAvainsana = currentSelections.avainsana;
-                    if (oldAvainsana && newState.signals[oldAvainsana]) {
-                        delete newState.signals[oldAvainsana];
-                    }
-
-                    currentSelections.avainsana = phrase.avainsana;
-                    currentSelections.muuttujat = {};
-
+                    if (currentSelections.avainsana) delete newState.signals[currentSelections.avainsana];
+                    const initialVariables = {};
                     if (phrase.muuttujat) {
                         Object.entries(phrase.muuttujat).forEach(([key, config]) => {
-                            if (config) {
-                                let defaultVal = config.oletus !== undefined && config.oletus !== '' 
-                                    ? config.oletus 
-                                    : (config.vaihtoehdot && Array.isArray(config.vaihtoehdot) && config.vaihtoehdot.length > 0 ? config.vaihtoehdot[0] : '');
-                                
-                                if ((key.includes('PÄIVÄMÄÄRÄ') || key.includes('PVM')) && (!defaultVal || defaultVal === '')) {
-                                    defaultVal = new Date().toLocaleDateString('fi-FI');
-                                }
-                                currentSelections.muuttujat[key] = defaultVal;
-                            } else {
-                                currentSelections.muuttujat[key] = '';
-                            }
+                            let def = config.oletus || (config.vaihtoehdot?.[0] || '');
+                            if ((key.includes('PÄIVÄMÄÄRÄ') || key.includes('PVM')) && !def) def = new Date().toLocaleDateString('fi-FI');
+                            initialVariables[key] = def;
                         });
                     }
-                    
-                    if (!newState.signals[phrase.avainsana]) newState.signals[phrase.avainsana] = { isMuted: false, isPrintable: true };
+                    currentSelections.avainsana = avainsana;
+                    currentSelections.muuttujat = initialVariables;
+                    newState.signals[avainsana] = { isMuted: false, isPrintable: true };
                 }
             }
             return newState;
@@ -228,18 +186,13 @@ export const usePlanState = (dbPlanData) => {
         setState(currentState => {
             const newState = JSON.parse(JSON.stringify(currentState));
             
-            // --- UUSI: Reititys suoraan asiakas-tilaan, jos sectionId on 'asiakas' ---
             if (sectionId === 'asiakas') {
                 if (!newState.asiakas) newState.asiakas = {};
-                // Varmistetaan, että emme tallenna vahingossa [object Object]
-                newState.asiakas[avainsana] = value; 
+                newState.asiakas[avainsana] = value;
                 return newState;
             }
-            // ----------------------------------------------------------------------
-            
-            let section = dbPlanData.aihealueet?.find(s => s.id === sectionId);
-            if (!section) section = planData.aihealueet.find(s => s.id === sectionId);
-            
+
+            let section = dbPlanData.aihealueet?.find(s => s.id === sectionId) || planData.aihealueet.find(s => s.id === sectionId);
             const isMulti = section ? section.monivalinta : false;
             let target = isMulti ? newState[sectionId]?.[avainsana] : newState[sectionId];
 
@@ -267,173 +220,77 @@ export const usePlanState = (dbPlanData) => {
         setState(currentState => ({ ...currentState, [customKey]: value }));
     }, []);
 
-    // --- UUSI: Master-profiilin oma suora käsittelijä ---
     const handleUpdateAsiakas = useCallback((key, value) => {
-        setState(prevState => {
-            const newState = JSON.parse(JSON.stringify(prevState));
-            if (!newState.asiakas) newState.asiakas = {};
-            newState.asiakas[key] = value;
-            return newState;
-        });
+        setState(prevState => ({ ...prevState, asiakas: { ...prevState.asiakas, [key]: value } }));
     }, []);
-    // ---------------------------------------------------
 
-    const handleUpdateTyokyky = useCallback((key, value) => {
-        setState(prevState => {
-            const newState = JSON.parse(JSON.stringify(prevState));
-            if (!newState.signals) newState.signals = {};
-            const newTyokykyState = newState.tyokyky || {};
-            
-            if (key === 'togglePalveluohjaus') {
-                const currentOhjaukset = newTyokykyState.palveluohjaukset || {};
-                const avainsana = value.avainsana;
-                
-                if (currentOhjaukset[avainsana]) {
-                    delete currentOhjaukset[avainsana];
-                    if (newState.signals[avainsana]) delete newState.signals[avainsana];
-                } else {
-                    currentOhjaukset[avainsana] = value;
-                    newState.signals[avainsana] = { isMuted: false, isPrintable: true };
-                }
-                newTyokykyState.palveluohjaukset = currentOhjaukset;
-
-            } else if (key === 'updateKeskustelutieto') {
-                 const currentTiedot = newTyokykyState.keskustelunTiedot || {};
-                 currentTiedot[value.id] = value.value;
-                 newTyokykyState.keskustelunTiedot = currentTiedot;
-            } else {
-                const oldValue = newTyokykyState[key];
-                const oldSignalKey = typeof oldValue === 'string' ? oldValue : (oldValue?.avainsana || null);
-                
-                if (oldSignalKey && newState.signals[oldSignalKey]) {
-                    delete newState.signals[oldSignalKey];
-                }
-                
-                const newSignalKey = typeof value === 'string' ? value : (value?.avainsana || null);
-
-                if (newSignalKey) {
-                    let isKnownSignal = false;
-                    for (const sec of (dbPlanData.aihealueet || [])) {
-                        if (sec.fraasit?.some(f => f.avainsana === newSignalKey)) {
-                            isKnownSignal = true; break;
-                        }
-                    }
-                    if (isKnownSignal) {
-                        newState.signals[newSignalKey] = { isMuted: false, isPrintable: true };
-                    }
-                }
-                newTyokykyState[key] = value;
-            }
-            
-            newState.tyokyky = newTyokykyState;
-            return newState;
-        });
-    }, [dbPlanData]);
+    // --- DOMAIN SPECIFIC HANDLERS ---
 
     const handleUpdatePalkkatuki = useCallback((key, value) => {
         setState(prevState => {
             const newState = JSON.parse(JSON.stringify(prevState));
-            if (!newState.signals) newState.signals = {};
-            const newPtState = newState.palkkatuki || {};
-            
-            const oldValue = newPtState[key];
-            const oldSignalKey = typeof oldValue === 'string' ? oldValue : (oldValue?.avainsana || null);
-            
-            if (oldSignalKey && newState.signals[oldSignalKey]) {
-                delete newState.signals[oldSignalKey];
-            }
-            
-            const newSignalKey = typeof value === 'string' ? value : (value?.avainsana || null);
-
-            if (newSignalKey) {
-                let isKnownSignal = false;
-                for (const sec of (dbPlanData.aihealueet || [])) {
-                    if (sec.fraasit?.some(f => f.avainsana === newSignalKey)) {
-                        isKnownSignal = true; break;
-                    }
-                }
-                if (isKnownSignal) {
-                    newState.signals[newSignalKey] = { isMuted: false, isPrintable: true };
-                }
-            }
-            
+            const newPtState = { ...(newState.palkkatuki || {}) };
             newPtState[key] = value;
-            newState.palkkatuki = newPtState;
-            return newState;
+            return { ...newState, palkkatuki: newPtState };
         });
-    }, [dbPlanData]);
+    }, []);
+
+    const handleUpdateTyokyky = useCallback((key, value) => {
+        setState(prevState => {
+            const newState = JSON.parse(JSON.stringify(prevState));
+            const newTkState = { ...(newState.tyokyky || {}) };
+            if (key === 'togglePalveluohjaus') {
+                const current = newTkState.palveluohjaukset || {};
+                if (current[value.avainsana]) delete current[value.avainsana];
+                else current[value.avainsana] = value;
+                newTkState.palveluohjaukset = current;
+            } else {
+                newTkState[key] = value;
+            }
+            return { ...newState, tyokyky: newTkState };
+        });
+    }, []);
 
     const handleUpdateTyottomyysturva = useCallback((key, value) => {
         setState(prevState => {
-            const newTtState = { ...(prevState.tyottomyysturva || {}) };
+            const newState = JSON.parse(JSON.stringify(prevState));
+            const newTtState = { ...(newState.tyottomyysturva || {}) };
             if (key === 'updateKysymys') {
                 const currentAnswers = { ...(newTtState.answers || {}) };
                 currentAnswers[value.id] = value.value;
                 newTtState.answers = currentAnswers;
-            } else if (key === 'updateSummaries') {
-                newTtState.koonti = value.koonti;
-                newTtState.yhteenvetoFraasi = value.yhteenvetoFraasi;
-            } else if (key === 'updateYhteenveto') {
-                newTtState.yhteenvetoFraasi = value;
             } else {
                 newTtState[key] = value;
             }
-            return { ...prevState, tyottomyysturva: newTtState };
+            return { ...newState, tyottomyysturva: newTtState };
         });
     }, []);
 
     const handleUpdateKielitaso = useCallback((key, value) => {
         setState(prevState => {
-            const currentKielitaso = prevState.kielitaso || { aidinkieli: '', muutKielet: [{ kieli: 'Suomi', taso: '' }] };
-            let updatedKielitaso = JSON.parse(JSON.stringify(currentKielitaso));
-            if (key === 'updateAidinkieli') {
-                updatedKielitaso.aidinkieli = value;
-            } else if (key === 'updateMuuKieli') {
-                const { index, field, value: langValue } = value;
-                if (!updatedKielitaso.muutKielet) updatedKielitaso.muutKielet = [];
-                while (updatedKielitaso.muutKielet.length <= index) {
-                     updatedKielitaso.muutKielet.push({ kieli: index === 0 ? 'Suomi' : '', taso: ''});
-                }
-                updatedKielitaso.muutKielet[index] = { ...updatedKielitaso.muutKielet[index], [field]: langValue };
-            }
-            return { ...prevState, kielitaso: updatedKielitaso };
-        });
-    }, []);
-
-    const handleUpdateSuunnitelma = useCallback((phraseId, isChecked) => {
-        setState(prevState => {
             const newState = JSON.parse(JSON.stringify(prevState));
-            if (!newState.signals) newState.signals = {};
-            const newSuunnitelmaState = newState.suunnitelma || {};
-            
-            if (isChecked) {
-                newSuunnitelmaState[phraseId] = true;
-                newState.signals[phraseId] = { isMuted: false, isPrintable: true };
-            } else {
-                delete newSuunnitelmaState[phraseId];
-                if (newState.signals[phraseId]) delete newState.signals[phraseId];
-            }
-            
-            newState.suunnitelma = newSuunnitelmaState;
-            return newState;
+            const current = newState.kielitaso || { aidinkieli: '', muutKielet: [] };
+            if (key === 'updateAidinkieli') current.aidinkieli = value;
+            return { ...newState, kielitaso: current };
         });
     }, []);
 
-    // Päivitetty actions-objekti, joka jaetaan kaikille komponenteille
     const actions = {
         onSelect: handleSelectPhrase,
         onUpdateVariable: handleUpdateVariable,
         onUpdateCustomText: handleUpdateCustomText,
-        onUpdateAsiakas: handleUpdateAsiakas, // UUSI!
-        onUpdateTyokyky: handleUpdateTyokyky,
-        onUpdatePalkkatuki: handleUpdatePalkkatuki,
-        onUpdateTyottomyysturva: handleUpdateTyottomyysturva,
-        onUpdateKielitaso: handleUpdateKielitaso,
-        onUpdateSuunnitelma: handleUpdateSuunnitelma, 
-        handleScrape: handleScrape, 
+        onUpdateAsiakas: handleUpdateAsiakas,
         onAddSignal: handleAddSignal,
         onRemoveSignal: handleRemoveSignal,
-        onToggleSignalSetting: handleToggleSignalSetting
+        onToggleSignalSetting: handleToggleSignalSetting,
+        handleScrape,
+        setSignal: handleSetSignal,
+        updateSection: handleUpdateSection,
+        onAddService: handleAddService, // KORJATTU: Mukana toiminnassa!
+        onUpdatePalkkatuki: handleUpdatePalkkatuki,
+        onUpdateTyokyky: handleUpdateTyokyky,
+        onUpdateTyottomyysturva: handleUpdateTyottomyysturva,
+        onUpdateKielitaso: handleUpdateKielitaso
     };
 
     return { state, setState, actions };

@@ -92,7 +92,7 @@ export const useScraperAdapter = (actions) => {
             }
         }
 
-        // 7. UUSI: KÄSITELLÄÄN TYÖKYKY
+        // 7. KÄSITELLÄÄN TYÖKYKY
         if (parsedData.tyokykyData) {
             const { paavalinta, alentuma_kuvaus, oma_arvio, toimenpiteet } = parsedData.tyokykyData;
 
@@ -111,14 +111,12 @@ export const useScraperAdapter = (actions) => {
             
             if (toimenpiteet && Array.isArray(toimenpiteet)) {
                 toimenpiteet.forEach(toim => {
-                    // Oletetaan, että Työkyky-välilehden sectionKey on 'tyokyky'
                     actions.onUpdateVariable('tyokyky', toim.avainsana, true); 
                     
                     if (actions.onAddSignal) {
                         actions.onAddSignal(toim.avainsana);
                     }
                     
-                    // Jos toimenpiteessä on muuttujia (esim. PVM)
                     if (toim.muuttujat) {
                         Object.entries(toim.muuttujat).forEach(([vKey, vVal]) => {
                             actions.onUpdateVariable('tyokyky', toim.avainsana, vKey, vVal);
@@ -128,7 +126,59 @@ export const useScraperAdapter = (actions) => {
             }
         }
 
-        console.log("✅ URA-imurin adapteri: Ruksit, Signaalit, Muuttujat, Palvelut, Pätevyydet ja Työkyky injektoitu onnistuneesti!");
+        // 8. UUSI: KÄSITELLÄÄN TYÖLLISTYMISEN EDELLYTYKSET (33 §)
+        if (parsedData.edellytyksetData) {
+            const { escoNimi, finescoAla, vaihtoehtoisetAlat, activeTags, selections } = parsedData.edellytyksetData;
+
+            // Ensisijainen ammatti ja toimiala asiakastietoihin (kytkeytyy TavoiteAmmattiValitsimeen)
+            if (escoNimi && actions.onUpdateAsiakas) {
+                actions.onUpdateAsiakas('tavoiteammatti_esco_nimi', escoNimi);
+            }
+            if (finescoAla && actions.onUpdateAsiakas) {
+                actions.onUpdateAsiakas('tavoiteammatti_finesco_ala', finescoAla);
+            }
+
+            // Vaihtoehtoiset tavoitteet talteen stringifioituna (ammattikorttien tapaan)
+            if (vaihtoehtoisetAlat && Array.isArray(vaihtoehtoisetAlat) && vaihtoehtoisetAlat.length > 0) {
+                if (actions.onUpdateCustomText) {
+                    actions.onUpdateCustomText('edellytykset_vaihtoehtoiset_alat', JSON.stringify(vaihtoehtoisetAlat));
+                }
+            }
+
+            // Aktivoidaan paneelien ruksitut tägit (Tavoitteet, Markkinaesteet, Elämäntilanne)
+            if (activeTags) {
+                Object.keys(activeTags).forEach(category => {
+                    const tags = activeTags[category] || [];
+                    tags.forEach(tag => {
+                        // Aktivoidaan valinta globaalissa usePlanState-rakenteessa
+                        if (actions.onSelect) {
+                            actions.onSelect('edellytykset', tag.id, true);
+                        }
+                        // Varmistetaan signaalin syttyminen älylogiikkaa varten
+                        if (actions.onAddSignal) {
+                            actions.onAddSignal(tag.id);
+                        }
+                        if (actions.setSignal) {
+                            actions.setSignal(tag.id, true);
+                        }
+                    });
+                });
+            }
+
+            // Aktivoidaan vireillä olevat ja hylätyt etuusvalinnat
+            if (selections) {
+                if (selections.vireilla && actions.onSelect) {
+                    actions.onSelect('edellytykset', selections.vireilla.id, true);
+                    if (actions.onAddSignal) actions.onAddSignal(selections.vireilla.id);
+                }
+                if (selections.hylatty && actions.onSelect) {
+                    actions.onSelect('edellytykset', selections.hylatty.id, true);
+                    if (actions.onAddSignal) actions.onAddSignal(selections.hylatty.id);
+                }
+            }
+        }
+
+        console.log("✅ URA-imurin adapteri: Ruksit, Signaalit, Muuttujat, Palvelut, Pätevyydet, Työkyky ja Edellytykset injektoitu onnistuneesti!");
 
     }, [actions]);
 

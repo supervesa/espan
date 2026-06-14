@@ -1,5 +1,3 @@
-// --- src/utils/summaryGenerator.js ---
-
 import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
 import { PALKKATUKI_LISAHUOMIOT, YLEISET_SUUNNITELMA_FRAASIT } from '../data/constants.js';
 
@@ -261,7 +259,6 @@ export const generateHybridSummary = (state, dbPlanData, dbKnowledge) => {
         let customText = state[customKey]?.trim() ?? '';
         let generatedContent = '';
 
-        // KORJAUS: Luetaan Työkyky-osion uusi tekstikenttä tila-objektista
         if (section.id === 'tyokyky') {
             const tyokykyLopullinen = state['custom-tyokyky_lopullinen']?.trim();
             if (tyokykyLopullinen) {
@@ -325,6 +322,15 @@ export const generateHybridSummary = (state, dbPlanData, dbKnowledge) => {
         }
     }
     
+    // --- UUSI 33 § MODUULIN LISÄYS ---
+    const edellytyksetTeksti = state['custom-edellytykset']?.trim();
+    if (edellytyksetTeksti) {
+        const tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
+        const insertIndex = tyokykyIndex > -1 ? tyokykyIndex + 1 : textParts.length;
+        textParts.splice(insertIndex, 0, `**Työllistymisen edellytysten arviointi**\n${edellytyksetTeksti}`);
+    }
+    // ---------------------------------
+
     let cleanedTextParts = textParts.map(part => part.replace(/\n\s*\.\s*$/, '').trim()).filter(Boolean); 
     const finalText = FINGERPRINT + cleanedTextParts.join('\n\n');
     
@@ -343,7 +349,6 @@ export const generateFullSummary = (state) => {
         let customText = state[customKey]?.trim() ?? '';
         let generatedContent = '';
 
-        // KORJAUS: Luetaan Työkyky-osion uusi tekstikenttä tila-objektista myös tänne
         if (section.id === 'tyokyky') {
             const tyokykyLopullinen = state['custom-tyokyky_lopullinen']?.trim();
             if (tyokykyLopullinen) {
@@ -408,6 +413,15 @@ export const generateFullSummary = (state) => {
         }
     }
     
+    // --- UUSI 33 § MODUULIN LISÄYS ---
+    const edellytyksetTeksti = state['custom-edellytykset']?.trim();
+    if (edellytyksetTeksti) {
+        const tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
+        const insertIndex = tyokykyIndex > -1 ? tyokykyIndex + 1 : textParts.length;
+        textParts.splice(insertIndex, 0, `**Työllistymisen edellytysten arviointi**\n${edellytyksetTeksti}`);
+    }
+    // ---------------------------------
+
     let cleanedTextParts = textParts.map(part => part.replace(/\n\s*\.\s*$/, '').trim()).filter(Boolean); 
     const finalText = FINGERPRINT + cleanedTextParts.join('\n\n');
     

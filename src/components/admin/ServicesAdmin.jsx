@@ -1,13 +1,14 @@
-// --- src/components/admin/ServicesAdmin.jsx ---
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Compass, Sparkles, Link as LinkIcon, Save, Plus, Trash2, Info, AlertCircle, FileText, Globe, Type, Briefcase, Search, X } from 'lucide-react';
+import { Compass, Sparkles, Link as LinkIcon, Save, Plus, Trash2, Info, AlertCircle, FileText, Globe, Type, Briefcase, Search, X, Check, CheckCircle, ShieldAlert } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
+import AdminPanel from '../common/admin/AdminPanel';
+import AdminAlert from '../common/admin/AdminAlert';
+import SmartInput from '../common/admin/SmartInput';
 
 const initialFormState = { 
     url: '', title: '', service_type: 'palvelu', category: 'Yleinen', description: '', plan_text: '', triggers: '',
     language_req: '', brochure_url: '', provider: '', ura_number: '', start_date: '', enrollment_deadline: '',
-    esco_title: '', esco_uri: ''
+    esco_title: '', esco_uri: '', requires_referral: false, hard_service: false, meta: {}
 };
 
 const DEFAULT_CATEGORIES = ['Yleinen', 'Koulutus', 'Työnhaku', 'Terveys ja työkyky', 'Arjen tuki', 'Digituki'];
@@ -21,10 +22,9 @@ const ServicesAdmin = () => {
     
     const [aiMode, setAiMode] = useState('url'); 
     const [aiInput, setAiInput] = useState(''); 
+    const [aiSuggestions, setAiSuggestions] = useState(null); // Tallentaa tekoälyn ehdottamat dynaamiset metasäännöt tarkistusta varten
     
     const [knownCategories, setKnownCategories] = useState([]);
-    
-    // UUSI: Master-sanakirja, joka sisältää objektit (keyword, label, category, description)
     const [masterDictionary, setMasterDictionary] = useState([]);
 
     const [escoQuery, setEscoQuery] = useState('');
@@ -32,6 +32,10 @@ const ServicesAdmin = () => {
     const [isEscoSearching, setIsEscoSearching] = useState(false);
     const [showEscoDropdown, setShowEscoDropdown] = useState(false);
     const escoDropdownRef = useRef(null);
+
+    const [newMetaKey, setNewMetaKey] = useState('');
+    const [newMetaValue, setNewMetaValue] = useState('');
+    const [newMetaType, setNewMetaType] = useState('boolean');
 
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -99,7 +103,6 @@ const ServicesAdmin = () => {
                 setKnownCategories([...new Set([...DEFAULT_CATEGORIES, ...fetchedCats])]);
             }
 
-            // UUSI: Haetaan täysi sanakirja näkymästä
             const { data: dictData, error: dictError } = await supabase.from('view_master_dictionary').select('keyword, label, category, description');
             if (!dictError && dictData) {
                 setMasterDictionary(dictData);
@@ -118,17 +121,21 @@ const ServicesAdmin = () => {
             description: service.description || '', plan_text: service.plan_text || '', triggers: service.triggers || '',
             language_req: service.language_req || '', brochure_url: service.brochure_url || '',
             provider: service.provider || '', ura_number: service.ura_number || '', start_date: service.start_date || '', enrollment_deadline: service.enrollment_deadline || '',
-            esco_title: service.esco_title || '', esco_uri: service.esco_uri || ''
+            esco_title: service.esco_title || '', esco_uri: service.esco_uri || '',
+            requires_referral: service.requires_referral || false,
+            hard_service: service.hard_service || false,
+            meta: service.meta || {}
         });
         setAiInput(service.url || '');
         setAiMode('url');
+        setAiSuggestions(null);
         setEscoQuery('');
         setConfirmDelete(false); setSaveSuccess(false);
     };
 
     const handleCreateNew = () => {
         setActiveService('new'); setFormData(initialFormState);
-        setAiInput(''); setAiMode('url'); setEscoQuery('');
+        setAiInput(''); setAiMode('url'); setEscoQuery(''); setAiSuggestions(null);
         setConfirmDelete(false); setSaveSuccess(false);
     };
 
@@ -138,6 +145,12 @@ const ServicesAdmin = () => {
         try {
             const payload = { ...formData };
             if (!payload.enrollment_deadline) payload.enrollment_deadline = null;
+            
+            // TVM Saari-turvasääntö tallennuksessa
+            if (payload.service_type === 'koulutus') {
+                payload.hard_service = false;
+                payload.requires_referral = false;
+            }
 
             if (activeService === 'new') {
                 const { data, error } = await supabase.from('services').insert([payload]).select().single();
@@ -174,14 +187,13 @@ const ServicesAdmin = () => {
 
     const handleAIProcess = async () => {
         if (!aiInput) return alert("Syötä kenttään sisältöä ensin!");
-        setIsGenerating(true);
+        setIsGenerating(true); setAiSuggestions(null);
         try {
-          // Lähetetään tekoälylle avaimen lisäksi myös ihmisluettava nimi ja selite!
-const knownTriggers = masterDictionary.map(d => ({
-    keyword: d.keyword,
-    label: d.label || d.keyword,
-    description: d.description || ''
-}));
+            const knownTriggers = masterDictionary.map(d => ({
+                keyword: d.keyword,
+                label: d.label || d.keyword,
+                description: d.description || ''
+            }));
             const payload = { knownCategories, knownTriggers, mode: aiMode, aiInput: aiInput.trim() };
 
             const response = await fetch('/.netlify/functions/extract_service', {
@@ -192,7 +204,6 @@ const knownTriggers = masterDictionary.map(d => ({
             if (!response.ok) throw new Error("Haku epäonnistui (Virhekoodi: " + response.status + ").");
             
             const aiData = await response.json();
-
             const safeTriggers = Array.isArray(aiData.triggers) ? aiData.triggers.join(', ') : (aiData.triggers || '');
             let formattedDeadline = '';
             if (aiData.enrollment_deadline) formattedDeadline = String(aiData.enrollment_deadline).substring(0, 10);
@@ -200,22 +211,75 @@ const knownTriggers = masterDictionary.map(d => ({
             const isUrl = aiInput.trim().startsWith('http://') || aiInput.trim().startsWith('https://');
             const finalUrl = isUrl ? aiInput.trim() : '';
 
+            // Päivitetään standardikentät lomakkeeseen
             setFormData(prev => ({
                 ...prev,
-            url: aiMode === 'url' ? finalUrl : prev.url,
-                title: aiData.title || prev.title, service_type: aiData.service_type || prev.service_type, category: aiData.category || prev.category,
-                description: aiData.description || prev.description, plan_text: aiData.plan_text || prev.plan_text, triggers: safeTriggers,
-                language_req: aiData.language_req || prev.language_req, brochure_url: aiData.brochure_url || prev.brochure_url,
-                provider: aiData.provider || prev.provider, ura_number: aiData.ura_number || prev.ura_number, 
-                start_date: aiData.start_date || prev.start_date, enrollment_deadline: formattedDeadline || prev.enrollment_deadline,
-                esco_title: aiData.esco_title || '', esco_uri: aiData.esco_uri || ''
+                url: aiMode === 'url' ? finalUrl : prev.url,
+                title: aiData.title || prev.title, 
+                service_type: aiData.service_type || prev.service_type, 
+                category: aiData.category || prev.category,
+                description: aiData.description || prev.description, 
+                plan_text: aiData.plan_text || prev.plan_text, 
+                triggers: safeTriggers,
+                language_req: aiData.language_req || prev.language_req, 
+                brochure_url: aiData.brochure_url || prev.brochure_url,
+                provider: aiData.provider || prev.provider, 
+                ura_number: aiData.ura_number || prev.ura_number, 
+                start_date: aiData.start_date || prev.start_date, 
+                enrollment_deadline: formattedDeadline || prev.enrollment_deadline,
+                esco_title: aiData.esco_title || '', 
+                esco_uri: aiData.esco_uri || '',
+                // Jos ei ole TVM, otetaan liput vastaan valmiiksi muistiin tarkistusta varten
+                requires_referral: aiData.service_type === 'koulutus' ? false : (aiData.requires_referral || false),
+                hard_service: aiData.service_type === 'koulutus' ? false : (aiData.hard_service || false)
             }));
+
+            // Jos tekoäly keksi dynaamisia metasääntöjä, asetetaan ne tarkistusjonoon
+            if (aiData.meta && Object.keys(aiData.meta).length > 0 && aiData.service_type !== 'koulutus') {
+                setAiSuggestions(aiData.meta);
+            }
         } catch (error) {
             alert(error.message);
         } finally {
             setIsGenerating(false);
         }
     };
+
+    // --- DYNAAMINEN META EDITOR (JSONB Hallinta ilman kovakoodausta) ---
+    const handleAddCustomMeta = () => {
+        if (!newMetaKey.trim()) return alert("Avain ei voi olla tyhjä");
+        const key = newMetaKey.trim().toLowerCase().replace(/ /g, '_');
+        let value = newMetaType === 'boolean' ? (newMetaValue === 'true') : newMetaValue.trim();
+
+        setFormData(prev => ({
+            ...prev,
+            meta: { ...prev.meta, [key]: value }
+        }));
+        setNewMetaKey(''); setNewMetaValue('');
+    };
+
+    const handleRemoveMetaKey = (key) => {
+        const updatedMeta = { ...formData.meta };
+        delete updatedMeta[key];
+        setFormData(prev => ({ ...prev, meta: updatedMeta }));
+    };
+
+    const handleAcceptAiMeta = (key, value) => {
+        setFormData(prev => ({
+            ...prev,
+            meta: { ...prev.meta, [key]: value }
+        }));
+        const updatedSuggestions = { ...aiSuggestions };
+        delete updatedSuggestions[key];
+        setAiSuggestions(Object.keys(updatedSuggestions).length > 0 ? updatedSuggestions : null);
+    };
+
+    const handleRejectAiMeta = (key) => {
+        const updatedSuggestions = { ...aiSuggestions };
+        delete updatedSuggestions[key];
+        setAiSuggestions(Object.keys(updatedSuggestions).length > 0 ? updatedSuggestions : null);
+    };
+    // ------------------------------------------------------------------
 
     const safeCurrentTriggers = Array.isArray(formData.triggers) ? formData.triggers.join(', ') : (formData.triggers || '');
     const currentTriggersArray = safeCurrentTriggers.split(',').map(t => t.trim()).filter(Boolean);
@@ -240,6 +304,7 @@ const knownTriggers = masterDictionary.map(d => ({
     };
 
     const isCategoryNew = formData.category && !knownCategories.includes(formData.category);
+    const isTvmIsland = formData.service_type === 'koulutus';
 
     const groupedDictionary = useMemo(() => {
         const groups = {};
@@ -252,7 +317,7 @@ const knownTriggers = masterDictionary.map(d => ({
         return groups;
     }, [masterDictionary, currentTriggersArray]);
 
-    if (isLoading) return <div className="section-container"><p>Ladataan...</p></div>;
+    if (isLoading) return <div className="section-container"><p>Ladataan hallintajärjestelmää...</p></div>;
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
@@ -261,11 +326,12 @@ const knownTriggers = masterDictionary.map(d => ({
                     <Compass size={24} color="var(--color-primary)" /> Palveluhakemiston hallinta ja AI-tuonti
                 </h2>
                 <p style={{ color: 'var(--color-text-secondary)', margin: 0, maxWidth: '800px' }}>
-                    Tekoäly pyrkii hyödyntämään olemassa olevia kategorioita ja signaaleja. Voit helposti klikkailla signaaleja päälle tai pois estääksesi päällekkäisyyksien syntymisen tietokantaan.
+                    Hallitse dynaamisesti palveluita, lainsäädännöllisiä lähetevaatimuksia, sekä suoraan tekoälyltä louhittuja tai manuaalisesti määriteltyjä metasääntöjä.
                 </p>
             </div>
 
             <div className="admin-workspace-grid" style={{ margin: 0 }}>
+                {/* VASEN SIVUPALKKI */}
                 <div className="admin-sidebar">
                     <button className="btn" onClick={handleCreateNew} style={{ width: '100%', marginBottom: '1.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem' }} disabled={isSaving}>
                         <Plus size={18} /> Uusi palvelu
@@ -275,11 +341,13 @@ const knownTriggers = masterDictionary.map(d => ({
                         {services.map(s => {
                             const isExpired = s.enrollment_deadline && new Date(s.enrollment_deadline) < new Date();
                             return (
-                                <div key={s.id} className={`admin-menu-item ${activeService === s.id ? 'admin-menu-item--active' : ''}`} onClick={() => handleItemClick(s)} style={{ padding: '0.75rem 1rem', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', opacity: isExpired ? 0.6 : 1 }}>
+                                <div key={s.id} className={`admin-menu-item ${activeService === s.id ? 'admin-menu-item--active' : ''}`} onClick={() => handleItemClick(s)} style={{ opacity: isExpired ? 0.6 : 1 }}>
                                     <div style={{ fontWeight: '600' }}>{s.title}</div>
                                     <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
                                         {s.service_type === 'koulutus' && <span style={{ color: '#b45309', fontWeight: 'bold' }}>[TVM]</span>}
                                         {s.category} {s.language_req && `• ${s.language_req}`}
+                                        {s.hard_service && <span style={{ color: 'var(--color-danger)' }}>• Velvoittava</span>}
+                                        {s.requires_referral && <span style={{ color: 'var(--color-success)' }}>• Lähete</span>}
                                         {isExpired && <span style={{ color: 'var(--color-danger)' }}>(Haku päättynyt)</span>}
                                     </div>
                                 </div>
@@ -288,216 +356,218 @@ const knownTriggers = masterDictionary.map(d => ({
                     </div>
                 </div>
 
+                {/* OIKEA TYÖTILA */}
                 <div className="admin-preview">
                     {!activeService ? (
                         <div className="admin-empty-state" style={{ minHeight: '500px' }}>
-                            <Compass size={48} style={{ opacity: 0.2, marginBottom: '1rem' }} /> Valitse palvelu vasemmalta tai luo uusi.
+                            <Compass size={48} style={{ opacity: 0.2, marginBottom: '1rem' }} /> Valitse palvelu vasemmalta muokataksesi sitä tai aloita uusi luonnos.
                         </div>
                     ) : (
                         <div className="admin-preview-card" style={{ animation: 'fadeIn 0.3s ease-out' }}>
                             
+                            {/* TEKOÄLYN TUONTILAATIKKO */}
                             <div className="smart-analysis-box" style={{ backgroundColor: '#eff6ff', border: '1px solid rgba(37,99,235,0.2)', padding: '1.5rem', marginBottom: '2rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                                     <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-primary)' }}>
-                                        <Sparkles size={18} color="#8b5cf6" /> Tuo tiedot tekoälyllä
+                                        <Sparkles size={18} color="#8b5cf6" /> Tuo tiedot ja metasäännöt automaattisesti tekoälyllä
                                     </label>
                                     <div style={{ display: 'flex', backgroundColor: '#e2e8f0', borderRadius: '8px', padding: '0.2rem' }}>
-                                        <button 
-                                            onClick={() => { setAiMode('url'); setAiInput(''); }} 
-                                            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: aiMode === 'url' ? '600' : 'normal', backgroundColor: aiMode === 'url' ? 'white' : 'transparent', color: aiMode === 'url' ? 'var(--color-primary)' : 'var(--color-text-secondary)', transition: 'all 0.2s', boxShadow: aiMode === 'url' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
-                                        >
+                                        <button onClick={() => { setAiMode('url'); setAiInput(''); }} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: aiMode === 'url' ? '600' : 'normal', backgroundColor: aiMode === 'url' ? 'white' : 'transparent', color: aiMode === 'url' ? 'var(--color-primary)' : 'var(--color-text-secondary)', transition: 'all 0.2s' }}>
                                             <Globe size={16} /> Palvelun linkki
                                         </button>
-                                        <button 
-                                            onClick={() => { setAiMode('text'); setAiInput(''); }} 
-                                            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: aiMode === 'text' ? '600' : 'normal', backgroundColor: aiMode === 'text' ? '#fef3c7' : 'transparent', color: aiMode === 'text' ? '#b45309' : 'var(--color-text-secondary)', transition: 'all 0.2s', boxShadow: aiMode === 'text' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
-                                        >
-                                            <Type size={16} /> Työmarkkinatori (Teksti)
+                                        <button onClick={() => { setAiMode('text'); setAiInput(''); }} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: aiMode === 'text' ? '600' : 'normal', backgroundColor: aiMode === 'text' ? '#fef3c7' : 'transparent', color: aiMode === 'text' ? '#b45309' : 'var(--color-text-secondary)', transition: 'all 0.2s' }}>
+                                            <Type size={16} /> Työmarkkinatorin teksti (TVM)
                                         </button>
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                                     {aiMode === 'url' ? (
-                                        <input type="text" className="form-input" placeholder="https://esimerkki.fi/palvelu" value={aiInput} onChange={(e) => setAiInput(e.target.value)} style={{ flex: 1, padding: '0.75rem' }} />
+                                        <input type="text" className="form-input" placeholder="https://esimerkki.fi/palvelun-osoite" value={aiInput} onChange={(e) => setAiInput(e.target.value)} style={{ flex: 1, padding: '0.75rem' }} />
                                     ) : (
-                                        <textarea className="form-input" rows="3" placeholder="Liitä koko Työmarkkinatorin ilmoituksen teksti tähän (Ctrl+A, Ctrl+C, Ctrl+V)..." value={aiInput} onChange={(e) => setAiInput(e.target.value)} style={{ flex: 1, padding: '0.75rem', resize: 'vertical' }} />
+                                        <textarea className="form-input" rows="3" placeholder="Liitä koko Työmarkkinatorin teksti tähän. Järjestelmä eristää tämän automaattisesti omaksi TVM-koulutussaarekseen..." value={aiInput} onChange={(e) => setAiInput(e.target.value)} style={{ flex: 1, padding: '0.75rem', resize: 'vertical' }} />
                                     )}
-                                    <button className="btn" onClick={handleAIProcess} disabled={isGenerating || !aiInput || isSaving} style={{ backgroundColor: '#8b5cf6', borderColor: '#8b5cf6', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', whiteSpace: 'nowrap' }}>
-                                        {isGenerating ? 'Louhitaan... 🌼' : 'Hae tiedot 🐝'}
+                                    <button className="btn-ai" onClick={handleAIProcess} disabled={isGenerating || !aiInput || isSaving} style={{ padding: '0.75rem 1.5rem', whiteSpace: 'nowrap' }}>
+                                        {isGenerating ? 'Louhitaan sääntöjä... ✨' : 'Hae ja analysoi'}
                                     </button>
                                 </div>
                             </div>
 
+                            {/* TEKOÄLYN EHDOTTAMAT METASÄÄNNÖT (TARKISTUSJONO) */}
+                            {aiSuggestions && (
+                                <div className="suggestions-container" style={{ margin: '0 0 2rem 0' }}>
+                                    <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--color-ai)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <Sparkles size={16} /> Tekoälyn löytämät dynaamiset reuna-ehdot (Vahvista Meta-kenttään):
+                                    </h4>
+                                    <p style={{ fontSize: '0.85rem', margin: '0 0 1rem 0' }}>Seuraavat säännöt havaittiin analysoidussa tekstissä. Hyväksy ne osaksi palvelun dynaamista DNA:ta:</p>
+                                    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                                        {Object.entries(aiSuggestions).map(([key, value]) => (
+                                            <li key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', border: '1px solid var(--color-ai-border)', borderRadius: '6px', marginBottom: '0.5rem', backgroundColor: '#fafafa' }}>
+                                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+                                                    <strong>{key}</strong>: <span style={{ color: typeof value === 'boolean' ? 'var(--color-primary)' : 'inherit' }}>{String(value)}</span>
+                                                </span>
+                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                    <button className="btn" style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem', backgroundColor: 'var(--color-success)' }} onClick={() => handleAcceptAiMeta(key, value)}><Check size={14} /></button>
+                                                    <button className="btn btn--secondary" style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem', color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }} onClick={() => handleRejectAiMeta(key)}><X size={14} /></button>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* STANDARDILOMAKE RAKENNE-KOMPONENTEILLA */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                                 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-                                    <div>
-                                        <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>Palvelun nimi</label>
-                                        <input type="text" className="form-input" value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} disabled={isSaving} />
-                                    </div>
+                                    <SmartInput label="Palvelun tai koulutuksen virallinen nimi" value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} disabled={isSaving} />
+                                    
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                        <div>
-                                            <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>Tyyppi</label>
-                                            <select className="modern-select" value={formData.service_type} onChange={(e) => setFormData({...formData, service_type: e.target.value})} disabled={isSaving}>
-                                                <option value="palvelu">Palvelu</option>
-                                                <option value="koulutus">Koulutus (TVM)</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                                Kategoria {isCategoryNew && <span style={{ color: 'var(--color-primary)', fontSize: '0.75rem', fontWeight: 'bold' }}>(Uusi)</span>}
-                                            </label>
-                                            <select className="modern-select" value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})} disabled={isSaving} style={isCategoryNew ? { borderColor: 'var(--color-primary)', backgroundColor: 'rgba(255,107,0,0.05)' } : {}}>
-                                                {isCategoryNew && <option value={formData.category}>{formData.category}</option>}
-                                                {knownCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                                            </select>
-                                        </div>
+                                        <SmartInput label="Järjestelmätyyppi" type="select" value={formData.service_type} onChange={(e) => setFormData({...formData, service_type: e.target.value})} disabled={isSaving} options={[{ value: 'palvelu', label: 'Muu palvelu' }, { value: 'koulutus', label: 'Työvoimakoulutus (TVM)' }]} />
+                                        <SmartInput label="Kategoria" type="select" value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value})} disabled={isSaving} options={knownCategories.map(cat => ({ value: cat, label: cat }))} className={isCategoryNew ? 'panel-ai-edu' : ''} />
                                     </div>
                                 </div>
 
-                                <div style={{ position: 'relative', zIndex: 50 }} ref={escoDropdownRef}>
-                                    <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: formData.esco_uri ? 'var(--color-success)' : 'inherit' }}>
-                                        <Briefcase size={18} /> Tavoiteammatti (ESCO)
-                                    </label>
-                                    
+                                {/* TYÖVOIMAKOULUTUS-SAARI (ERISTETTY REUNAEHTO ALUE) */}
+                                {isTvmIsland ? (
+                                    <div className="panel-gray" style={{ margin: 0, backgroundColor: 'rgba(255, 176, 32, 0.03)', borderColor: 'rgba(255, 176, 32, 0.2)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#b45309', fontWeight: 'bold', marginBottom: '1rem', fontSize: '0.9rem' }}>
+                                            <ShieldAlert size={18} /> Työvoimakoulutuksen (TVM) juridiset reuna-ehdot aktivoitu
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                            <SmartInput label="Koulutuksen järjestäjä / Oppilaitos" value={formData.provider} onChange={(e) => setFormData({...formData, provider: e.target.value})} disabled={isSaving} placeholder="Esim. Stadin AO, Taitotalo" />
+                                            <SmartInput label="Virallinen URA-numero" value={formData.ura_number} onChange={(e) => setFormData({...formData, ura_number: e.target.value})} disabled={isSaving} placeholder="6-numeroinen koodi" mono />
+                                            <SmartInput label="Aloitusajankohta" value={formData.start_date} onChange={(e) => setFormData({...formData, start_date: e.target.value})} disabled={isSaving} placeholder="Esim. 11.8.2026" />
+                                            <SmartInput label="Viimeinen hakupäivä" type="date" value={formData.enrollment_deadline} onChange={(e) => setFormData({...formData, enrollment_deadline: e.target.value})} disabled={isSaving} />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    /* TAVALLISEN PALVELUN LAKISÄÄTEISET KYTKIMET (PIILOTETTU TVM-SAARELTA) */
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                        <AdminPanel title="Lakisääteinen ohjausvelvoite" variant="bordered" style={{ borderColor: 'var(--color-danger)' }}>
+                                            <label className="modern-checkbox-label" style={{ border: formData.hard_service ? '1px solid var(--color-danger)' : '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px', backgroundColor: formData.hard_service ? 'rgba(227,74,74,0.02)' : 'transparent' }}>
+                                                <input type="checkbox" className="modern-checkbox" checked={formData.hard_service} onChange={(e) => setFormData({...formData, hard_service: e.target.checked})} disabled={isSaving} />
+                                                <div>
+                                                    <strong>Aseta velvoittavaksi (hard_service)</strong>
+                                                    <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem' }}>Laukaisee työttömyysturvalain mukaiset seuraamustekstit asiakirjaan sekä mahdollisuuden alentaa THV-määrää nollaan.</p>
+                                                </div>
+                                            </label>
+                                        </AdminPanel>
+
+                                        <AdminPanel title="Ammattilaisen tilaus / Lähetevaatimus" variant="bordered" style={{ borderColor: 'var(--color-success)' }}>
+                                            <label className="modern-checkbox-label" style={{ border: formData.requires_referral ? '1px solid var(--color-success)' : '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px', backgroundColor: formData.requires_referral ? 'rgba(30,154,90,0.02)' : 'transparent' }}>
+                                                <input type="checkbox" className="modern-checkbox" checked={formData.requires_referral} onChange={(e) => setFormData({...formData, requires_referral: e.target.checked})} disabled={isSaving} />
+                                                <div>
+                                                    <strong>Vaatii asiantuntijan lähetteen</strong>
+                                                    <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem' }}>Avaa työkaluun automaattisen monialaisen läheteikkunan, joka imee pohjaksi 33 §:n edellytysten arviointiraaka-tekstin.</p>
+                                                </div>
+                                            </label>
+                                        </AdminPanel>
+                                    </div>
+                                )}
+
+                                {/* ESCO AMMATTILUOKITUS */}
+                                <AdminPanel title="Tavoiteammatti (ESCO-luokitus)" icon={<Briefcase size={18} />}>
                                     {formData.esco_title ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f0fdf4', border: '1px solid #86efac', padding: '0.75rem', borderRadius: '6px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#166534', fontWeight: '600' }}>
-                                                <span>✓</span> {formData.esco_title}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyBetween: 'space-between', backgroundColor: '#f0fdf4', border: '1px solid #86efac', padding: '0.75rem', borderRadius: '6px', width: '100%', boxSizing: 'border-box' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#166534', fontWeight: '600', fontSize: '0.85rem' }}>
+                                                <span>✓</span> Kytketty ammattikoodiin: {formData.esco_title}
                                             </div>
-                                            <button onClick={handleClearEsco} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', display: 'flex', alignItems: 'center' }}>
-                                                <X size={18} />
-                                            </button>
+                                            <button onClick={handleClearEsco} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', display: 'flex', alignItems: 'center', marginLeft: 'auto' }}><X size={18} /></button>
                                         </div>
                                     ) : (
                                         <div style={{ position: 'relative' }}>
-                                            <div style={{ position: 'absolute', top: '50%', left: '0.75rem', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }}>
-                                                <Search size={16} />
-                                            </div>
-                                            <input 
-                                                type="text" 
-                                                className="form-input" 
-                                                placeholder="Kirjoita ammatin nimi (esim. Ohjelmistokehittäjä)..." 
-                                                value={escoQuery} 
-                                                onChange={(e) => setEscoQuery(e.target.value)} 
-                                                onFocus={() => escoResults.length > 0 && setShowEscoDropdown(true)}
-                                                style={{ paddingLeft: '2.5rem' }}
-                                                disabled={isSaving}
-                                            />
-                                            {isEscoSearching && (
-                                                <div style={{ position: 'absolute', top: '50%', right: '0.75rem', transform: 'translateY(-50%)', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                                                    Etsitään...
-                                                </div>
-                                            )}
-                                            
+                                            <div style={{ position: 'absolute', top: '50%', left: '0.75rem', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }}><Search size={16} /></div>
+                                            <input type="text" className="form-input" placeholder="Hae EU-ammattinimikettä kytkeäksesi palvelun ammattiryhmään (esim. laitoshuoltaja)..." value={escoQuery} onChange={(e) => setEscoQuery(e.target.value)} onFocus={() => escoResults.length > 0 && setShowEscoDropdown(true)} style={{ paddingLeft: '2.5rem' }} disabled={isSaving} />
+                                            {isEscoSearching && <div style={{ position: 'absolute', top: '50%', right: '0.75rem', transform: 'translateY(-50%)', fontSize: '0.8rem' }}>Etsitään...</div>}
                                             {showEscoDropdown && escoResults.length > 0 && (
-                                                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', backgroundColor: 'white', border: '1px solid var(--color-border)', borderRadius: '6px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', maxHeight: '250px', overflowY: 'auto' }}>
+                                                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', backgroundColor: 'white', border: '1px solid var(--color-border)', borderRadius: '6px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', maxHeight: '250px', overflowY: 'auto', zIndex: 100 }}>
                                                     {escoResults.map((res, idx) => (
-                                                        <div 
-                                                            key={idx} 
-                                                            onClick={() => handleSelectEsco(res)}
-                                                            style={{ padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: idx !== escoResults.length - 1 ? '1px solid #f1f5f9' : 'none' }}
-                                                            onMouseOver={e => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                                            onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                                                        >
-                                                            {res.title}
-                                                        </div>
+                                                        <div key={idx} onClick={() => handleSelectEsco(res)} style={{ padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }} onMouseOver={e => e.currentTarget.style.backgroundColor = '#f8fafc'} onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}>{res.title}</div>
                                                     ))}
                                                 </div>
                                             )}
                                         </div>
                                     )}
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', margin: '0.4rem 0 0 0' }}>
-                                        Virallinen EU:n ammattiluokitus. Tekoäly pyrkii löytämään tämän automaattisesti tekstistä.
-                                    </p>
+                                </AdminPanel>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                    <SmartInput label="Kielitaitovaatimus (CEFR)" type="select" value={formData.language_req} onChange={(e) => setFormData({...formData, language_req: e.target.value})} disabled={isSaving} options={CEFR_LEVELS.map(lvl => ({ value: lvl, label: lvl || 'Ei erillistä vaatimusta (Oletus: Natiivi)' }))} />
+                                    <SmartInput label="Esitteen tai liitetiedoston suora URL" value={formData.brochure_url} onChange={(e) => setFormData({...formData, brochure_url: e.target.value})} disabled={isSaving} placeholder="https://palvelumanuaali.fi/esite.pdf" />
                                 </div>
 
-                                <div>
-                                    <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                                        <LinkIcon size={16} /> Virallinen linkki palveluun (esim. www.taitotalo.fi)
-                                    </label>
-                                    <input type="text" className="form-input" value={formData.url} onChange={(e) => setFormData({...formData, url: e.target.value})} disabled={isSaving} />
-                                </div>
+                                <SmartInput label="Virallinen manuaalilinkki lisätietoihin" value={formData.url} onChange={(e) => setFormData({...formData, url: e.target.value})} disabled={isSaving} placeholder="https://tyollisyys.palvelumanuaali.fi/palvelu/..." />
 
-                                {formData.service_type === 'koulutus' && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', backgroundColor: '#fffbe3', padding: '1rem', borderRadius: '6px', border: '1px solid #facc15' }}>
-                                        <div>
-                                            <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>Järjestäjä</label>
-                                            <input type="text" className="form-input" value={formData.provider} onChange={(e) => setFormData({...formData, provider: e.target.value})} disabled={isSaving} placeholder="Esim. Taitotalo" />
+                                <SmartInput label="Kuvaus asiantuntijalle (Sisäinen ohje)" type="textarea" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} disabled={isSaving} />
+
+                                <SmartInput label="Asiakirjaan ja työllistymissuunnitelmaan tulostuva teksti (Juridinen päätös)" type="textarea" value={formData.plan_text} onChange={(e) => setFormData({...formData, plan_text: e.target.value})} disabled={isSaving} className="panel-ai-work" />
+
+                                {/* --- TÄYSIN DYNAAMINEN META-KENTÄN EDITOR (JSONB) --- */}
+                                {!isTvmIsland && (
+                                    <AdminPanel title="Täydentävät dynaamiset reuna-ehdot ja metasäännöt (JSONB)" icon={<Info size={18} />}>
+                                        <p style={{ fontSize: '0.85rem', margin: '0 0 1rem 0' }}>Määrittele vapaasti uusia reuna-ehtoja ilman tietokantamuutoksia. Nämä ohjaavat älykästä suosittelua taustalla.</p>
+                                        
+                                        {/* Nykyiset avaimet */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                                            {Object.entries(formData.meta || {}).map(([key, value]) => (
+                                                <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', backgroundColor: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: '6px' }}>
+                                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+                                                        <strong style={{ color: 'var(--color-primary)' }}>{key}</strong>: {String(value)}
+                                                    </span>
+                                                    <button className="btn-clear" onClick={() => handleRemoveMetaKey(key)} style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}>Poista sääntö</button>
+                                                </div>
+                                            ))}
+                                            {Object.keys(formData.meta || {}).length === 0 && (
+                                                <span style={{ fontStyle: 'italic', color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>Ei asetettuja erikoissääntöjä.</span>
+                                            )}
                                         </div>
-                                        <div>
-                                            <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>URA-numero</label>
-                                            <input type="text" className="form-input" value={formData.ura_number} onChange={(e) => setFormData({...formData, ura_number: e.target.value})} disabled={isSaving} placeholder="Esim. 712345" />
+
+                                        {/* Uuden avaimen lisäys */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 100px', gap: '1rem', alignItems: 'end', backgroundColor: '#fafafa', padding: '1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Säännön avain (meta_key)</label>
+                                                <input type="text" className="form-input" placeholder="esim. etäopetus" value={newMetaKey} onChange={(e) => setNewMetaKey(e.target.value)} style={{ marginTop: '0.25rem' }} />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Tietotyyppi</label>
+                                                <select className="modern-select" value={newMetaType} onChange={(e) => { setNewMetaType(e.target.value); setNewMetaValue(e.target.value === 'boolean' ? 'true' : ''); }} style={{ marginTop: '0.25rem' }}>
+                                                    <option value="boolean">Kyllä/Ei (Boolean)</option>
+                                                    <option value="string">Teksti (String)</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Arvo</label>
+                                                {newMetaType === 'boolean' ? (
+                                                    <select className="modern-select" value={newMetaValue} onChange={(e) => setNewMetaValue(e.target.value)} style={{ marginTop: '0.25rem' }}>
+                                                        <option value="true">True (Kyllä)</option>
+                                                        <option value="false">False (Ei)</option>
+                                                    </select>
+                                                ) : (
+                                                    <input type="text" className="form-input" placeholder="Vapaa arvo" value={newMetaValue} onChange={(e) => setNewMetaValue(e.target.value)} style={{ marginTop: '0.25rem' }} />
+                                                )}
+                                            </div>
+                                            <button className="btn" onClick={handleAddCustomMeta} style={{ padding: '0.5rem' }}>Lisää</button>
                                         </div>
-                                        <div>
-                                            <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>Aloitusajankohta</label>
-                                            <input type="text" className="form-input" value={formData.start_date} onChange={(e) => setFormData({...formData, start_date: e.target.value})} disabled={isSaving} placeholder="Esim. Syksy 2026" />
-                                        </div>
-                                        <div>
-                                            <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>Hakuaika päättyy</label>
-                                            <input type="date" className="form-input" value={formData.enrollment_deadline} onChange={(e) => setFormData({...formData, enrollment_deadline: e.target.value})} disabled={isSaving} />
-                                        </div>
-                                    </div>
+                                    </AdminPanel>
                                 )}
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', backgroundColor: 'var(--color-background)', padding: '1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
-                                    <div>
-                                        <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>Kielitaitovaatimus (CEFR)</label>
-                                        <select className="modern-select" value={formData.language_req} onChange={(e) => setFormData({...formData, language_req: e.target.value})} disabled={isSaving}>
-                                            <option value="">Ei vaatimusta / Ei tiedossa</option>
-                                            {formData.language_req && !CEFR_LEVELS.includes(formData.language_req) && <option value={formData.language_req}>{formData.language_req}</option>}
-                                            {CEFR_LEVELS.filter(Boolean).map(lvl => <option key={lvl} value={lvl}>{lvl}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                                            <FileText size={16} /> Esitteen tai liitteen URL
-                                        </label>
-                                        <input type="text" className="form-input" placeholder="https://.../esite.pdf" value={formData.brochure_url} onChange={(e) => setFormData({...formData, brochure_url: e.target.value})} disabled={isSaving} />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>Kuvaus asiantuntijalle</label>
-                                    <textarea className="form-input" rows="6" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} disabled={isSaving} />
-                                </div>
-
-                                <div>
-                                    <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem', color: 'var(--color-primary)' }}>Asiakirjaan tulostuva teksti (Juridinen)</label>
-                                    <textarea className="form-input" rows="4" style={{ borderLeft: '3px solid var(--color-primary)', backgroundColor: '#fffaf5' }} value={formData.plan_text} onChange={(e) => setFormData({...formData, plan_text: e.target.value})} disabled={isSaving} />
-                                </div>
-
+                                {/* SIGNAALIT / TAGIT HALLINTA */}
                                 <div style={{ backgroundColor: '#f9fafb', padding: '1.5rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
                                     <label style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                        <Info size={18} color="var(--color-text-secondary)" /> Laukaisevat signaalit (Tagit)
+                                        <Info size={18} color="var(--color-text-secondary)" /> Laukaisevat signaalit ja kytkennät
                                     </label>
                                     <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', margin: '0 0 1.5rem 0' }}>
-                                        Valitut signaalit liitetään tähän palveluun. Näytetään vain järjestelmän tunnistamat inhimilliset nimet, mutta taustalla tallentuvat viralliset koodiavaimet.
+                                        Yhdistä palvelu järjestelmän globaaleihin signaaleihin. Palvelu nousee älykkäästi suosituksi asiantuntijalle, kun nämä ehdot täyttyvät.
                                     </p>
 
-                                    <h5 style={{ fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--color-text-primary)' }}>Valitut signaalit:</h5>
+                                    <h5 style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Aktiiviset kytkennät tässä palvelussa:</h5>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '2rem', minHeight: '48px', padding: '0.75rem', backgroundColor: '#fff', border: '1px dashed var(--color-border)', borderRadius: '6px' }}>
-                                        {currentTriggersArray.length === 0 && <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', fontStyle: 'italic' }}>Ei valittuja signaaleja...</span>}
+                                        {currentTriggersArray.length === 0 && <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.85rem', fontStyle: 'italic' }}>Ei kytkettyjä signaaleja. Palvelu vaatii käsihakua.</span>}
                                         {currentTriggersArray.map((trigger, idx) => {
                                             const dictItem = masterDictionary.find(d => d.keyword === trigger);
-                                            const isTriggerNew = !dictItem;
-                                            const displayLabel = dictItem && dictItem.label ? dictItem.label : trigger;
-
                                             return (
-                                                <span 
-                                                    key={idx} 
-                                                    title={dictItem?.description || trigger}
-                                                    className={`tag ${isTriggerNew ? 'tag--warning' : 'tag--success'}`} 
-                                                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.6rem', fontSize: '0.85rem', cursor: 'default' }}
-                                                >
-                                                    {isTriggerNew && <AlertCircle size={14} />}
-                                                    <span style={{ fontWeight: '600' }}>{displayLabel}</span> {isTriggerNew && '(Tuntematon)'}
-                                                    <button 
-                                                        onClick={() => handleRemoveTrigger(trigger)} 
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center', padding: '0 0 0 0.4rem', marginLeft: '0.2rem', borderLeft: '1px solid currentColor', opacity: 0.7 }}
-                                                    >
-                                                        <X size={14} />
-                                                    </button>
+                                                <span key={idx} title={dictItem?.description || trigger} className={`tag ${!dictItem ? 'tag--warning' : 'tag--success'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.6rem', fontSize: '0.85rem' }}>
+                                                    <span style={{ fontWeight: '600' }}>{dictItem?.label || trigger}</span>
+                                                    <button onClick={() => handleRemoveTrigger(trigger)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center', padding: '0 0 0 0.4rem', marginLeft: '0.2rem', borderLeft: '1px solid currentColor', opacity: 0.7 }}><X size={14} /></button>
                                                 </span>
                                             );
                                         })}
@@ -505,29 +575,13 @@ const knownTriggers = masterDictionary.map(d => ({
 
                                     {Object.keys(groupedDictionary).length > 0 && (
                                         <div style={{ padding: '1rem', backgroundColor: 'white', border: '1px solid var(--color-border)', borderRadius: '6px' }}>
-                                            <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--color-text-primary)', display: 'block', marginBottom: '1rem' }}>
-                                                Lisää olemassa oleva signaali:
-                                            </span>
-                                            
-                                            {Object.entries(groupedDictionary)
-                                                .sort(([a], [b]) => a.localeCompare(b))
-                                                .map(([category, items]) => (
+                                            <span style={{ fontSize: '0.9rem', fontWeight: '600', display: 'block', marginBottom: '1rem' }}>Klikkaa signaali valituksi:</span>
+                                            {Object.entries(groupedDictionary).sort(([a], [b]) => a.localeCompare(b)).map(([category, items]) => (
                                                 <div key={category} style={{ marginBottom: '1.25rem' }}>
-                                                    <h6 style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem 0' }}>
-                                                        {category}
-                                                    </h6>
+                                                    <h6 style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem 0' }}>{category}</h6>
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                                                         {items.map(item => (
-                                                            <button 
-                                                                key={item.keyword} 
-                                                                onClick={() => handleAddTrigger(item.keyword)}
-                                                                title={item.description || item.keyword}
-                                                                style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '0.3rem 0.6rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--color-text-primary)', transition: 'all 0.15s' }}
-                                                                onMouseOver={e => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.color = 'var(--color-primary)'; }}
-                                                                onMouseOut={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = 'var(--color-text-primary)'; }}
-                                                            >
-                                                                + {item.label || item.keyword}
-                                                            </button>
+                                                            <button key={item.keyword} onClick={() => handleAddTrigger(item.keyword)} title={item.description || item.keyword} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '0.3rem 0.6rem', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--color-text-primary)' }}>+ {item.label || item.keyword}</button>
                                                         ))}
                                                     </div>
                                                 </div>
@@ -536,26 +590,20 @@ const knownTriggers = masterDictionary.map(d => ({
                                     )}
 
                                     <div style={{ marginTop: '1rem' }}>
-                                        <input 
-                                            type="text" 
-                                            className="form-input" 
-                                            placeholder="Kirjoita uuden signaalin raaka-avain (esim. mt_ongelmat) ja paina Enter..." 
-                                            onKeyDown={handleCustomTriggerKeyDown} 
-                                            disabled={isSaving} 
-                                            style={{ fontSize: '0.85rem', padding: '0.75rem' }} 
-                                        />
+                                        <input type="text" className="form-input" placeholder="Kirjoita uusi vapaa raaka-avain (esim. asunnottomuus_riski) ja paina Enter luodaksesi uuden kytkennän lennossa..." onKeyDown={handleCustomTriggerKeyDown} disabled={isSaving} style={{ fontSize: '0.85rem', padding: '0.75rem' }} />
                                     </div>
                                 </div>
                             </div>
 
+                            {/* ALALIDAN TALLENNUS/POISTO-PAINIKKEET */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--color-border)', alignItems: 'center' }}>
                                 <div>
                                     {activeService !== 'new' && (
                                         !confirmDelete ? (
-                                            <button className="btn btn--secondary" style={{ color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }} onClick={() => setConfirmDelete(true)} disabled={isSaving}>Poista palvelu</button>
+                                            <button className="btn btn--secondary" style={{ color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }} onClick={() => setConfirmDelete(true)} disabled={isSaving}>Poista palvelu hakemistosta</button>
                                         ) : (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <span style={{ color: 'var(--color-danger)', fontWeight: 'bold', fontSize: '0.9rem' }}>Oletko varma?</span>
+                                                <span style={{ color: 'var(--color-danger)', fontWeight: 'bold', fontSize: '0.9rem' }}>Vahvistatko poiston?</span>
                                                 <button className="btn" style={{ backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)' }} onClick={handleDeleteClick} disabled={isSaving}>Kyllä, poista</button>
                                                 <button className="btn btn--secondary" onClick={() => setConfirmDelete(false)} disabled={isSaving}>Peruuta</button>
                                             </div>
@@ -563,9 +611,9 @@ const knownTriggers = masterDictionary.map(d => ({
                                     )}
                                 </div>
                                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                    {saveSuccess && <span style={{ color: 'var(--color-success)', fontWeight: '600', fontSize: '0.9rem', animation: 'fadeIn 0.3s ease-out' }}>✓ Tallennus onnistui</span>}
+                                    {saveSuccess && <span style={{ color: 'var(--color-success)', fontWeight: '600', fontSize: '0.9rem' }}>✓ Muutokset tallennettu onnistuneesti kantaan</span>}
                                     <button className="btn" onClick={handleSave} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 2rem' }}>
-                                        <Save size={16} /> {isSaving ? 'Tallennetaan...' : 'Tallenna palvelu'}
+                                        <Save size={16} /> {isSaving ? 'Tallennetaan...' : 'Tallenna palvelutiedot'}
                                     </button>
                                 </div>
                             </div>

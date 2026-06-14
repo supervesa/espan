@@ -1,5 +1,3 @@
-// --- src/components/sections/Palveluohjaus.jsx ---
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Compass, Search, Info, PlusCircle, CheckCircle, ExternalLink, Sparkles, FileText, Languages, Lock, AlertCircle, Calendar } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
@@ -17,22 +15,25 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
     const [services, setServices] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     
-    // UUDET: Päävälilehti ja "Näytä lisää" -rajoitin
-    const [activeTab, setActiveTab] = useState('palvelu'); // 'palvelu' | 'koulutus'
+    const [activeTab, setActiveTab] = useState('palvelu'); 
     const [visibleCount, setVisibleCount] = useState(6);
     
     const [searchTerm, setSearchTerm] = useState('');
     const [activeCategory, setActiveCategory] = useState('Kaikki');
     const [expandedService, setExpandedService] = useState(null);
 
-    const valinnatArray = Array.isArray(state.suunnitelma) ? state.suunnitelma : [];
+    const rawValinnat = state.suunnitelma || {};
+    const valinnatObj = useMemo(() => {
+        if (Array.isArray(rawValinnat)) {
+            return rawValinnat.reduce((acc, key) => ({ ...acc, [key]: true }), {});
+        }
+        return rawValinnat;
+    }, [rawValinnat]);
+
     const signals = state.signals || {};
     const currentLanguageLevel = state['custom-kielitaso_suomi'];
-
-    // UUSI LAYER: Luetaan myös Master-profiilista, onko palvelu valittuna
     const masterValinnat = state.asiakas?.valitut_palvelut_id || [];
 
-    // Resetoidaan näkyvien määrä, jos haku tai välilehti muuttuu
     useEffect(() => {
         setVisibleCount(6);
     }, [searchTerm, activeCategory, activeTab]);
@@ -60,14 +61,19 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
         const req = service.language_req;
         if (!req || req.trim() === '') return { match: true };
 
-        let userScore = 0;
+        const reqScore = CEFR_SCORES[req.toLowerCase().trim()] || 0;
+        let userScore;
+
+        const hasLanguageSignals = Object.keys(signals).some(key => key.startsWith('language_fi_'));
+        const hasLanguageDeficiency = signals['kielitaidon_puute'] || signals['kielitaito_heikko'];
         
         if (signals['osallistuu_tulkki']) {
-            userScore = 1;
+            userScore = 1; 
         } else if (manualLevel) {
             const levelKey = manualLevel.toLowerCase().trim();
             userScore = CEFR_SCORES[levelKey] || 0;
-        } else {
+        } else if (hasLanguageSignals) {
+            userScore = 0;
             Object.keys(signals).forEach(key => {
                 if (signals[key] === true && key.startsWith('language_fi_')) {
                     const levelStr = key.replace('language_fi_', '').replace('_', '.').toLowerCase();
@@ -75,13 +81,15 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                     if (score > userScore) userScore = score;
                 }
             });
+        } else if (hasLanguageDeficiency) {
+            userScore = 1; 
+        } else {
+            userScore = 99; 
         }
 
-        const reqScore = CEFR_SCORES[req.toLowerCase().trim()] || 0;
         return { match: userScore >= reqScore, userScore, reqScore };
     };
 
-    // PÄIVITETTY: Suositukset ottavat huomioon välilehden
     const recommendedServices = useMemo(() => {
         return services.filter(service => {
             const sType = service.service_type || 'palvelu';
@@ -101,13 +109,11 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
     }, [services, signals, currentLanguageLevel, activeTab]);
 
     const categories = useMemo(() => {
-        // Haetaan kategoriat vain aktiivisen välilehden palveluista
         const tabServices = services.filter(s => (s.service_type || 'palvelu') === activeTab);
         const cats = new Set(tabServices.map(s => s.category).filter(Boolean));
         return ['Kaikki', ...Array.from(cats)];
     }, [services, activeTab]);
 
-    // PÄIVITETTY: Älykäs lajittelu ja haku
     const filteredServices = useMemo(() => {
         let filtered = services.filter(service => {
             const sType = service.service_type || 'palvelu';
@@ -119,7 +125,6 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
             return matchesSearch && matchesCategory;
         });
 
-        // Lajitellaan: Koulutuksissa lähimpänä umpeutuvat ensin, menneet hännille.
         filtered.sort((a, b) => {
             if (activeTab === 'koulutus') {
                 const aExp = a.enrollment_deadline && new Date(a.enrollment_deadline) < new Date();
@@ -140,45 +145,44 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
         return filtered;
     }, [services, searchTerm, activeCategory, activeTab]);
 
-    // Leikattu lista näytettäväksi
     const displayedServices = filteredServices.slice(0, visibleCount);
 
     const handleToggleService = (id, isChecked) => {
-        let newList = valinnatArray;
-
-        // 1. Päivitetään vanha paikallinen tila (Suunnitelma-komponenttia varten)
-        if (actions.onUpdateSuunnitelma) {
-            actions.onUpdateSuunnitelma(id, isChecked);
-        } else if (actions.updateSectionData) {
-            newList = isChecked ? [...valinnatArray, id] : valinnatArray.filter(i => i !== id);
-            actions.updateSectionData('suunnitelma', newList);
+        const newValinnat = { ...valinnatObj };
+        
+        if (isChecked) {
+            newValinnat[id] = true;
+        } else {
+            delete newValinnat[id];
         }
 
-        // 2. UUSI LAYER: Tallennetaan tieto suoraan Master-profiiliin (Jälkimarkkinointia varten)
+        if (actions.updateSectionData) {
+            actions.updateSectionData('suunnitelma', newValinnat);
+        } else if (actions.updateSection) {
+            actions.updateSection('suunnitelma', newValinnat);
+        }
+
         if (typeof actions.onUpdateAsiakas === 'function') {
-            // Yhdistetään varmuuden vuoksi kaikki aiemmat valinnat (myös ne, jotka on ehkä tehty toisessa komponentissa)
-            const combinedSet = new Set([...valinnatArray, ...masterValinnat]);
+            const currentMaster = new Set(masterValinnat);
             if (isChecked) {
-                combinedSet.add(id);
+                currentMaster.add(id);
             } else {
-                combinedSet.delete(id);
+                currentMaster.delete(id);
             }
-            actions.onUpdateAsiakas('valitut_palvelut_id', Array.from(combinedSet));
+            actions.onUpdateAsiakas('valitut_palvelut_id', Array.from(currentMaster));
         }
     };
 
     const toggleExpand = (id) => setExpandedService(expandedService === id ? null : id);
 
     const renderCard = (service, isRecommendation = false) => {
-        // Tarkistetaan valinta molemmista listoista varmuuden vuoksi
-        const isSelected = valinnatArray.includes(service.id) || masterValinnat.includes(service.id);
+        const isSelected = !!valinnatObj[service.id] || masterValinnat.includes(service.id);
         const cardKey = isRecommendation ? `rec-${service.id}` : service.id;
         
         const langInfo = checkLanguageMatch(service, signals, currentLanguageLevel);
         const isLanguageLocked = !langInfo.match;
         const isExpired = service.enrollment_deadline && new Date(service.enrollment_deadline) < new Date();
         
-        // Yhdistetty lukko (Kielitaito TAI Hakuaika mennyt)
         const isLocked = isLanguageLocked || isExpired;
 
         return (
@@ -187,6 +191,23 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                     <span className={`tag ${isRecommendation ? 'tag--warning' : 'tag--pending'}`}>
                         {service.category || 'Yleinen'}
                     </span>
+                    
+                    {/* UUSI: Velvoittava palvelu -merkki */}
+                    {service.hard_service && (
+                        <span className="tag tag--danger" style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>
+                            <AlertCircle size={12} style={{ marginRight: '4px' }} />
+                            Velvoittava
+                        </span>
+                    )}
+
+                    {/* UUSI: Vaatii lähetteen -merkki */}
+                    {service.requires_referral && (
+                        <span className="tag tag--success" style={{ marginLeft: '0.5rem', backgroundColor: '#e0f2fe', color: '#0369a1', borderColor: '#bae6fd' }}>
+                            <FileText size={12} style={{ marginRight: '4px' }} />
+                            Vaatii lähetteen
+                        </span>
+                    )}
+
                     {service.service_type === 'koulutus' && (
                         <span className="tag tag--warning" style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>TVM</span>
                     )}
@@ -204,7 +225,6 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                     {service.title}
                 </h4>
 
-                {/* TVM-kriittiset tiedot suoraan etupuolella */}
                 {service.service_type === 'koulutus' && (
                     <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                         {service.ura_number && <span><strong>URA:</strong> {service.ura_number}</span>}
@@ -241,7 +261,6 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                             </div>
                         )}
                         
-                        {/* Näytetään poimitut tagit/vaatimukset */}
                         {service.triggers && (
                             <div style={{ marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
                                 {service.triggers.split(',').map(t => (
@@ -287,23 +306,11 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                 Palveluohjaukset ja suositukset
             </h3>
 
-            {/* PÄÄVÄLILEHDET */}
             <div style={{ display: 'flex', gap: '2rem', marginBottom: '1.5rem', borderBottom: '2px solid var(--color-border)' }}>
-                <button 
-                    onClick={() => setActiveTab('palvelu')} 
-                    style={{ background: 'none', border: 'none', padding: '0.5rem 0', fontSize: '1.05rem', cursor: 'pointer', color: activeTab === 'palvelu' ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontWeight: activeTab === 'palvelu' ? '600' : 'normal', borderBottom: activeTab === 'palvelu' ? '2px solid var(--color-primary)' : '2px solid transparent', marginBottom: '-2px', transition: 'all 0.2s' }}
-                >
-                    Työllisyyspalvelut
-                </button>
-                <button 
-                    onClick={() => setActiveTab('koulutus')} 
-                    style={{ background: 'none', border: 'none', padding: '0.5rem 0', fontSize: '1.05rem', cursor: 'pointer', color: activeTab === 'koulutus' ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontWeight: activeTab === 'koulutus' ? '600' : 'normal', borderBottom: activeTab === 'koulutus' ? '2px solid var(--color-primary)' : '2px solid transparent', marginBottom: '-2px', transition: 'all 0.2s' }}
-                >
-                    Työvoimakoulutukset (TVM)
-                </button>
+                <button onClick={() => setActiveTab('palvelu')} style={{ background: 'none', border: 'none', padding: '0.5rem 0', fontSize: '1.05rem', cursor: 'pointer', color: activeTab === 'palvelu' ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontWeight: activeTab === 'palvelu' ? '600' : 'normal', borderBottom: activeTab === 'palvelu' ? '2px solid var(--color-primary)' : '2px solid transparent', marginBottom: '-2px', transition: 'all 0.2s' }}>Työllisyyspalvelut</button>
+                <button onClick={() => setActiveTab('koulutus')} style={{ background: 'none', border: 'none', padding: '0.5rem 0', fontSize: '1.05rem', cursor: 'pointer', color: activeTab === 'koulutus' ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontWeight: activeTab === 'koulutus' ? '600' : 'normal', borderBottom: activeTab === 'koulutus' ? '2px solid var(--color-primary)' : '2px solid transparent', marginBottom: '-2px', transition: 'all 0.2s' }}>Työvoimakoulutukset (TVM)</button>
             </div>
 
-            {/* AI-SUOSITUKSET */}
             {recommendedServices.length > 0 ? (
                 <div className="smart-analysis-box" style={{ marginBottom: '2.5rem', border: '1px solid var(--color-warning)' }}>
                     <div className="smart-analysis-header" style={{ backgroundColor: 'rgba(255, 193, 7, 0.1)' }}>
@@ -315,59 +322,28 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                     </div>
                 </div>
             ) : (
-                <div className="info-note" style={{ marginBottom: '2rem' }}>
-                    Ei automaattisia suosituksia valitussa osiossa.
-                </div>
+                <div className="info-note" style={{ marginBottom: '2rem' }}>Ei automaattisia suosituksia valitussa osiossa.</div>
             )}
 
-            {/* HAKU JA KATEGORIAT */}
             <div className="service-filter-bar" style={{ marginBottom: '2rem' }}>
                 <div className="search-wrapper" style={{ position: 'relative', flex: 1 }}>
-                    <input 
-                        type="text" 
-                        className="form-input" 
-                        placeholder={`Hae ${activeTab === 'palvelu' ? 'palveluita' : 'koulutuksia'}...`}
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        style={{ paddingLeft: '2.5rem', width: '100%' }}
-                    />
+                    <input type="text" className="form-input" placeholder={`Hae ${activeTab === 'palvelu' ? 'palveluita' : 'koulutuksia'}...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ paddingLeft: '2.5rem', width: '100%' }} />
                     <Search size={18} style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }} />
                 </div>
-                
                 <div className="category-scroll" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
                     {categories.map(category => (
-                        <button 
-                            key={category}
-                            className={`chip ${activeCategory === category ? 'chip--active' : ''}`}
-                            onClick={() => setActiveCategory(category)}
-                        >
-                            {category}
-                        </button>
+                        <button key={category} className={`chip ${activeCategory === category ? 'chip--active' : ''}`} onClick={() => setActiveCategory(category)}>{category}</button>
                     ))}
                 </div>
             </div>
 
-            {/* KAIKKI PALVELUT / KOULUTUKSET */}
             <div className="service-card-grid">
-                {displayedServices.length > 0 ? (
-                    displayedServices.map(s => renderCard(s, false))
-                ) : (
-                    <div className="empty-state" style={{ textAlign: 'center', padding: '3rem', gridColumn: '1 / -1' }}>
-                        <p>Hakuehdoilla ei löytynyt tuloksia.</p>
-                    </div>
-                )}
+                {displayedServices.length > 0 ? displayedServices.map(s => renderCard(s, false)) : <div className="empty-state" style={{ textAlign: 'center', padding: '3rem', gridColumn: '1 / -1' }}><p>Hakuehdoilla ei löytynyt tuloksia.</p></div>}
             </div>
 
-            {/* NÄYTÄ LISÄÄ -NAPPI */}
             {filteredServices.length > visibleCount && (
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: '2rem' }}>
-                    <button 
-                        className="btn btn--secondary" 
-                        onClick={() => setVisibleCount(prev => prev + 6)}
-                        style={{ padding: '0.75rem 2rem', borderRadius: '99px' }}
-                    >
-                        Näytä lisää ({filteredServices.length - visibleCount}) ...
-                    </button>
+                    <button className="btn btn--secondary" onClick={() => setVisibleCount(prev => prev + 6)} style={{ padding: '0.75rem 2rem', borderRadius: '99px' }}>Näytä lisää ({filteredServices.length - visibleCount}) ...</button>
                 </div>
             )}
         </div>

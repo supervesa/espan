@@ -1,9 +1,8 @@
-// --- src/components/SummaryPanel.jsx ---
 import React, { useState, useEffect, useRef } from 'react';
 import { generateSectionContent, generateFullSummary, generateHybridSummary, generateHybridSectionContent } from '../utils/summaryGenerator.js';
 import { planData } from '../data/planData.js';
 import AikatauluEhdotus from './AikatauluEhdotus';
-import CopyButton from './common/CopyButton'; // UUSI TUONTI!
+import CopyButton from './common/CopyButton';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
@@ -48,7 +47,8 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
         const existsInDb = dbPlanData?.aihealueet?.some(s => s.id === simpleId);
         const existsInStatic = planData.aihealueet.some(s => s.id === simpleId);
         
-        if (!existsInDb && !existsInStatic && !['kielitaso'].includes(simpleId) && simpleId !== 'koulutus') { 
+        // Salli koulutus ja 33 § edellytykset mennä läpi, vaikkei niitä ole tietokannoissa
+        if (!existsInDb && !existsInStatic && !['kielitaso', 'edellytykset'].includes(simpleId) && simpleId !== 'koulutus') { 
              return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
         }
         
@@ -67,6 +67,11 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
              }
              return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
          }
+
+        // TÄSSÄ 33 § EDELLYTYKSET STATUS (UUSI)
+        if (simpleId === 'edellytykset' && state['custom-edellytykset']) {
+            return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
+        }
 
         const sectionState = state[simpleId];
         if (!sectionState && !state[`custom-${simpleId}`]) {
@@ -148,11 +153,14 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                      else if (sectionId === 'suunnitelma') {
                          sectionText = state['custom-suunnitelma']?.trim() || '';
                      }
+                     // TÄSSÄ 33 § EDELLYTYKSET LUENTA (UUSI)
+                     else if (sectionId === 'edellytykset') {
+                         sectionText = state['custom-edellytykset']?.trim() || '';
+                     }
                      else if (sectionDataFromPlan) { 
                          sectionText = generateHybridSectionContent(sectionDataFromPlan, selection, state, dbKnowledge);
                          let customText = state[`custom-${sectionId}`]?.trim() || '';
                          
-                         // KORJAUS TÄSSÄ: Tuodaan Työkyvyn oma koontilaatikko mukaan
                          if (sectionId === 'tyokyky') {
                              const tyokykyLopullinen = state['custom-tyokyky_lopullinen']?.trim();
                              if (tyokykyLopullinen) {
@@ -166,7 +174,7 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                      }
                      
                      const statusId = `${sectionId.replace(/_/g, '-')}-status`;
-                     if (!sectionDataFromPlan && sectionId !== 'koulutus') return null;
+                     if (!sectionDataFromPlan && !['koulutus', 'edellytykset'].includes(sectionId)) return null;
 
                      const isActive = panelSection.id === activeSectionId;
                      const liClassName = `summary-item ${isActive ? 'summary-item--active' : ''}`;
@@ -197,7 +205,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                                     </div>
                                     
                                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                                        {/* UUSI ÄLYKÄS KOPIOINTINAPPI */}
                                         <CopyButton 
                                             textToCopy={sectionText.replace(FINGERPRINT, '').replace(/\*\*/g, '').trim()} 
                                         />

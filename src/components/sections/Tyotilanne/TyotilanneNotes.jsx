@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Wand2 } from 'lucide-react';
-import { extractAIOccupations, extractWithRules } from '../../../utils/regex'; 
+import { extractAIOccupations } from '../../../utils/regex/core';
+import { extractWithRules } from '../../../utils/regex/rulesEngine';
 
 const TyotilanneNotes = ({ customText, onUpdateCustomText, uiKey, actions, dynamicKeys, phrases }) => {
     const [isExtracting, setIsExtracting] = useState(false);

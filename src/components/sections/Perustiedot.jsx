@@ -1,8 +1,9 @@
-// --- src/components/sections/Perustiedot.jsx ---
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { PhraseOption } from '../PhraseOption';
-import { planData } from '../../data/planData'; // LISÄTTY: Tuodaan planData injektiota varten
+import { planData } from '../../data/planData';
+import { aggregateSignalText } from '../../utils/textAggregator';
+import { FileText, Sparkles } from 'lucide-react';
 
 const Perustiedot = ({ state, actions }) => {
     const DB_PERUSTIEDOT = '33c681b0-4d06-4236-a63c-6f5675780fbb';
@@ -14,25 +15,13 @@ const Perustiedot = ({ state, actions }) => {
     const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
 
     const transformVariables = (varsArray) => {
-        if (!varsArray || !Array.isArray(varsArray) || varsArray.length === 0) return null;
-        const transformed = varsArray.reduce((acc, curr) => {
-            let parsedOptions = [];
-            try {
-                if (curr.options) {
-                    parsedOptions = JSON.parse(curr.options);
-                    if (typeof parsedOptions === 'string') parsedOptions = JSON.parse(parsedOptions);
-                }
-            } catch (e) {
-                console.warn("Virhe options-kentän parsinnassa:", curr.options);
-            }
-            acc[curr.variable_key] = {
-                tyyppi: curr.input_type,
-                oletus: curr.default_value,
-                vaihtoehdot: parsedOptions
-            };
+        if (!varsArray || varsArray.length === 0) return null;
+        return varsArray.reduce((acc, curr) => {
+            let opts = [];
+            try { if (curr.options) opts = JSON.parse(curr.options); } catch (e) {}
+            acc[curr.variable_key] = { tyyppi: curr.input_type, oletus: curr.default_value, vaihtoehdot: opts };
             return acc;
         }, {});
-        return Object.keys(transformed).length > 0 ? transformed : null;
     };
 
     useEffect(() => {
@@ -42,50 +31,46 @@ const Perustiedot = ({ state, actions }) => {
                     supabase.from('phrases').select('*').eq('section_id', DB_PERUSTIEDOT).order('created_at'),
                     supabase.from('variables').select('*')
                 ]);
-
-                if (phrasesRes.error) throw phrasesRes.error;
-
-                const enrichedPhrases = (phrasesRes.data || []).map(phrase => ({
-                    ...phrase,
-                    variables: (varsRes.data || []).filter(v => v.phrase_id === phrase.id)
+                const enriched = (phrasesRes.data || []).map(p => ({
+                    ...p,
+                    variables: (varsRes.data || []).filter(v => v.phrase_id === p.id)
                 }));
 
-                // --- TAIKATEMPPU: INJEKTOIDAAN UUDET FRAASIT PLANDATAAN ---
-                const sectionInPlanData = planData.aihealueet.find(s => s.id === UI_KEY);
-                if (sectionInPlanData) {
-                    enrichedPhrases.forEach(dbPhrase => {
-                        const exists = sectionInPlanData.fraasit.find(f => f.avainsana === dbPhrase.phrase_key);
-                        if (!exists) {
-                            sectionInPlanData.fraasit.push({
-                                avainsana: dbPhrase.phrase_key,
-                                teksti: dbPhrase.base_text,
-                                lyhenne: dbPhrase.short_title,
-                                muuttujat: transformVariables(dbPhrase.variables)
+                const section = planData.aihealueet.find(s => s.id === UI_KEY);
+                if (section) {
+                    enriched.forEach(dbP => {
+                        if (dbP.grouping_key === 'ghost' || dbP.grouping_key === 'automaatti_tpl') return;
+                        if (!section.fraasit.find(f => f.avainsana === dbP.phrase_key)) {
+                            section.fraasit.push({
+                                avainsana: dbP.phrase_key,
+                                teksti: dbP.base_text,
+                                lyhenne: dbP.short_title,
+                                muuttujat: transformVariables(dbP.variables)
                             });
                         }
                     });
                 }
-                // --------------------------------------------------------
-
-                setPhrases(enrichedPhrases);
-            } catch (err) {
-                console.error("Virhe Perustiedot-haussa:", err);
-            } finally {
-                setLoading(false);
-            }
+                setPhrases(enriched);
+            } catch (err) { console.error(err); }
+            finally { setLoading(false); }
         };
         fetchData();
     }, []);
 
-    if (loading) return <div className="section-container">Ladataan perustietoja...</div>;
+    const generatedSignalText = useMemo(() => aggregateSignalText(phrases, state.signals), [phrases, state.signals]);
 
-    const sectionDef = { id: UI_KEY, monivalinta: true };
+    if (loading) return <div className="section-container">Ladataan...</div>;
 
     return (
         <section className="section-container">
-            <h2 className="section-title">Suunnitelman perustiedot</h2>
+            <h2 className="section-title icon-heading">
+                <FileText size={22} color="var(--color-primary)" /> Suunnitelman perustiedot
+            </h2>
+
             <div className="options-container">
-                {phrases.map(phrase => (
+                {phrases
+                    .filter(p => p.grouping_key !== 'ghost' && p.grouping_key !== 'automaatti_tpl')
+                    .map(phrase => (
                     <PhraseOption 
                         key={phrase.id} 
                         phrase={{
@@ -95,20 +80,28 @@ const Perustiedot = ({ state, actions }) => {
                             lyhenne: phrase.short_title,
                             muuttujat: transformVariables(phrase.variables)
                         }} 
-                        section={sectionDef} 
+                        section={{ id: UI_KEY, monivalinta: true }} 
                         isSelected={state[UI_KEY]?.[phrase.phrase_key]} 
                         onSelect={onSelect} 
                         onUpdateVariable={onUpdateVariable} 
                     />
                 ))}
             </div>
-             <div className="custom-text-container">
-                <label htmlFor={`custom-text-${UI_KEY}`}>Lisätiedot tai omat muotoilut:</label>
+
+            {generatedSignalText && (
+                <div className="smart-analysis-box" style={{ marginTop: '1.5rem', backgroundColor: 'rgba(139, 92, 246, 0.04)', borderColor: 'var(--color-ai)', borderStyle: 'dashed' }}>
+                    <div className="smart-analysis-header" style={{ color: 'var(--color-ai)', marginBottom: '8px' }}>
+                        <Sparkles size={16} />
+                        <span style={{ fontSize: '0.8rem', fontWeight: '700', textTransform: 'uppercase' }}>Automaattinen koonti signaaleista</span>
+                    </div>
+                    <p style={{ margin: 0, fontStyle: 'italic', fontSize: '0.9rem', color: '#4c1d95' }}>{generatedSignalText}</p>
+                </div>
+            )}
+
+            <div className="custom-text-container" style={{ marginTop: '1.5rem' }}>
                 <textarea 
-                    id={`custom-text-${UI_KEY}`} 
                     className="form-input"
                     rows="3" 
-                    placeholder="Kirjoita tähän vapaata tekstiä..." 
                     value={state[`custom-${UI_KEY}`] || ''} 
                     onChange={(e) => onUpdateCustomText(UI_KEY, e.target.value)} 
                 />

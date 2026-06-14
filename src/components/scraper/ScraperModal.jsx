@@ -16,6 +16,7 @@ import ScraperPatevyydetPanel from './ScraperPatevyydetPanel';
 import ScraperVariablesPanel from './ScraperVariablesPanel';
 import ScraperCustomTextsPanel from './ScraperCustomTextsPanel';
 import ScraperTyokykyPanel from './ScraperTyokykyPanel';
+import ScraperEdellytyksetPanel from './ScraperEdellytyksetPanel'; // UUSI PANEELI
 
 const ScraperModal = ({ isOpen, onClose, onApply }) => {
     const [step, setStep] = useState('input');
@@ -30,7 +31,8 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         patevyydet: [], 
         variables: {}, 
         customTexts: {},
-        tyokykyData: {}
+        tyokykyData: {},
+        edellytyksetData: {} // LISÄTTY TILA
     });
 
     const handleAnalyze = async () => {
@@ -43,7 +45,7 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         try {
             const [secRes, phraseRes, sigRes, varRes, serviceRes, patevyysRes] = await Promise.all([
                 supabase.from('sections').select('id, section_key, title, is_multi_select'),
-                supabase.from('phrases').select('id, phrase_key, short_title, base_text, extraction_pattern, section_id'),
+                supabase.from('phrases').select('id, phrase_key, short_title, base_text, extraction_pattern, section_id, grouping_key, metadata'), // Lisätty metadata ja grouping_key
                 supabase.from('system_signals').select('signal_key, label, description'), 
                 supabase.from('variables').select('phrase_id, variable_key, import_behavior'),
                 supabase.from('services').select('*'),
@@ -67,9 +69,16 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                 patevyysRes.data || []
             );
             
-            // Varmistetaan, että tyokykyData on olemassa, vaikka parseri ei sitä palauttaisi
+            // Varmistetaan, että erikoisobjektit ovat olemassa, vaikka parseri ei niitä palauttaisi
             if (!extractedData.tyokykyData) {
                 extractedData.tyokykyData = {};
+            }
+            if (!extractedData.edellytyksetData) {
+                extractedData.edellytyksetData = {
+                    escoNimi: null, finescoAla: null, vaihtoehtoisetAlat: [],
+                    activeTags: { tavoitteet: [], markkina: [], elamantila: [] },
+                    selections: { vireilla: null, hylatty: null }
+                };
             }
 
             // Asetetaan kaikki vapaan tekstin osiot oletuksena aktiivisiksi
@@ -143,7 +152,6 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         }));
     };
 
-    // Footerin napit Modaliin
     const modalFooter = step === 'input' ? (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', width: '100%' }}>
             <button className="btn btn--secondary" onClick={resetAndClose}>
@@ -205,7 +213,6 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
             ) : (
                 <div className="flex-col-gap" style={{ paddingTop: '1rem' }}>
                     
-                    {/* WIDGET-RIVI YLHÄÄLLÄ (3 saraketta, tiivis asettelu) */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                         
                         <ScraperServicesPanel 
@@ -237,10 +244,8 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
 
                     </div>
 
-                    {/* PÄÄALUE (50/50 Sarakkeet) */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', alignItems: 'start', marginTop: '0.5rem' }}>
                         
-                        {/* VASEN SARAKE: Vapaa teksti */}
                         <div className="flex-col-gap">
                             <ScraperCustomTextsPanel 
                                 customTexts={parsedData.customTexts} 
@@ -250,9 +255,14 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                             />
                         </div>
 
-                        {/* OIKEA SARAKE: Työkyky, Muuttujat ja Lomakevalinnat (Vakiolauseet) */}
                         <div className="flex-col-gap">
                             
+                            {/* UUSI EDELLYTYKSET-PANEELI */}
+                            <ScraperEdellytyksetPanel 
+                                edellytyksetData={parsedData.edellytyksetData}
+                                onUpdate={(newData) => setParsedData(prev => ({ ...prev, edellytyksetData: newData }))}
+                            />
+
                             <ScraperTyokykyPanel 
                                 tyokykyData={parsedData.tyokykyData}
                                 onUpdate={(newData) => setParsedData(prev => ({ ...prev, tyokykyData: newData }))}

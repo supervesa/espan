@@ -1,0 +1,97 @@
+.sig-panel {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.sig-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.sig-title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: #64748b;
+    letter-spacing: 0.05em;
+}
+
+.sig-select {
+    font-size: 0.75rem;
+    padding: 1px 4px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    outline: none;
+    background: #f8fafc;
+}
+
+.sig-group {
+    margin-bottom: 8px;
+}
+
+.sig-group-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 2px;
+}
+
+.sig-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+}
+
+.sig-item-left {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.sig-name {
+    font-size: 0.8rem; /* Pienempi fontti */
+    color: #334155;
+}
+
+.sig-item.muted .sig-name {
+    color: #cbd5e1;
+    text-decoration: line-through;
+}
+
+.sig-item.ai .sig-name {
+    color: #7c3aed;
+    font-weight: 500;
+}
+
+.sig-actions {
+    display: flex;
+    gap: 1px;
+}
+
+.act {
+    background: none;
+    border: none;
+    padding: 3px;
+    cursor: pointer;
+    color: #cbd5e1;
+    display: flex;
+    transition: 0.1s;
+}
+
+.act:hover { color: #64748b; }
+.act.blue { color: #3b82f6; }
+.act.orange { color: #f59e0b; }
+.act.del:hover { color: #ef4444; }
+
+.ai-icon { color: #8b5cf6; }
+.info-icon { color: #cbd5e1; }
+.sig-empty { font-size: 0.75rem; color: #94a3b8; text-align: center; padding: 10px; }

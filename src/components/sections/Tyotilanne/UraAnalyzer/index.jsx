@@ -6,7 +6,7 @@ import Modal from '../../../common/Modal';
 import AlertBox from '../../../common/AlertBox';
 
 // UUSI IMPORT POLKU!
-import { COMPANY_PATTERN, SCHOOL_PATTERN, HETU_PATTERN, SINGLE_DATE_PATTERN } from '../../../../utils/regex';
+import { COMPANY_PATTERN, SCHOOL_PATTERN, HETU_PATTERN, SINGLE_DATE_PATTERN } from '../../../../utils/regex/core';
 
 import Step1Input from './Step1Input';
 import Step2Results from './Step2Results';

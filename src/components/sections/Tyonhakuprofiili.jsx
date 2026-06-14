@@ -1,4 +1,3 @@
-// --- src/components/sections/Tyonhakuprofiili.jsx ---
 import React, { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { planData } from '../../data/planData';
@@ -6,7 +5,7 @@ import { UserCircle, AlertTriangle, Calendar, FileText, ArrowRight, Lightbulb } 
 
 const Tyonhakuprofiili = ({ state, actions }) => {
     const UI_KEY = 'tyonhakuprofiili';
-    const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
+    const { onUpdateVariable, onUpdateCustomText } = actions;
     
     const [phrases, setPhrases] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -32,7 +31,7 @@ const Tyonhakuprofiili = ({ state, actions }) => {
     const isExempt = hasNoObligation || isWorkingOrStudying;
     // ====================
 
-    // KORJATTU FUNKTIO: Ymmärtää Supabasen valmiiksi purkamat JSON-taulukot
+    // Ymmärtää Supabasen valmiiksi purkamat JSON-taulukot
     const transformVariables = (varsArray) => {
         if (!varsArray || varsArray.length === 0) return null;
         const transformed = {};
@@ -40,7 +39,6 @@ const Tyonhakuprofiili = ({ state, actions }) => {
             let parsedOptions = [];
             
             if (curr.options) {
-                // Tässä se taika: Katsotaan onko Supabase jo purkanut sen Arrayksi!
                 if (Array.isArray(curr.options)) {
                     parsedOptions = curr.options;
                 } else if (typeof curr.options === 'string') {
@@ -52,7 +50,6 @@ const Tyonhakuprofiili = ({ state, actions }) => {
                 }
             }
 
-            // Varmistetaan myös oletusarvon turvallinen purku
             let oletusArvo = '';
             if (curr.default_value !== null && curr.default_value !== undefined) {
                 oletusArvo = String(curr.default_value).replace(/^"|"$/g, '');
@@ -136,24 +133,34 @@ const Tyonhakuprofiili = ({ state, actions }) => {
         return teksti;
     }, [selection, phrases]);
 
-    // Käsittelijät
+    // --- KORJATUT TALLENNUSKÄSITTELIJÄT (GM 3.1 Ohitus) ---
+    const handlePoikkeusToggle = (soveltuu) => {
+        const uusiAvainsana = soveltuu ? 'tm_profiili_vapautus' : 'tm_profiili_asiakas_tekee';
+        const uusiTila = { ...selection, avainsana: uusiAvainsana };
+        
+        if (actions.updateSectionData) {
+            actions.updateSectionData(UI_KEY, uusiTila);
+        } else if (actions.updateSection) {
+            actions.updateSection(UI_KEY, uusiTila);
+        }
+    };
+
+    const handleTilaSelect = (avainsana) => {
+        const uusiTila = { ...selection, avainsana: avainsana };
+
+        if (actions.updateSectionData) {
+            actions.updateSectionData(UI_KEY, uusiTila);
+        } else if (actions.updateSection) {
+            actions.updateSection(UI_KEY, uusiTila);
+        }
+    };
+    // -----------------------------------------------------
+
     const handleSiirraSuunnitelmaan = () => {
         if (!ehdotettuTeksti) return;
         const currentText = state['custom-suunnitelma'] || '';
         const newText = currentText ? `${ehdotettuTeksti}\n\n${currentText}` : ehdotettuTeksti;
         if (onUpdateCustomText) onUpdateCustomText('suunnitelma', newText);
-    };
-
-    const handlePoikkeusToggle = (soveltuu) => {
-        if (soveltuu) {
-            onSelect(UI_KEY, 'tm_profiili_vapautus', false);
-        } else {
-            onSelect(UI_KEY, 'tm_profiili_asiakas_tekee', false);
-        }
-    };
-
-    const handleTilaSelect = (avainsana) => {
-        onSelect(UI_KEY, avainsana, false);
     };
 
     if (loading) return <div className="section-container"><p style={{ color: 'var(--color-text-secondary)' }}>Ladataan profiilin asetuksia...</p></div>;
@@ -162,7 +169,7 @@ const Tyonhakuprofiili = ({ state, actions }) => {
     const vapautusPhrase = phrases.find(p => p.phrase_key === 'tm_profiili_vapautus');
 
     return (
-        <section className="section-container" style={{ borderColor: 'var(--color-primary)', borderWidth: '2px', borderStyle: 'solid', paddingBottom: '1.5rem' }}>
+        <section className="section-container" style={{ borderColor: 'var(--color-primary)', borderWidth: '2px', borderStyle: 'solid', paddingBottom: '1.5rem', marginBottom: '2rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                 <h2 className="icon-heading" style={{ margin: 0, color: 'var(--color-primary)' }}>
                     <UserCircle size={28} />
