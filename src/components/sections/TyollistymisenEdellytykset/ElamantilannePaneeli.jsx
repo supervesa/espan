@@ -61,19 +61,33 @@ const ElamantilannePaneeli = ({ data, updateData, dbPhrases, actions, globalSign
         return vuosi ? new Date().getFullYear() - vuosi : null;
     }, [masterState.suunnitelman_perustiedot]);
 
+    // Sanakirja oikeaoppiseen taivutukseen
+    const TUKI_SANAKIRJA = {
+        'asumistuki': 'asumistukea',
+        'toimeentulotuki': 'toimeentulotukea',
+        'sairauspäiväraha': 'sairauspäivärahaa',
+        'kotihoidon tuki': 'kotihoidon tukea',
+        'opintotuki': 'opintotukea',
+        'yleistuki': 'yleistukea'
+    };
+
     const koontiOsiot = useMemo(() => {
         let osiot = [];
+        
+        // 1. Työnhaun tilanteen selvitys
         const hakeeKokoaikatyota = Object.keys(globalSignals).some(k => k.toLowerCase().includes('kokoaikatyotyö') || k.toLowerCase().includes('kokoaika'));
         const hakeeEtuutta = Object.keys(globalSignals).some(k => k.toLowerCase().includes('työttömyysetuus') || k.toLowerCase().includes('etuus'));
         
+        let hakuTeksti = '';
         if (hakeeKokoaikatyota && hakeeEtuutta) {
-            osiot.push({ id: 'perus', teksti: "Asiakas hakee kokoaikatyötä ja työttömyysetuutta." });
+            hakuTeksti = "kokoaikatyötä ja työttömyysetuutta";
         } else if (hakeeKokoaikatyota) {
-            osiot.push({ id: 'perus', teksti: "Asiakas hakee kokoaikatyötä." });
+            hakuTeksti = "kokoaikatyötä";
         } else if (hakeeEtuutta) {
-            osiot.push({ id: 'perus', teksti: "Asiakas hakee työttömyysetuutta." });
+            hakuTeksti = "työttömyysetuutta";
         }
 
+        // 2. Muiden tukien kokoaminen ja taivutus
         let muutTuetSet = new Set();
         const ttAnswers = masterState.tyottomyysturva?.answers || {};
         const muutTuetPhrases = dbPhrases.filter(p => p.grouping_key === 'muut_tuet');
@@ -83,21 +97,37 @@ const ElamantilannePaneeli = ({ data, updateData, dbPhrases, actions, globalSign
             if (ttAnswers[etuus.phrase_key] === true || (signalKey && globalSignals[signalKey] === true)) {
                 let baseWord = etuus.short_title || etuus.base_text || '';
                 if (baseWord.trim().length > 0) {
-                    let tukiNimi = baseWord.toLowerCase();
-                    if (!tukiNimi.endsWith('a') && !tukiNimi.endsWith('ä')) {
-                        tukiNimi += (tukiNimi.includes('ä') || tukiNimi.includes('y') || tukiNimi.includes('ö')) ? 'ä' : 'a';
+                    let perusNimi = baseWord.toLowerCase().trim();
+                    
+                    // Tarkistetaan sanakirjasta täydellinen taivutus
+                    if (TUKI_SANAKIRJA[perusNimi]) {
+                        muutTuetSet.add(TUKI_SANAKIRJA[perusNimi]);
+                    } else {
+                        // Varajärjestelmä tuntemattomille sanoille
+                        let tukiNimi = perusNimi;
+                        if (!tukiNimi.endsWith('a') && !tukiNimi.endsWith('ä')) {
+                            tukiNimi += (tukiNimi.includes('ä') || tukiNimi.includes('y') || tukiNimi.includes('ö')) ? 'ä' : 'a';
+                        }
+                        muutTuetSet.add(tukiNimi);
                     }
-                    muutTuetSet.add(tukiNimi);
                 }
             }
         });
 
         const muutTuet = Array.from(muutTuetSet);
-        if (muutTuet.length > 0) {
-            const tuetTekstina = formatFinnishList([...muutTuet]);
-            osiot.push({ id: 'muut_tuet', teksti: `Asiakas saa lisäksi ${tuetTekstina}.` });
+        
+        // 3. Lauseen yhdistäminen nätiksi kokonaisuudeksi
+        if (hakuTeksti && muutTuet.length > 0) {
+            const tuetTekstina = formatFinnishList(muutTuet);
+            osiot.push({ id: 'perus_yhdistetty', teksti: `Asiakas hakee ${hakuTeksti} sekä saa näiden lisäksi ${tuetTekstina}.` });
+        } else if (hakuTeksti) {
+            osiot.push({ id: 'perus', teksti: `Asiakas hakee ${hakuTeksti}.` });
+        } else if (muutTuet.length > 0) {
+            const tuetTekstina = formatFinnishList(muutTuet);
+            osiot.push({ id: 'muut_tuet', teksti: `Asiakas saa ${tuetTekstina}.` });
         }
 
+        // 4. Nuorisotakuu (erillisenä lauseena)
         if (asiakasIka && asiakasIka < 25) {
             osiot.push({ id: 'nuorisotakuu', teksti: "Asiakas kuuluu ikänsä puolesta nuorisotakuun piiriin." });
         }

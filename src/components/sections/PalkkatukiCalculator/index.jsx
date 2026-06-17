@@ -32,7 +32,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
     };
 
     const { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy } = usePalkkatukiMath(state, ptState, onUpdatePalkkatuki);
-    const { tkCalc, isUnder25 } = useTyokokeiluMath(ika, ptState, onUpdatePalkkatuki);
+  const { tkCalc, isUnder25 } = useTyokokeiluMath(state, ika, ptState, onUpdatePalkkatuki);
     const analysis = useSmartAnalysis(state, ptState, ika, ehto24_28_tayttyy, ehto3kk_tayttyy, handleSupportToggle, onUpdatePalkkatuki);
     useTextGenerator(ptState, tkCalc, isUnder25, onUpdatePalkkatuki);
 

@@ -1,5 +1,3 @@
-// --- src/components/sections/KoulutusJaYrittajyys/index.jsx ---
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import PatevyydetOsio from './PatevyydetOsio';
@@ -9,7 +7,7 @@ import { PhraseOption } from '../PhraseOption';
 import TuettuOpiskelu from './TuettuOpiskelu';
 import YrittajyysOsio from './YrittajyysOsio'; 
 import AutocompleteSignalInput from '../common/AutocompleteSignalInput'; 
-import { GraduationCap, Award, Languages, User, Sparkles, CheckCircle2, Loader2, MousePointerClick, Info, Plus, Monitor, Key } from 'lucide-react';
+import { GraduationCap, Award, Languages, User, Sparkles, CheckCircle2, Loader2, MousePointerClick, Info, Plus, Monitor, Key, Trash2 } from 'lucide-react';
 
 const KoulutusJaYrittajyys = ({ state, actions }) => {
     const DB_KOULUTUS = 'e73f3897-85e1-4c05-a601-d5a2b67e9c75';
@@ -29,7 +27,34 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
     const [extractedDegrees, setExtractedDegrees] = useState([]); 
     const [boxParseFeedback, setBoxParseFeedback] = useState('');
 
+    // --- UUSI: Paikallinen tila manuaalisen koulutuksen syöttöön ---
+    const [tempEdu, setTempEdu] = useState({ tutkinto: '', vuosi: '' });
+
     const { onSelect, onUpdateVariable, onUpdateCustomText, onAddSignal, onRemoveSignal } = actions;
+
+    // --- UUSI: Golden Master Koulutustaulukon luku ---
+    const savedEducations = Array.isArray(state.sessionEducations) ? state.sessionEducations : [];
+
+    // --- UUSI: Toiminnot koulutusten hallintaan taulukossa ---
+    const handleAddEducation = (tutkinto, vuosi, source = 'manual') => {
+        if (!tutkinto) return;
+        const newEdu = {
+            id: window.crypto.randomUUID(),
+            data: { tutkinto, vuosi: vuosi || '' },
+            meta: { source, timestamp: new Date().toISOString() }
+        };
+        const updatedEdus = [...savedEducations, newEdu];
+        onUpdateVariable('global', 'sessionEducations', null, updatedEdus);
+        
+        if (source === 'manual') {
+            setTempEdu({ tutkinto: '', vuosi: '' }); // Tyhjennetään lomake
+        }
+    };
+
+    const handleRemoveEducation = (id) => {
+        const updatedEdus = savedEducations.filter(e => e.id !== id);
+        onUpdateVariable('global', 'sessionEducations', null, updatedEdus);
+    };
 
     const transformVariables = (varsArray) => {
         if (!varsArray || !Array.isArray(varsArray) || varsArray.length === 0) return null;
@@ -77,29 +102,20 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         fetchData();
     }, []);
 
-    // --- KORJATTU KOUKKU: Pakotettu synkronointi kielitason ja select-valikon välillä ---
     useEffect(() => {
         if (!state.signals) return;
-        
-        // Etsitään, mikä language_fi_-alkuinen signaali on päällä
         const activeLangSignal = Object.keys(state.signals).find(k => k.startsWith('language_fi_'));
-        
         if (activeLangSignal) {
-            // Muutetaan signaali (esim. language_fi_b1_2) takaisin UI-muotoon (B1.2)
             const levelFromSignal = activeLangSignal.replace('language_fi_', '').replace('_', '.').toUpperCase();
-            
-            // Jos nykyinen valinta ei vastaa signaalia, päivitetään se
             if (state['custom-kielitaso_suomi'] !== levelFromSignal) {
                 onUpdateCustomText('kielitaso_suomi', levelFromSignal);
             }
         }
     }, [state.signals, state['custom-kielitaso_suomi']]);
 
-    // --- KORJATTU GM 3.1: KAKSISUUNTAINEN SYNKRONOINTI (Imuri -> UI ja UI -> Signaalit) ---
     useEffect(() => {
         if (!actions || typeof actions.setSignal !== 'function') return;
 
-        // 1. Digitaidot synkronointi
         const digi = state['custom-digitaidot'];
         const hasPuutteellisetDigiSignal = !!state.signals?.puutteelliset_digitaidot;
         const hasHyvatDigiSignal = !!state.signals?.hyvat_digitaidot;
@@ -115,7 +131,6 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                 actions.setSignal('hyvat_digitaidot', edellyttaaHyvat);
             }
         } else {
-            // Jos valinta on tyhjä, mutta imuri toi signaalin, täytetään valinta lennosta
             if (hasPuutteellisetDigiSignal) {
                 onUpdateCustomText('digitaidot', 'heikot');
             } else if (hasHyvatDigiSignal) {
@@ -123,7 +138,6 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             }
         }
 
-        // 2. Pankkitunnukset synkronointi
         const pankki = state['custom-pankkitunnukset'];
         const hasEiPankkiSignal = !!state.signals?.ei_pankkitunnuksia;
         const hasOnPankkiSignal = !!state.signals?.on_pankkitunnukset;
@@ -139,7 +153,6 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                 actions.setSignal('on_pankkitunnukset', edellyttaaOnPankki);
             }
         } else {
-            // Jos valinta on tyhjä, otetaan imurin signaali käyttöön valinnaksi
             if (hasEiPankkiSignal) {
                 onUpdateCustomText('pankkitunnukset', 'ei');
             } else if (hasOnPankkiSignal) {
@@ -173,18 +186,13 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
     };
 
     const handleSuomiChange = (val) => {
-        // 1. Päivitetään tekstikenttä
         onUpdateCustomText('kielitaso_suomi', val);
-        
-        // 2. Poistetaan VAIKUTUKSET aiemmista kielitasosignaaleista
         const currentSignals = state.signals || {};
         Object.keys(currentSignals).forEach(key => {
             if (key.startsWith('language_fi_')) {
                 if (typeof onRemoveSignal === 'function') onRemoveSignal(key);
             }
         });
-        
-        // 3. Lisätään uusi signaali, jos valinta on tehty
         if (val) {
             const newKey = `language_fi_${val.toLowerCase().replace('.', '_')}`;
             if (typeof onAddSignal === 'function') onAddSignal(newKey);
@@ -206,13 +214,10 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             const aiResult = await response.json();
 
             if (aiResult.degree) {
-                onSelect(UI_KOULUTUS, 'koulutus_tausta', false);
-                setTimeout(() => {
-                    onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'KOULUTUS', aiResult.degree);
-                    if (aiResult.year) onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'VUOSI', aiResult.year);
-                    setParseFeedback(`Koulutus "${aiResult.degree}" poimittu onnistuneesti!`);
-                    setPasteText(''); 
-                }, 300);
+                // KORJAUS: Viedään tekoälyn löydös suoraan Golden Master taulukkoon!
+                handleAddEducation(aiResult.degree, aiResult.year || '', 'ai_analyzer');
+                setParseFeedback(`Koulutus "${aiResult.degree}" poimittu onnistuneesti!`);
+                setPasteText(''); 
             } else {
                 setParseFeedback('Tekoäly ei löytänyt tekstistä valmista tutkintoa.');
             }
@@ -242,7 +247,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
 
             if (aiResult.degrees && aiResult.degrees.length > 0) {
                 setExtractedDegrees(aiResult.degrees);
-                setBoxParseFeedback('Valitse alta asiakkaan pääkoulutus klikkaamalla:');
+                setBoxParseFeedback('Valitse alta asiakkaan tutkinto klikkaamalla:');
             } else {
                 setBoxParseFeedback('Ei löytynyt selkeitä tutkintoja valittavaksi.');
             }
@@ -255,16 +260,12 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
     };
 
     const handleDegreeSelect = (degreeObj) => {
-        onSelect(UI_KOULUTUS, 'koulutus_tausta', false); 
-        setTimeout(() => {
-            onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'KOULUTUS', degreeObj.degree);
-            if (degreeObj.year) onUpdateVariable(UI_KOULUTUS, 'koulutus_tausta', 'VUOSI', degreeObj.year);
-            setExtractedDegrees([]);
-            setBoxParseFeedback(`✓ Pääkoulutukseksi asetettu: ${degreeObj.degree}`);
-        }, 300);
+        // KORJAUS: Viedään URA-historiasta klikattu tutkinto suoraan GM-taulukkoon
+        handleAddEducation(degreeObj.degree, degreeObj.year || '', 'ai_analyzer');
+        setExtractedDegrees([]);
+        setBoxParseFeedback(`✓ Koulutus lisätty listaan: ${degreeObj.degree}`);
     };
 
-    // --- KORJATTU: Summary kutsuu nyt Golden Master taulukkoa ---
     const summary = useKoulutusSummary(
         state[UI_KOULUTUS], 
         null, 
@@ -279,8 +280,8 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             valitutAiIdeat: state['custom-valitut_ai_ideat'],
             aiKoulutushistoria: state['custom-ai_koulutushistoria'],
             valitut_ammattikortit: state['custom-valitut_ammattikortit'],
-            // Lähetetään Golden Master -taulukko hookille
-            sessionServices: state.sessionServices 
+            sessionServices: state.sessionServices,
+            sessionEducations: state.sessionEducations // UUSI: Välitetään koulutustaulukko hookille
         },
         data.koulutus, 
         null, 
@@ -314,7 +315,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                                 {isBoxExtracting ? (
                                     <><Loader2 size={14} className="animate-spin" /> Etsitään...</>
                                 ) : (
-                                    <><MousePointerClick size={14} /> Poimi tiedot lomakkeelle</>
+                                    <><MousePointerClick size={14} /> Poimi tiedot listaan</>
                                 )}
                             </button>
                         </div>
@@ -345,8 +346,65 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                     </div>
                 )}
 
+                {/* --- UUSI LOHKO: KOULUTUSHISTORIA (Saavutetut tutkinnot) --- */}
+                <div className="panel-gray" style={{ marginTop: '1.5rem', borderLeft: '4px solid var(--color-primary)' }}>
+                    <h3 className="subsection-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <GraduationCap size={18} className="text-primary" />
+                        Koulutushistoria (Saavutetut tutkinnot)
+                    </h3>
+                    
+                    {/* Listaus tallennetuista koulutuksista */}
+                    {savedEducations.length > 0 && (
+                        <div className="flex-col-gap" style={{ marginBottom: '1rem' }}>
+                            {savedEducations.map(edu => (
+                                <div key={edu.id} className="card-inner-sm" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ fontSize: '0.9rem', color: 'var(--color-text-primary)' }}>
+                                        <strong>{edu.data.tutkinto}</strong> {edu.data.vuosi ? `(v. ${edu.data.vuosi})` : ''}
+                                    </div>
+                                    <button onClick={() => handleRemoveEducation(edu.id)} style={{ color: '#ef4444', border: 'none', background: 'none', cursor: 'pointer' }}>
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Manuaalinen lisäys */}
+                    <div className="grid-cols-2-tight">
+                        <div>
+                            <label className="stat-label">Tutkinto tai koulutus:</label>
+                            <input 
+                                type="text" 
+                                className="modern-select" 
+                                placeholder="Esim. Merkonomi"
+                                value={tempEdu.tutkinto}
+                                onChange={(e) => setTempEdu({...tempEdu, tutkinto: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="stat-label">Valmistumisvuosi:</label>
+                            <input 
+                                type="text" 
+                                className="modern-select" 
+                                placeholder="Esim. 2018"
+                                value={tempEdu.vuosi}
+                                onChange={(e) => setTempEdu({...tempEdu, vuosi: e.target.value})}
+                            />
+                        </div>
+                    </div>
+                    <button 
+                        className="btn btn--secondary" 
+                        style={{ width: '100%', marginTop: '1rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px' }}
+                        onClick={() => handleAddEducation(tempEdu.tutkinto, tempEdu.vuosi)}
+                        disabled={!tempEdu.tutkinto}
+                    >
+                        <Plus size={16} /> Lisää koulutus
+                    </button>
+                </div>
+                {/* --- UUSI LOHKO PÄÄTTYY --- */}
+
                 {aiIdeas.length > 0 && (
-                 <div className="panel-gray mb-6 info-box--blue">
+                 <div className="panel-gray mb-6 info-box--blue" style={{ marginTop: '1.5rem' }}>
                         <label className="icon-label text-info-dark"><Info size={18} /> Koulutussuuntien apupilotti</label>
                         <p className="stat-label mb-6">Tekoäly poimi nämä ideat asiakkaan historiasta. Klikkaa ehdotusta valitaksesi tai poistaaksesi sen.</p>
                         
@@ -371,7 +429,7 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                     </div>
                 )}
                 
-                <div className="paste-area-container" style={{ opacity: aiTuotuKoulutushistoria ? 0.6 : 1 }}>
+                <div className="paste-area-container" style={{ opacity: aiTuotuKoulutushistoria ? 0.6 : 1, marginTop: '1.5rem' }}>
                     <textarea 
                         rows="2" 
                         placeholder="Liitä yksittäinen uusi tutkintotieto tähän (esim. Koski-palvelusta kopioitu)..."
@@ -390,8 +448,9 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
                     </p>
                 )}
 
-                <div className="options-container">
-                    {data.koulutus.map(phrase => (
+                <div className="options-container" style={{ marginTop: '1.5rem' }}>
+                    {/* SUODATETAAN VANHA KOULUTUSTAUSTA-FRAASI POIS NÄKYVISTÄ, KOSKA KÄYTÄMME NYT UUTTA LISTAA */}
+                    {data.koulutus.filter(p => p.phrase_key !== 'koulutus_tausta').map(phrase => (
                         <PhraseOption 
                             key={phrase.id} 
                             phrase={{ ...phrase, avainsana: phrase.phrase_key, teksti: phrase.base_text, lyhenne: phrase.short_title, muuttujat: transformVariables(phrase.variables) }}

@@ -1,16 +1,62 @@
 // --- src/components/sections/PalkkatukiCalculator/hooks/usePalkkatukiMath.js ---
 import { useMemo, useEffect } from 'react';
 import { STATE_MUUTTUJAT } from '../../../../data/constants';
-import { parseAnyDate } from '../utils';
+
+// Panssaroitu päivämäärän lukija
+const parseSafeDate = (dateStr) => {
+    let str = typeof dateStr === 'object' ? (dateStr?.value || dateStr?.oletus || String(dateStr)) : dateStr;
+    if (!str) return null;
+    
+    if (typeof str === 'string' && str.includes('.')) {
+        const p = str.split('.');
+        if (p.length === 3) return new Date(p[2], p[1] - 1, p[0]);
+    }
+    
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+};
+
+// UUSI FUNKTIO: Kaivaa päivämäärän objektin sisältä välittämättä avaimen nimestä
+const extractDateFromVariables = (muuttujatObj) => {
+    if (!muuttujatObj || typeof muuttujatObj !== 'object') return null;
+    
+    // Käydään läpi kaikki avaimet
+    for (const key in muuttujatObj) {
+        const val = muuttujatObj[key];
+        // Jos arvo on merkkijono ja näyttää suomalaiselta päivämäärältä (esim. 1.1.2024 tai 01.01.2024)
+        if (typeof val === 'string' && /^\d{1,2}\.\d{1,2}\.\d{4}$/.test(val.trim())) {
+            return val.trim();
+        }
+    }
+    return null;
+};
 
 export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
     const { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy } = useMemo(() => {
+        console.group('💰 PALKKATUEN LASKURI (DEBUG)');
+        
+        const thInfo = state?.suunnitelman_perustiedot?.tyonhaku_alkanut;
+        
+        // 1. Kokeillaan vanhaa reittiä
+        let thPvm = state?.suunnitelman_perustiedot?.TH_ALKU_PVM;
+        
+        // 2. Kokeillaan kaivaa muuttujista
+        if (!thPvm && thInfo?.muuttujat) {
+            thPvm = extractDateFromVariables(thInfo.muuttujat);
+            if (thPvm) console.log('✅ TH Alku löydetty muuttujien seasta kaivamalla:', thPvm);
+        }
+
+        // 3. Viimeisenä keinona vakio tai value
+        if (!thPvm) {
+            thPvm = thInfo?.muuttujat?.[STATE_MUUTTUJAT.TYONHAKU_ALKUPVM] || thInfo?.value || thInfo?.oletus;
+        }
+
         let laskettuIka = null;
         let originalDiffDays = 0;
         let originalKestoTxt = 'Ei tiedossa';
 
-        const syntymaVuosi = state.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.[STATE_MUUTTUJAT.SYNTYMAVUOSI]
-                          || state.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.['[SYNTYMÄVUOSI]']; 
+        const syntymaVuosi = state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.[STATE_MUUTTUJAT.SYNTYMAVUOSI]
+                          || state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.['[SYNTYMÄVUOSI]']; 
 
         if (syntymaVuosi) {
             const vuosiNum = parseInt(String(syntymaVuosi).replace(/\D/g, ''), 10);
@@ -19,11 +65,13 @@ export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
             }
         }
 
-        const alkupvmStr = state.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.[STATE_MUUTTUJAT.TYONHAKU_ALKUPVM];
-        const startDate = parseAnyDate(alkupvmStr);
-        const now = new Date();
+        const startDate = parseSafeDate(thPvm); 
+        const turvallinenAlkuPvm = startDate ? startDate.toLocaleDateString('fi-FI') : 'Ei tiedossa';
         
+        console.log('1. TH Alku (Ankkuri) Parsittuna:', turvallinenAlkuPvm);
+
         if (startDate) {
+            const now = new Date();
             const diffTime = Math.max(0, now - startDate);
             originalDiffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             const vuodet = Math.floor(originalDiffDays / 365);
@@ -32,26 +80,72 @@ export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
             else originalKestoTxt = `${kuukaudet} kk (${originalDiffDays} pv)`;
         }
 
-        const nollausPvm = parseAnyDate(ptState.nollausPvm);
+        const nollausPvm = parseSafeDate(ptState?.nollausPvm); 
         const activeStart = nollausPvm || startDate;
         
         let acceptedDays = 0;
         if (activeStart) {
+            const now = new Date();
             const diffTimeActive = Math.max(0, now - activeStart);
             const daysFromActiveStart = Math.ceil(diffTimeActive / (1000 * 60 * 60 * 24));
             const daysIn28MonthWindow = Math.min(daysFromActiveStart, 852);
-            const vahennykset = parseInt(ptState.vahennysPv, 10) || 0;
-            acceptedDays = Math.max(0, daysIn28MonthWindow - vahennykset);
+            
+            console.log(`2. Laskenta-aika 28kk (852 pv) ikkunassa: ${daysIn28MonthWindow} pv`);
+
+            let automaattisetVahennykset = 0;
+            const services = state?.sessionServices || [];
+            
+            const tarkasteluAlku = new Date();
+            tarkasteluAlku.setMonth(now.getMonth() - 28);
+            const todellinenLaskentaAlku = activeStart > tarkasteluAlku ? activeStart : tarkasteluAlku;
+
+            services.forEach((srv) => {
+                const tyyppi = srv?.entity_key;
+                
+                if (tyyppi === 'opiskelu_omaehtoinen') {
+                    const sAlku = parseSafeDate(srv?.data?.alku);
+                    const sLoppu = parseSafeDate(srv?.data?.loppu);
+
+                    if (sAlku && sLoppu && sLoppu >= sAlku) {
+                        const clipAlku = sAlku < todellinenLaskentaAlku ? todellinenLaskentaAlku : sAlku;
+                        const clipLoppu = sLoppu > now ? now : sLoppu;
+
+                        if (clipLoppu >= clipAlku) {
+                            const pituus = Math.ceil(Math.abs(clipLoppu - clipAlku) / (1000 * 60 * 60 * 24)) + 1;
+                            automaattisetVahennykset += pituus;
+                            console.log(`   ❌ RIKKURI LÖYDETTY (${tyyppi}): Vähennetään ${pituus} pv`);
+                        }
+                    }
+                }
+            });
+
+            const vahennykset = parseInt(ptState?.vahennysPv, 10) || 0;
+            acceptedDays = Math.max(0, daysIn28MonthWindow - vahennykset - automaattisetVahennykset);
+            console.log(`5. LOPPUTULOS: Yhteensä hyväksytyt päivät = ${acceptedDays} pv`);
+        } else {
+            console.log('⚠️ Työnhaun alkupäivää ei löytynyt, laskenta on nollassa.');
         }
 
-        return { ika: laskettuIka, alkuperainenAlkuPvm: alkupvmStr, perusKestoPv: originalDiffDays, perusKestoTxt: originalKestoTxt, hyvaksytytPaivat: acceptedDays, ehto24_28_tayttyy: acceptedDays >= 730, ehto3kk_tayttyy: acceptedDays >= 91 };
-    }, [state.suunnitelman_perustiedot, ptState.nollausPvm, ptState.vahennysPv]);
+        console.groupEnd();
+
+        return { 
+            ika: laskettuIka, 
+            alkuperainenAlkuPvm: turvallinenAlkuPvm, 
+            perusKestoPv: originalDiffDays, 
+            perusKestoTxt: originalKestoTxt, 
+            hyvaksytytPaivat: acceptedDays, 
+            ehto24_28_tayttyy: acceptedDays >= 730, 
+            ehto3kk_tayttyy: acceptedDays >= 91 
+        };
+    }, [state?.suunnitelman_perustiedot, ptState?.nollausPvm, ptState?.vahennysPv, state?.sessionServices]);
 
     useEffect(() => {
-        if (ptState.ehto24_28_tayttyy !== ehto24_28_tayttyy) {
-            onUpdatePalkkatuki('ehto24_28_tayttyy', ehto24_28_tayttyy);
+        if (ptState?.ehto24_28_tayttyy !== ehto24_28_tayttyy) {
+            if(typeof onUpdatePalkkatuki === 'function') {
+                onUpdatePalkkatuki('ehto24_28_tayttyy', ehto24_28_tayttyy);
+            }
         }
-    }, [ehto24_28_tayttyy, ptState.ehto24_28_tayttyy, onUpdatePalkkatuki]);
+    }, [ehto24_28_tayttyy, ptState?.ehto24_28_tayttyy, onUpdatePalkkatuki]);
 
     return { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy };
 };

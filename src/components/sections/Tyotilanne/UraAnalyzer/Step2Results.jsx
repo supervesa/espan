@@ -1,3 +1,5 @@
+// src/components/sections/Tyotilanne/UraAnalyzer/Step2Results.jsx
+
 import React from 'react';
 import { Briefcase, GraduationCap, CalendarClock, Layers, Info, Tag as TagIcon } from 'lucide-react';
 import Tag from '../../../common/Tag';
@@ -12,9 +14,10 @@ const Step2Results = ({
 }) => {
 
     const {
-        tyohistoria, koulutushistoria, tyokokeilut_pvm,
+        tyohistoria, suoritetut_koulutukset, tyokokeilut_pvm,
         vaihtoehtoiset_ammatit, koulutusehdotukset,
-        nykyinen_opiskelija, nykyinen_yrittaja
+        nykyinen_opiskelija, nykyinen_yrittaja,
+        nykyinen_palvelu_alku, nykyinen_palvelu_loppu
     } = aiResult;
 
     return (
@@ -25,29 +28,52 @@ const Step2Results = ({
                 <textarea className="form-input" rows="8" value={tyohistoria || ''} readOnly />
             </div>
             
-            <div className="panel-ai-edu">
-                <label className="icon-label"><GraduationCap size={16} /> Koulutukset</label>
-                <textarea className="form-input" rows="8" value={koulutushistoria || ''} readOnly />
+            {/* KORJATTU: Näyttää koulutukset nyt hienona listana! */}
+            <div className="panel-ai-edu" style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <label className="icon-label"><GraduationCap size={16} /> Suoritetut koulutukset</label>
+                {suoritetut_koulutukset && suoritetut_koulutukset.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                        {suoritetut_koulutukset.map((edu, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: '#fff', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}>
+                                <strong>{edu.tutkinto}</strong>
+                                <span style={{ color: '#64748b' }}>{edu.vuosi}</span>
+                            </div>
+                        ))}
+                        <span style={{ fontSize: '0.7rem', color: 'var(--color-primary)', marginTop: '5px' }}>Siirtyvät suoraan Koulutus-välilehdelle.</span>
+                    </div>
+                ) : (
+                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>Ei selkeitä tutkintoja havaittu.</p>
+                )}
             </div>
 
-            {/* Lomakeautomaation paneeli */}
-            {(tilaTyoton || tilaTyokokeilu || tilaPalkkatuki) && (
-                <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-success)', marginBottom: '1rem', gridColumn: 'span 2' }}>
-                    <label className="icon-label text-success"><Layers size={16} /> Automaattiset lomakevalinnat</label>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                        {tilaTyoton && <Tag type="success">✓ Työtön</Tag>}
-                        {tilaTyokokeilu && <Tag type="success">✓ Työkokeilu</Tag>}
-                        {tilaPalkkatuki && <Tag type="success">✓ Palkkatuki</Tag>}
+            {/* UUSI: Näyttää käynnissä olevan palvelun ja sen päivät */}
+            {(tilaTyokokeilu || tilaPalkkatuki) && (
+                <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-success)', marginBottom: '1rem', gridColumn: 'span 2', backgroundColor: '#f0fdf4' }}>
+                    <label className="icon-label text-success"><CalendarClock size={16} /> Havaittu aktiivinen palvelu</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginTop: '0.5rem', fontSize: '0.9rem' }}>
+                        <strong>{tilaTyokokeilu ? 'Työkokeilu' : 'Palkkatuki'}</strong>
+                        {nykyinen_palvelu_alku && nykyinen_palvelu_loppu ? (
+                            <span style={{ backgroundColor: '#fff', padding: '4px 10px', borderRadius: '15px', border: '1px solid #bbf7d0', color: '#166534' }}>
+                                {nykyinen_palvelu_alku} – {nykyinen_palvelu_loppu}
+                            </span>
+                        ) : (
+                            <span style={{ color: '#ef4444', fontSize: '0.8rem' }}>Päivämääriä ei löytynyt tekstistä.</span>
+                        )}
                     </div>
-                    <span className="stat-label" style={{ marginTop: '0.5rem' }}>
-                        Nämä ruksitaan puolestasi automaattisesti Työtilanne-lomakkeella.
-                    </span>
+                </div>
+            )}
+
+            {/* Työtön-status erikseen */}
+            {tilaTyoton && (
+                <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-warning)', gridColumn: 'span 2' }}>
+                    <label className="icon-label" style={{ color: '#b45309' }}><Layers size={16} /> Asiakkaan status</label>
+                    <div style={{ marginTop: '0.5rem' }}><Tag type="warning">✓ Työtön työnhakija</Tag></div>
                 </div>
             )}
 
             {tyokokeilut_pvm && (
                 <div className="panel-ai-tk" style={{ gridColumn: 'span 2' }}>
-                    <label className="icon-label"><CalendarClock size={16} /> Työkokeilut (Palkkatukilaskuri)</label>
+                    <label className="icon-label"><CalendarClock size={16} /> Menneet työkokeilut (Palkkatukilaskuri)</label>
                     <textarea className="form-input text-mono" rows="2" value={tyokokeilut_pvm} readOnly />
                 </div>
             )}
@@ -114,7 +140,6 @@ const Step2Results = ({
                     )) : <span className="stat-label" style={{ fontStyle: 'italic' }}>Ei signaaleja.</span>}
                 </div>
             </div>
-            
         </div>
     );
 };

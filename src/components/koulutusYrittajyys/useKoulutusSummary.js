@@ -9,7 +9,7 @@ const parseDate = (s) => {
     return new Date(p[2], p[1] - 1, p[0]);
 };
 
-// Apufunktio statuksen määrittämiseen suhteessa nykyhetkeen (15.6.2026)
+// Apufunktio statuksen määrittämiseen suhteessa nykyhetkeen
 const getStatus = (alku, loppu) => {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
@@ -43,8 +43,24 @@ export const useKoulutusSummary = (
         let tuettuOpiskeluLause = '';
         let generatedParts = [];
 
-        // --- 1. Koulutus ---
-        if (koulutusState?.avainsana) {
+        // --- 1. KOULUTUSHISTORIA (KORJATTU KIELIOPPI) ---
+        const educations = customTekstit?.sessionEducations || [];
+        
+        if (educations.length > 0) {
+            const eduStrings = educations.map(e => {
+                // Säilytetään alkuperäinen kirjoitusasu (esim. AMK pysyy isona)
+                let s = e.data.tutkinto.trim(); 
+                if (e.data.vuosi) {
+                    s += ` (${e.data.vuosi})`;
+                }
+                return s;
+            });
+            
+            const combinedEdus = createListSentence(eduStrings);
+            // KORJAUS: Neutraali aloitussana, johon sopii mikä tahansa oppilaitos tai tutkinto
+            koulutusLause = `Asiakkaan koulutustausta: ${combinedEdus}.`;
+            generatedParts.push(koulutusLause);
+        } else if (koulutusState?.avainsana) {
             const phrase = koulutusPhrases.find(f => f.phrase_key === koulutusState.avainsana);
             if (phrase) {
                 let text = phrase.base_text || '';

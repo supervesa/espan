@@ -1,16 +1,30 @@
-// src/utils/regex/extractKoulutus.js
-
-// Erilaisia tyypillisiä tapoja ilmaista koulutus vapaassa tekstissä
-const EDU_PATTERNS = [
-    // "Asiakas on koulutukseltaan media (v. 2008)" tai "koulutukseltaan yo."
-    /(?:asiakas on )?(?:perus)?koulutukseltaan\s+([^(.,]+)(?:\s*\(\s*v?\.?\s*(\d{4})\s*\))?/i,
-    
-    // "Valmistunut kokiksi vuonna 2015" tai "valmistunut merkonomi 2020"
-    /(?:valmistunut|valmistui)\s+([^0-9.,]+)(?:\s+(?:vuonna\s+)?v?\.?\s*(\d{4}))?/i,
-    
-    // "Koulutus: Datanomi (2010)" tai "Tutkinto: ylioppilas"
-    /(?:koulutus|tutkinto|koulutustausta):\s*([^(.,]+)(?:\s*\(\s*v?\.?\s*(\d{4})\s*\))?/i
+// Etsitään koko lause pisteeseen (tai rivinvaihtoon) asti
+const EDU_SENTENCE_PATTERNS = [
+    /(?:asiakas on )?(?:perus)?koulutukseltaan\s+(.+?)(?:\.|$|\n)/i,
+    /(?:valmistunut|valmistui)\s+(.+?)(?:\.|$|\n)/i,
+    /(?:koulutus|tutkinto|koulutustausta):\s*(.+?)(?:\.|$|\n)/i
 ];
+
+// Apufunktio, joka erottaa yhdestä pätkästä (esim. "media (v. 2008)") tutkinnon ja vuoden
+const parseDegreeAndYear = (str) => {
+    // Etsitään vuosiluku ja siihen liittyvät turhat sanat/sulut (esim. "(v. 2008)", "vuonna 2015", "(2020)")
+    const yearRegex = /(?:\(\s*)?(?:vuonna\s+|v\.?\s*)?(\d{4})(?:\s*\))?/i;
+    const yearMatch = str.match(yearRegex);
+    
+    let vuosi = '';
+    let tutkinto = str;
+
+    if (yearMatch) {
+        vuosi = yearMatch[1]; // Pelkät 4 numeroa
+        // Poistetaan koko vuosi-ilmaisu tutkinnon nimestä ja siistitään
+        tutkinto = tutkinto.replace(yearMatch[0], '').trim();
+    }
+
+    // Siivotaan mahdolliset lauseen jäänteet ja turhat merkit
+    tutkinto = tutkinto.replace(/^[:,]/, '').replace(/ja$/, '').replace(/sekä$/, '').trim();
+
+    return { tutkinto, vuosi };
+};
 
 export const extractKoulutus = (text) => {
     let remainingText = text;
@@ -18,41 +32,39 @@ export const extractKoulutus = (text) => {
 
     if (!text) return { remainingText, foundEducations };
 
-    EDU_PATTERNS.forEach(pattern => {
-        // Etsitään kaikki osumat (while-luuppi siltä varalta, että listassa on useita tutkintoja)
+    EDU_SENTENCE_PATTERNS.forEach(pattern => {
         let match = remainingText.match(pattern);
-        let safetyCounter = 0;
+        let safetyCounter = 0; // Estää ikiluupin
 
-        while (match && safetyCounter < 5) {
+        while (match && safetyCounter < 10) {
             safetyCounter++;
 
-            // Poimitaan Regex-ryhmistä tutkinto ja vuosi
-            const degreeRaw = match[1] ? match[1].trim() : '';
-            const yearRaw = match[2] ? match[2].trim() : '';
+            const fullSentence = match[0]; // Koko alkuperäinen lause, esim. "Asiakas on koulutukseltaan media (v. 2008) ja lukio (2001)."
+            const listString = match[1];   // Pelkkä listaus-osa, esim. "media (v. 2008) ja lukio (2001)"
 
-            if (degreeRaw && degreeRaw.length > 2) {
-                foundEducations.push({
-                    id: window.crypto.randomUUID(),
-                    data: {
-                        tutkinto: degreeRaw,
-                        vuosi: yearRaw
-                    },
-                    meta: { source: 'scraper_heuristic' }
-                });
-            }
+            // Pilkotaan listaus-osa erottimilla (ja, sekä, pilkku)
+            const parts = listString.split(/\s+ja\s+|\s+sekä\s+|,/).map(s => s.trim()).filter(Boolean);
 
-            // Etsitään koko virke (pisteeseen asti), jossa osuma on, jotta siivous on siisti
-            // Jos lauseke päättyy jo pisteeseen, otetaan se. Muuten etsitään seuraava piste.
-            const matchIndex = match.index;
-            const textAfterMatch = remainingText.substring(matchIndex);
-            const nextDot = textAfterMatch.indexOf('.');
+            parts.forEach(part => {
+                const { tutkinto, vuosi } = parseDegreeAndYear(part);
+                
+                // Estetään aivan liian lyhyet/virheelliset osumat
+                if (tutkinto && tutkinto.length > 2) {
+                    foundEducations.push({
+                        id: window.crypto.randomUUID(),
+                        data: {
+                            tutkinto: tutkinto,
+                            vuosi: vuosi
+                        },
+                        meta: { source: 'scraper_heuristic' }
+                    });
+                }
+            });
+
+            // Pyyhitään alkuperäisestä tekstistä vain se koko löydetty lauseke
+            remainingText = remainingText.replace(fullSentence, '\n').replace(/\s{2,}/g, ' ').trim();
             
-            let stringToWipe = match[0];
-            if (nextDot !== -1 && nextDot < 50) { // Jos piste on lähellä, pyyhitään siihen asti
-                stringToWipe = textAfterMatch.substring(0, nextDot + 1);
-            }
-
-            remainingText = remainingText.replace(stringToWipe, ' ').replace(/\s{2,}/g, ' ').trim();
+            // Haetaan seuraava mahdollinen koulutuslause, jos niitä on useita
             match = remainingText.match(pattern);
         }
     });

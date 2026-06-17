@@ -4,13 +4,11 @@ import { supabase } from '../../../../utils/supabaseClient';
 import Modal from '../../../common/Modal'; 
 import AlertBox from '../../../common/AlertBox';
 
-// UUSI IMPORT POLKU!
 import { COMPANY_PATTERN, SCHOOL_PATTERN, HETU_PATTERN, SINGLE_DATE_PATTERN } from '../../../../utils/regex/core';
-
 import Step1Input from './Step1Input';
 import Step2Results from './Step2Results';
 
-const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
+const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys, currentSectionState }) => {
     const [step, setStep] = useState(1);
     const [rawData, setRawData] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -22,7 +20,6 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
     const [escoProfession, setEscoProfession] = useState('');
     const [activeTriggers, setActiveTriggers] = useState([]);
     
-    // Lomakeautomaatiot
     const [tilaTyokokeilu, setTilaTyokokeilu] = useState(false);
     const [tilaPalkkatuki, setTilaPalkkatuki] = useState(false);
     const [tilaTyoton, setTilaTyoton] = useState(false);
@@ -43,12 +40,9 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
         try {
             const { data } = await supabase.from('view_master_dictionary').select('keyword');
             if (data) setKnownTriggers(data.map(d => d.keyword));
-        } catch (err) {
-            console.error(err);
-        }
+        } catch (err) {}
     };
 
-    // SIIRRETTY ANONYMISOINTILOGIIKKA TÄNNE:
     const handleAutoAnonymize = () => {
         if (!rawData) return;
         let cleaned = rawData;
@@ -64,7 +58,6 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
     const handleAnalyze = async () => {
         if (!rawData.trim()) return setError("Syötä URA-historia ensin.");
         setError(null); setIsAnalyzing(true);
-
         const todayDate = new Date().toISOString().split('T')[0]; 
 
         try {
@@ -73,7 +66,7 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
                 body: JSON.stringify({ rawText: rawData, knownTriggers, currentDate: todayDate })
             });
 
-            if (!response.ok) throw new Error("Aivoissa ruuhkaa. Yritä hetken kuluttua uudelleen.");
+            if (!response.ok) throw new Error("Aivoissa ruuhkaa. Yritä uudelleen.");
 
             const aiData = await response.json();
             setAiResult(aiData);
@@ -86,11 +79,7 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
 
             setActiveTriggers(aiData.loydetyt_triggerit || []);
             setStep(2); 
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setIsAnalyzing(false);
-        }
+        } catch (err) { setError(err.message); } finally { setIsAnalyzing(false); }
     };
 
     const handleAccept = async () => {
@@ -98,43 +87,30 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
         try {
             const DIVIDER = "URA- JA PALVELUHISTORIA:";
             let existingText = state['custom-tyotilanne'] || '';
-            
-            if (existingText.includes(DIVIDER)) {
-                existingText = existingText.split(DIVIDER)[0].trim();
-            }
+            if (existingText.includes(DIVIDER)) existingText = existingText.split(DIVIDER)[0].trim();
 
-            let aiKoonti = aiResult.tyohistoria || '';
-            
-            if (finescoSector || escoProfession) {
-                let escoSentence = finescoSector && escoProfession 
-                    ? `Asiakkaan tavoitteena on työllistyä alalle: ${finescoSector.toLowerCase()}. Tarkempana tavoiteammattina on ${escoProfession.toLowerCase()}.`
-                    : `Asiakkaan tavoiteammattina on ${(escoProfession || finescoSector).toLowerCase()}.`;
-
-                if (aiResult.vaihtoehtoiset_ammatit?.length > 0) {
-                    escoSentence += ` Kiinnostusta myös seuraaviin: ${aiResult.vaihtoehtoiset_ammatit.join(' ja ').toLowerCase()}.`;
-                }
-                aiKoonti += `\n\n${escoSentence}`;
-            }
-
-            let finalNotes = existingText ? `${existingText}\n\n${DIVIDER}\n${aiKoonti}` : `${DIVIDER}\n${aiKoonti}`;
+            let finalNotes = existingText ? `${existingText}\n\n${DIVIDER}\n${aiResult.tyohistoria || ''}` : `${DIVIDER}\n${aiResult.tyohistoria || ''}`;
             finalNotes = finalNotes.replace(/\n{3,}/g, '\n\n').trim();
 
             actions.onUpdateCustomText('tyotilanne', finalNotes);
             
-            if (aiResult.koulutushistoria) actions.onUpdateCustomText('ai_koulutushistoria', aiResult.koulutushistoria);
-            if (aiResult.koulutusehdotukset?.length > 0) actions.onUpdateCustomText('ai_koulutus_ideat', JSON.stringify(aiResult.koulutusehdotukset));
-            
+            if (aiResult.koulutusehdotukset?.length > 0) {
+                actions.onUpdateCustomText('ai_koulutus_ideat', JSON.stringify(aiResult.koulutusehdotukset));
+            }
             if (aiResult.tyokokeilut_pvm) {
                 typeof actions.onUpdatePalkkatuki === 'function' ? actions.onUpdatePalkkatuki('tyokokeilu_historia', aiResult.tyokokeilut_pvm) : actions.onUpdateVariable('palkkatuki', 'tyokokeilu_historia', aiResult.tyokokeilut_pvm);
             }
 
-            // --- LOMAKEAUTOMAATIO ---
-            if (dynamicKeys) {
-                // Työkokeilua ja palkkatukea ei valita enää tässä. Observer hoitaa ne taulukon perusteella.
-                if (tilaTyoton) actions.onSelect('tyoton_tyonhakija', true); 
+            // --- KORJATTU LOMAKEAUTOMAATIO ---
+            // Nyt laitetaan Työtön-ruksi päälle oikealla sectionId:llä ja dynaamisella avaimella
+            if (dynamicKeys && dynamicKeys.tyoton && tilaTyoton) {
+                // Laitetaan päälle vain jos se ei ole jo päällä (koska onSelect toimii toggle-tyyppisesti)
+                if (!currentSectionState?.[dynamicKeys.tyoton]) {
+                    actions.onSelect('tyotilanne', dynamicKeys.tyoton, true); 
+                }
             }
 
-            // --- PALVELUPÄIVÄMÄÄRÄT -> GOLDEN MASTER ---
+            // --- KORJATTU GM PALVELUIDEN TALLENNUS ---
             if (aiResult.nykyinen_palvelu_alku && aiResult.nykyinen_palvelu_loppu) {
                 let currentEntityKey = 'tyokokeilu'; // Oletus
                 if (tilaPalkkatuki) currentEntityKey = 'palkkatuki';
@@ -144,10 +120,7 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
                     id: window.crypto.randomUUID(),
                     entity_key: currentEntityKey,
                     category: 'palvelu',
-                    data: { 
-                        alku: aiResult.nykyinen_palvelu_alku, 
-                        loppu: aiResult.nykyinen_palvelu_loppu 
-                    },
+                    data: { alku: aiResult.nykyinen_palvelu_alku, loppu: aiResult.nykyinen_palvelu_loppu },
                     meta: { source: 'ai_analyzer', timestamp: new Date().toISOString() }
                 };
 
@@ -155,13 +128,21 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
                 actions.onUpdateVariable('global', 'sessionServices', null, [...currentServices, newService]);
             }
 
+            // --- UUSI: GM KOULUTUSTEN TALLENNUS ---
+            if (aiResult.suoritetut_koulutukset && aiResult.suoritetut_koulutukset.length > 0) {
+                const newEducations = aiResult.suoritetut_koulutukset.map(edu => ({
+                    id: window.crypto.randomUUID(),
+                    data: { tutkinto: edu.tutkinto, vuosi: edu.vuosi || '' },
+                    meta: { source: 'ai_analyzer', timestamp: new Date().toISOString() }
+                }));
+
+                const currentEdus = Array.isArray(state.sessionEducations) ? state.sessionEducations : [];
+                actions.onUpdateVariable('global', 'sessionEducations', null, [...currentEdus, ...newEducations]);
+            }
+
             activeTriggers.forEach(trigger => { actions.onAddSignal(trigger); actions.onUpdateVariable('tyotilanne', trigger, true); });
-            if (finescoSector) actions.onAddSignal(`AI_FINESCO_${finescoSector}`);
-            if (escoProfession) actions.onAddSignal(`AI_ESCO_${escoProfession}`);
-
-            // --- ESCO/FINESCO TALLENNUS GLOBAALIIN TILAAN (Täysin alkuperäinen) ---
             if (finescoSector) actions.onUpdateAsiakas('tavoiteammatti_finesco_ala', finescoSector);
-
+            
             if (escoProfession) {
                 let uri = ''; let title = escoProfession; 
                 try {
@@ -175,7 +156,6 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
                 actions.onUpdateAsiakas('tavoiteammatti_esco_nimi', title);
             }
 
-            // --- TYÖTTÖMYYSTURVA-KYTKENTÄ ---
             if (aiResult.nykyinen_opiskelija) {
                 actions.onUpdateTyottomyysturva('updateKysymys', { id: 'opiskelija', value: true });
                 actions.onUpdateTyottomyysturva('ai_tunnistus_opiskelija', true);
@@ -194,59 +174,11 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
     };
 
     return (
-        <Modal 
-            isOpen={isOpen} 
-            onClose={onClose} 
-            title="Työ- ja palveluhistorian AI-analyysi" 
-            icon={Wand2}
-            footer={
-                <>
-                    <button className="btn btn--secondary" onClick={onClose} disabled={isAnalyzing || isSaving}>
-                        Peruuta
-                    </button>
-                    {step === 1 ? (
-                        <button className="btn" onClick={handleAnalyze} disabled={isAnalyzing || !rawData.trim() || hasRisks} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            {isAnalyzing ? (
-                                <><Loader2 size={16} className="animate-spin" /> Analysoidaan...</>
-                            ) : (
-                                <><Wand2 size={16} /> Pura ja jäsennä</>
-                            )}
-                        </button>
-                    ) : (
-                        <button className="btn btn--success" onClick={handleAccept} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'var(--color-success)', borderColor: 'var(--color-success)' }}>
-                            {isSaving ? (
-                                <><Loader2 size={16} className="animate-spin" /> Siirretään...</>
-                            ) : (
-                                <><Check size={16} /> Hyväksy ja siirrä</>
-                            )}
-                        </button>
-                    )}
-                </>
-            }
-        >
+        <Modal isOpen={isOpen} onClose={onClose} title="Työ- ja palveluhistorian AI-analyysi" icon={Wand2} footer={<> <button className="btn btn--secondary" onClick={onClose} disabled={isAnalyzing || isSaving}>Peruuta</button> {step === 1 ? ( <button className="btn" onClick={handleAnalyze} disabled={isAnalyzing || !rawData.trim() || hasRisks} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}> {isAnalyzing ? <><Loader2 size={16} className="animate-spin" /> Analysoidaan...</> : <><Wand2 size={16} /> Pura ja jäsennä</>} </button> ) : ( <button className="btn btn--success" onClick={handleAccept} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'var(--color-success)', borderColor: 'var(--color-success)' }}> {isSaving ? <><Loader2 size={16} className="animate-spin" /> Siirretään...</> : <><Check size={16} /> Hyväksy ja siirrä</>} </button> )} </>}>
             {error && <AlertBox type="danger">{error}</AlertBox>}
-
-            {step === 1 && (
-                <Step1Input 
-                    rawData={rawData} 
-                    setRawData={setRawData} 
-                    hasRisks={hasRisks} 
-                    onAutoAnonymize={handleAutoAnonymize} 
-                    isAnalyzing={isAnalyzing} 
-                />
-            )}
-
-            {step === 2 && (
-                <Step2Results 
-                    aiResult={aiResult}
-                    finescoSector={finescoSector} setFinescoSector={setFinescoSector}
-                    escoProfession={escoProfession} setEscoProfession={setEscoProfession}
-                    tilaTyoton={tilaTyoton} tilaTyokokeilu={tilaTyokokeilu} tilaPalkkatuki={tilaPalkkatuki}
-                    activeTriggers={activeTriggers} setActiveTriggers={setActiveTriggers}
-                />
-            )}
+            {step === 1 && <Step1Input rawData={rawData} setRawData={setRawData} hasRisks={hasRisks} onAutoAnonymize={handleAutoAnonymize} isAnalyzing={isAnalyzing} />}
+            {step === 2 && <Step2Results aiResult={aiResult} finescoSector={finescoSector} setFinescoSector={setFinescoSector} escoProfession={escoProfession} setEscoProfession={setEscoProfession} tilaTyoton={tilaTyoton} tilaTyokokeilu={tilaTyokokeilu} tilaPalkkatuki={tilaPalkkatuki} activeTriggers={activeTriggers} setActiveTriggers={setActiveTriggers} />}
         </Modal>
     );
 };
-
 export default UraAnalyzer;
