@@ -26,7 +26,12 @@ export const planData = {
       monivalinta: true,
       fraasit: [
         { lyhenne: "Syntymävuosi", teksti: "Asiakkaan syntymävuosi: [SYNTYMÄVUOSI]", avainsana: "syntymavuosi", muuttujat: { "SYNTYMÄVUOSI": { "tyyppi": "numero", "oletus": 1980 } } },
-        { lyhenne: "Työnhaun alku", teksti: "Asiakkaan työnhaku on alkanut [PÄIVÄMÄÄRÄ].", avainsana: "tyonhaku_alkanut", muuttujat: { "PÄIVÄMÄÄRÄ": { "tyyppi": "teksti", "oletus": new Date().toLocaleDateString('fi-FI') } } },
+        { 
+  lyhenne: "Työnhaun alku", 
+  teksti: "Asiakkaan työnhaku on alkanut [TH_ALKU_PVM].", 
+  avainsana: "tyonhaku_alkanut", 
+  muuttujat: { "TH_ALKU_PVM": { "tyyppi": "teksti", "oletus": new Date().toLocaleDateString('fi-FI') } } 
+},
         { lyhenne: "Laatimistapa", teksti: "Tämä suunnitelma laadittiin [YHTEYDENOTTOTAPA] [PÄIVÄMÄÄRÄ].", avainsana: "laadittu", muuttujat: { YHTEYDENOTTOTAPA: { tyyppi: "valinta", "vaihtoehdot": ["puhelinajalla", "käyntiajalla"], oletus: "puhelinajalla" }, PÄIVÄMÄÄRÄ: { tyyppi: "teksti", oletus: new Date().toLocaleDateString('fi-FI') } } },
         { lyhenne: "Tapaamisen tyyppi", teksti: "Tapaamisen tyyppi: [TAPAAMISTYYPPI]", avainsana: "tapaamisen_tyyppi", muuttujat: { "TAPAAMISTYYPPI": { "tyyppi": "valinta", "vaihtoehdot": ["Alkuhaastattelu", "3kk Työnhakukeskustelu", "6kk Täydentävä keskustelu"], oletus: "Alkuhaastattelu" } } },
         { lyhenne: "Hyväksyntä (käynti)", teksti: "Asiakas hyväksyi suunnitelman käynnillä.", "avainsana": "hyvaksynta_kaynnilla" },

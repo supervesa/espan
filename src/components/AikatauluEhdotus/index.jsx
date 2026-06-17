@@ -1,16 +1,22 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../utils/supabaseClient';
+import { useSignal } from '../signals/useSignal';
+import { ENTITY_DEFINITIONS } from './schedulePriorityEngine'; 
 import Card from '../common/Card';
 import NumericSelector from '../common/NumericSelector';
 import CopyButton from '../common/CopyButton';
 import BasketSlotPicker from './BasketSlotPicker';
-import { findAvailableSlots, parseSafeDate } from './schedulingUtils';
+import SmartSuggestionBox from './SmartSuggestionBox';
+import { analyzeSchedule } from './schedulePriorityEngine';
+import { findAvailableSlots } from './schedulingUtils';
 import { generateSmartDraft } from './draftingEngine';
-import { Sparkles, FlaskConical, Calendar, User, Activity, CheckCircle2, Phone, Info } from 'lucide-react';
+import { FlaskConical, Calendar, User, Activity, CheckCircle2, Phone, Database, Link, AlertCircle } from 'lucide-react';
 
 const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
 
 const AikatauluEhdotus = ({ state, actions }) => {
+    const { activeSignals } = useSignal();
+
     const [rules, setRules] = useState([]);
     const [expertRules, setExpertRules] = useState([]);
     const [bookedSlots, setBookedSlots] = useState([]);
@@ -21,12 +27,20 @@ const AikatauluEhdotus = ({ state, actions }) => {
     const [confirmedSlots, setConfirmedSlots] = useState([]);
     const [count, setCount] = useState(1);
     const [period, setPeriod] = useState(3);
+    const [activeForcedMode, setActiveForcedMode] = useState(null);
     const [debugMode, setDebugMode] = useState(false);
     
     const [weekOffset, setWeekOffset] = useState(0);
     const [basket, setBasket] = useState([]);
 
     const prevPhraseRef = useRef("");
+
+    // --- LISÄTTY: Seurataan datan saapumista AikatauluEhdotukseen ---
+    useEffect(() => {
+        if (debugMode) {
+            console.log("AIKATAULU_DEBUG: state.sessionServices:", state.sessionServices);
+        }
+    }, [state.sessionServices, debugMode]);
 
     useEffect(() => {
         const loadData = async () => {
@@ -54,36 +68,15 @@ const AikatauluEhdotus = ({ state, actions }) => {
         }, {});
     }, [state.suunnitelman_perustiedot]);
 
-    const thAlkamisPvm = useMemo(() => perustiedotVars?.PVM || perustiedotVars?.PÄIVÄMÄÄRÄ || state.signals?.tyonhaku_alkanut || null, [perustiedotVars, state.signals]);
-    const laskettuKestoKk = useMemo(() => {
-        const startDate = parseSafeDate(thAlkamisPvm);
-        if (!startDate) return 0;
-        const today = new Date();
-        return Math.max(0, (today.getFullYear() - startDate.getFullYear()) * 12 - startDate.getMonth() + today.getMonth());
-    }, [thAlkamisPvm]);
-
-    const syntyVuosi = useMemo(() => perustiedotVars?.SYNTYMÄVUOSI || state.signals?.syntymavuosi || null, [perustiedotVars, state.signals]);
-    const laskettuIka = useMemo(() => {
-        if (!syntyVuosi) return null;
-        const nro = parseInt(String(syntyVuosi).replace(/\D/g, ''), 10);
-        return isNaN(nro) ? null : ((nro > 1900) ? new Date().getFullYear() - nro : nro);
-    }, [syntyVuosi]);
-
-    const activeSignals = state?.signals || {};
-    const onYleistuki = !!activeSignals.tt_etuus_yleistuki;
-    const onToimeentulotuki = !!activeSignals.ETUUS_TOIMEENTULOTUKI;
-
     const laatimisTapa = perustiedotVars?.YHTEYDENOTTOTAPA || "–";
     const suunnitelmaLaadittuPvm = perustiedotVars?.PÄIVÄMÄÄRÄ || "–";
 
-    const suggestion = useMemo(() => {
-        if (!rules.length) return null;
-        if (onYleistuki) return { rule: rules.find(r => r.metadata?.triggers?.require_yleistuki === true), reason: "Yleistuki (Aktivointijakso)", type: 'aktivointi' };
-        if (laskettuKestoKk >= 6) return { rule: rules.find(r => r.title.includes("Täydentävät")), reason: `Työnhaku kestänyt ${laskettuKestoKk} kk`, type: 'normi' };
-        return null;
-    }, [rules, onYleistuki, laskettuKestoKk]);
+    // Kutsutaan moottoria
+    const { suggestion: activeSuggestion, diagnostics } = useMemo(() => {
+        const services = Array.isArray(state.sessionServices) ? state.sessionServices : [];
+        return analyzeSchedule(rules, activeSignals, services, perustiedotVars);
+    }, [rules, activeSignals, state.sessionServices, perustiedotVars]);
 
-    // UI-GRIDIN HAKU KORJATTU YMMÄRTÄMÄÄN "TÄYDENTÄVÄ"
     useEffect(() => {
         if (!selectedRule) { setProposedSlots([]); return; }
         
@@ -100,19 +93,18 @@ const AikatauluEhdotus = ({ state, actions }) => {
         setProposedSlots(findAvailableSlots(type, expertRules, bookedSlots, searchStart, 1));
     }, [selectedRule, expertRules, bookedSlots, weekOffset]);
 
-    const handleRuleChange = (ruleId) => {
+    const handleRuleChange = (ruleId, suggestedCount = 1, suggestedPeriod = 3, forcedMode = null) => {
         const rule = rules.find(r => r.id === ruleId);
         setSelectedRule(rule);
+        
         if (rule) {
-            let newCount = 1;
-            let newPeriod = 3;
-            if (rule.metadata?.triggers?.require_yleistuki) { newCount = 3; newPeriod = 3; }
-            setCount(newCount);
-            setPeriod(newPeriod);
-            
-            setBasket(generateSmartDraft(rule, expertRules, bookedSlots, newCount, newPeriod));
+            setCount(suggestedCount);
+            setPeriod(suggestedPeriod);
+            setActiveForcedMode(forcedMode);
+            setBasket(generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod));
         } else {
             setBasket([]);
+            setActiveForcedMode(null);
         }
     };
 
@@ -126,7 +118,6 @@ const AikatauluEhdotus = ({ state, actions }) => {
         setBasket(generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod));
     };
 
-    // TALLENNUSFUNKTIO KORJATTU YMMÄRTÄMÄÄN "TÄYDENTÄVÄ"
     const handleBooking = async () => {
         if (basket.length === 0) return;
         
@@ -176,44 +167,71 @@ const AikatauluEhdotus = ({ state, actions }) => {
         }
     });
 
+    const sessionServices = Array.isArray(state.sessionServices) ? state.sessionServices : [];
+
     if (loading) return <Card title="Ladataan aikatauluavustajaa..."></Card>;
 
     return (
         <Card title="Sentinel Guardian: Aikatauluavustaja">
             
+            {/* DEBUG LAATIKKO */}
             <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
                     <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#64748b', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <FlaskConical size={14} /> LIVE SIGNAL MONITOR
+                        <FlaskConical size={14} /> LIVE ENGINE DIAGNOSTICS
                     </span>
                     <input type="checkbox" checked={debugMode} onChange={(e) => setDebugMode(e.target.checked)} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.75rem' }}>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '0.75rem', marginBottom: debugMode ? '10px' : '0' }}>
                     <div className="debug-item"><Phone size={12}/> Tapa: <strong>{laatimisTapa}</strong></div>
-                    <div className="debug-item"><Calendar size={12}/> Laadittu: {suunnitelmaLaadittuPvm}</div>
-                    <div className="debug-item"><User size={12}/> Ikä: {laskettuIka || '–'} v</div>
-                    <div className="debug-item"><Activity size={12}/> TH-kesto: <span style={{fontWeight:'bold', color:'var(--color-primary)'}}>{laskettuKestoKk} kk</span></div>
-                    <div className="debug-item"><Activity size={12}/> Yleistuki: {onYleistuki ? <span style={{color:'green', fontWeight:'bold'}}>K</span> : 'E'}</div>
-                    <div className="debug-item"><Activity size={12}/> Toimeentulo: {onToimeentulotuki ? <span style={{color:'green', fontWeight:'bold'}}>K</span> : 'E'}</div>
+                    <div className="debug-item"><Calendar size={12}/> Laadittu: <strong>{suunnitelmaLaadittuPvm}</strong></div>
+                    <div className="debug-item"><User size={12}/> Ikä: {diagnostics.ika || '–'} v</div>
+                    <div className="debug-item"><Activity size={12}/> TH-kesto: <span style={{fontWeight:'bold', color:'var(--color-primary)'}}>{diagnostics.thKestoKk !== null ? `${diagnostics.thKestoKk} kk` : 'Tuntematon'}</span></div>
+                    <div className="debug-item"><Activity size={12}/> Yleistuki: {activeSignals.tt_etuus_yleistuki ? <span style={{color:'green', fontWeight:'bold'}}>K</span> : 'E'}</div>
+                    <div className="debug-item"><Activity size={12}/> Toimeentulo: {activeSignals.ETUUS_TOIMEENTULOTUKI ? <span style={{color:'green', fontWeight:'bold'}}>K</span> : 'E'}</div>
                 </div>
+
+                {/* HAVAITUT PALVELUT (AINA DIAGNOSOITU) */}
+                {debugMode && (
+                    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #cbd5e1', fontSize: '0.7rem' }}>
+                        <div style={{ marginBottom: '8px', color: 'var(--color-primary)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Link size={12}/> DETECTED SERVICES (GM Array):
+                        </div>
+                        
+                        {sessionServices.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '10px' }}>
+                                {sessionServices.map((s, idx) => (
+                                    <div key={idx} style={{ backgroundColor: '#fff', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
+                                        <span><strong>{ENTITY_DEFINITIONS[s.entity_key]?.label || s.entity_key}</strong></span>
+                                        <span style={{ color: '#64748b' }}>{s.data.alku} – {s.data.loppu}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 0', color: '#94a3b8', fontStyle: 'italic', marginBottom: '10px' }}>
+                                <AlertCircle size={12} /> No services detected in state.sessionServices
+                            </div>
+                        )}
+
+                        <div style={{ marginBottom: '5px', color: '#64748b', fontWeight: 'bold' }}>RAW JSON:</div>
+                        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', backgroundColor: '#f1f5f9', padding: '5px', borderRadius: '4px', fontSize: '0.65rem' }}>
+                            {JSON.stringify(state.sessionServices || [], null, 2)}
+                        </pre>
+                    </div>
+                )}
             </div>
 
-            {suggestion && !selectedRule && (
-                <div className="smart-analysis-box" style={{ borderLeft: '4px solid var(--color-ai)', background: 'var(--color-bg-ai)', marginBottom: '1.5rem', padding: '10px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                            <div style={{ color: 'var(--color-ai)', fontWeight: 'bold', fontSize: '0.85rem' }}><Sparkles size={16} /> Älykäs ehdotus</div>
-                            <p style={{ fontSize: '0.8rem', fontWeight: '600', margin: '4px 0' }}>{suggestion.rule?.title}</p>
-                            <p style={{ fontSize: '0.7rem', color: '#6b7280' }}><strong>Peruste:</strong> {suggestion.reason}</p>
-                        </div>
-                        <button className="btn" onClick={() => handleRuleChange(suggestion.rule.id)}>Käytä</button>
-                    </div>
-                </div>
+            {!selectedRule && (
+                <SmartSuggestionBox 
+                    suggestion={activeSuggestion} 
+                    onApply={handleRuleChange} 
+                />
             )}
 
             <div className="subsection">
                 <label style={{ fontWeight: 600, fontSize: '0.85rem' }}>Valitse sääntö:</label>
-                <select className="modern-select" value={selectedRule?.id || ""} onChange={e => handleRuleChange(e.target.value)}>
+                <select className="modern-select" value={selectedRule?.id || ""} onChange={e => handleRuleChange(e.target.value, 1, 3, null)}>
                     <option value="">-- Ei säännöllistä tarvetta --</option>
                     {rules.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
                 </select>
@@ -224,10 +242,11 @@ const AikatauluEhdotus = ({ state, actions }) => {
                     <BasketSlotPicker 
                         slots={proposedSlots} 
                         basket={basket}
-                        bookedSlots={bookedSlots} // <-- LISÄTTY
+                        bookedSlots={bookedSlots}
                         setBasket={setBasket}
                         onBook={handleBooking} 
                         isAktivointi={selectedRule.metadata?.triggers?.require_yleistuki} 
+                        forcedMode={activeForcedMode}
                         confirmedCount={confirmedSlots.length} 
                         weekOffset={weekOffset}
                         onOffsetChange={(val) => setWeekOffset(prev => Math.max(0, prev + val))}
@@ -251,7 +270,9 @@ const AikatauluEhdotus = ({ state, actions }) => {
                     {confirmedSlots.length > 0 && <CheckCircle2 size={16} color="#10b981" />}
                 </div>
                 <p style={{ fontSize: '0.85rem', fontStyle: 'italic', whiteSpace: 'pre-line', margin: '10px 0' }}>{generatePhrase()}</p>
-                <CopyButton text={generatePhrase()} />
+                <div style={{ marginTop: '1rem' }}>
+                    <CopyButton text={generatePhrase()} />
+                </div>
             </div>
         </Card>
     );

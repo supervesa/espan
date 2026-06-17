@@ -1,15 +1,35 @@
-// --- src/components/koulutusYrittajyys/useKoulutusSummary.js ---
 import { useMemo } from 'react';
 import { toLowerFirst, createListSentence } from '../../utils/stringUtils';
 
+// Apufunktio päivämäärän parsimiseen (sama kuin Tyotilanne-osiossa)
+const parseDate = (s) => {
+    if (!s) return null;
+    const p = s.split('.');
+    if (p.length !== 3) return new Date(s);
+    return new Date(p[2], p[1] - 1, p[0]);
+};
+
+// Apufunktio statuksen määrittämiseen suhteessa nykyhetkeen (15.6.2026)
+const getStatus = (alku, loppu) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const s = parseDate(alku);
+    const e = parseDate(loppu);
+
+    if (!s || !e || isNaN(s) || isNaN(e)) return 'present';
+    if (e < now) return 'past';
+    if (s <= now && e >= now) return 'present';
+    return 'future';
+};
+
 export const useKoulutusSummary = (
     koulutusState,
-    ammattikortitState, // Pidetään mukana jotta rajapinta ei hajoa muiden komponenttien kanssa
+    ammattikortitState,
     yrittajyysState,
     kielitasoState,
     customTekstit,
     koulutusPhrases,
-    ammattikorttiPhrases, // Pidetään mukana
+    ammattikorttiPhrases,
     yrittajyysPhrases,
     languageLevels
 ) => {
@@ -51,29 +71,22 @@ export const useKoulutusSummary = (
             }
         }
 
-        // --- 3. Pätevyydet ja kortit (UUSI LOGIIKKA - KORJATTU KIELIOPPI) ---
+        // --- 3. Pätevyydet ja kortit ---
         try {
             if (customTekstit?.valitut_ammattikortit) {
                 const valitutKortit = JSON.parse(customTekstit.valitut_ammattikortit);
-                
                 if (Array.isArray(valitutKortit) && valitutKortit.length > 0) {
-                    // Poimitaan nimet listaksi
                     const korttiNimetArray = valitutKortit.map(k => k.nimi);
-                    // Käytetään hienoa listanmuodostajaa ("A, B ja C")
                     const korttiNimet = createListSentence(korttiNimetArray);
-                    
                     ammattikorttiLause = `Asiakkaalla on voimassa olevat pätevyydet: ${korttiNimet}.`;
                     generatedParts.push(ammattikorttiLause);
                 }
             }
-        } catch(e) {
-            console.error("Virhe ammattikorttien parsinnassa:", e);
-        }
+        } catch(e) { console.error(e); }
 
         // --- 4. Kielitaito ---
         const aidinkieli = customTekstit?.aidinkieli;
         const suomiTaso = customTekstit?.suomiTaso;
-
         if (aidinkieli && suomiTaso) {
             const levelData = languageLevels.find(l => l.level_key === suomiTaso);
             const workDesc = levelData ? toLowerFirst(levelData.work_description) : "";
@@ -90,30 +103,19 @@ export const useKoulutusSummary = (
         // --- 5. Digitaidot ja asiointi ---
         const digitaidot = customTekstit?.digitaidot;
         const pankkitunnukset = customTekstit?.pankkitunnukset;
-
         if (digitaidot || pankkitunnukset) {
             let osat = [];
-            
             if (digitaidot === 'hyvat') osat.push('hyvät digitaidot');
             else if (digitaidot === 'perusteet') osat.push('perustason digitaidot');
             else if (digitaidot === 'heikot') osat.push('puutteelliset digitaidot tai niitä ei ole lainkaan');
-
             if (pankkitunnukset === 'kylla') osat.push('hänellä on käytössään vahva tunnistautuminen');
             else if (pankkitunnukset === 'ei') osat.push('hänellä ei ole käytössään vahvaa tunnistautumista');
             else if (pankkitunnukset === 'selvitettava') osat.push('vahvan tunnistautumisen tilanne on selvitettävä');
 
-            if (osat.length === 2) {
-                digitaidotLause = `Asiakkaalla on ${osat[0]} ja ${osat[1]}.`;
-            } else if (digitaidot) {
-                digitaidotLause = `Asiakkaalla on ${osat[0]}.`;
-            } else if (pankkitunnukset) {
-                digitaidotLause = osat[0].charAt(0).toUpperCase() + osat[0].slice(1) + '.';
-            }
-            
-            if (digitaidotLause) {
-                digitaidotLause = digitaidotLause.charAt(0).toUpperCase() + digitaidotLause.slice(1);
-                generatedParts.push(digitaidotLause);
-            }
+            if (osat.length === 2) digitaidotLause = `Asiakkaalla on ${osat[0]} ja ${osat[1]}.`;
+            else if (digitaidot) digitaidotLause = `Asiakkaalla on ${osat[0]}.`;
+            else if (pankkitunnukset) digitaidotLause = osat[0].charAt(0).toUpperCase() + osat[0].slice(1) + '.';
+            if (digitaidotLause) generatedParts.push(digitaidotLause);
         }
 
         // --- 6. Tekoälyn valitut koulutusideat ---
@@ -121,50 +123,64 @@ export const useKoulutusSummary = (
             if (customTekstit?.valitutAiIdeat) {
                 const ideatArray = JSON.parse(customTekstit.valitutAiIdeat);
                 if (Array.isArray(ideatArray) && ideatArray.length > 0) {
-                    const yhdistettyIdeat = ideatArray.join(', ');
-                    ideatLause = `Asiakkaan kanssa sovittiin seuraavien koulutusmahdollisuuksien selvittämisestä: ${yhdistettyIdeat}.`;
+                    ideatLause = `Asiakkaan kanssa sovittiin seuraavien koulutusmahdollisuuksien selvittämisestä: ${ideatArray.join(', ')}.`;
                     generatedParts.push(ideatLause);
                 }
             }
-        } catch (e) {
-            console.error("Virhe AI-ideoiden parsinnassa:", e);
-        }
+        } catch (e) { console.error(e); }
 
-        // --- 7. Tuettu Opiskelu ---
-        if (customTekstit?.tuettu_aktiivinen) {
-            let opiskelunTyyppi = "";
-            switch (customTekstit.tuettu_tyyppi) {
-                case 'omaehtoinen': opiskelunTyyppi = "omaehtoisesta opiskelusta"; break;
-                case 'lyhytkestoinen': opiskelunTyyppi = "lyhytkestoisista opinnoista"; break;
-                case 'kotoutuja': opiskelunTyyppi = "kotoutujan omaehtoisesta opiskelusta"; break;
-                case 'sivutoiminen': opiskelunTyyppi = "sivutoimisesta opiskelusta"; break;
-                default: opiskelunTyyppi = "opiskelusta";
-            }
+        // --- 7. TUETTU OPISKELU (GOLDEN MASTER INTEGRAATIO) ---
+        const services = customTekstit?.sessionServices || [];
+        const studies = services.filter(s => s.category === 'opiskelu');
 
-            // A. Peruslause (Tyyppi + Nimi + Aika)
-            let alkuosa = `Asiakkaan kanssa on sovittu työttömyysetuudella tuetusta ${opiskelunTyyppi}`;
-            if (customTekstit.tuettu_opinnon_nimi) {
-                alkuosa += ` (${customTekstit.tuettu_opinnon_nimi})`;
-            }
-            if (customTekstit.tuettu_alku_pvm && customTekstit.tuettu_loppu_pvm) {
-                const s = new Date(customTekstit.tuettu_alku_pvm).toLocaleDateString('fi-FI');
-                const e = new Date(customTekstit.tuettu_loppu_pvm).toLocaleDateString('fi-FI');
-                alkuosa += ` ajalla ${s} – ${e}`;
-            }
-            alkuosa += ".";
+        if (studies.length > 0) {
+            const studySentences = studies.map(s => {
+                const status = getStatus(s.data.alku, s.data.loppu);
+                const nimiPart = s.data.nimi ? `(${s.data.nimi}) ` : '';
+                
+                let verbi = "Asiakkaan kanssa on sovittu";
+                let opiskelunTyyppi = "opiskelusta";
 
-            // B. Lakipykälä-ehdot
-            let ehdot = [];
-            if (customTekstit.tuettu_perusopetus) ehdot.push("Opintojen tavoitteena on perusopetuksen oppimäärän suorittaminen (76 §)");
-            if (customTekstit.tuettu_edellytys_suunnitelma) ehdot.push("Opiskelusta on sovittu tässä suunnitelmassa (75 §)");
-            if (customTekstit.tuettu_edellytys_tarkoituksenmukaisuus) ehdot.push("Opiskelu parantaa olennaisesti ammattitaitoa ja mahdollisuuksia työllistyä avoimille työmarkkinoille (73 §)");
-            if (customTekstit.tuettu_edellytys_seuranta) ehdot.push("Opintojen etenemisen seurannasta on sovittu (77 §)");
+                if (status === 'past') {
+                    verbi = "Asiakas on ollut";
+                    switch (s.entity_key) {
+                        case 'opiskelu_omaehtoinen': opiskelunTyyppi = "omaehtoisessa opiskelussa"; break;
+                        case 'opiskelu_lyhytkestoinen': opiskelunTyyppi = "lyhytkestoisissa opinnoissa"; break;
+                        case 'opiskelu_kotoutuja': opiskelunTyyppi = "kotoutujan omaehtoisessa opiskelussa"; break;
+                        case 'opiskelu_sivutoiminen': opiskelunTyyppi = "sivutoimisessa opiskelussa"; break;
+                    }
+                } else if (status === 'present') {
+                    verbi = "Asiakas on parhaillaan";
+                    switch (s.entity_key) {
+                        case 'opiskelu_omaehtoinen': opiskelunTyyppi = "omaehtoisessa opiskelussa"; break;
+                        case 'opiskelu_lyhytkestoinen': opiskelunTyyppi = "lyhytkestoisissa opinnoissa"; break;
+                        case 'opiskelu_kotoutuja': opiskelunTyyppi = "kotoutujan omaehtoisessa opiskelussa"; break;
+                        case 'opiskelu_sivutoiminen': opiskelunTyyppi = "sivutoimisessa opiskelussa"; break;
+                    }
+                } else {
+                    // Future - pidetään alkuperäinen taivutus
+                    switch (s.entity_key) {
+                        case 'opiskelu_omaehtoinen': opiskelunTyyppi = "työttömyysetuudella tuetusta omaehtoisesta opiskelusta"; break;
+                        case 'opiskelu_lyhytkestoinen': opiskelunTyyppi = "työttömyysetuudella tuetuista lyhytkestoisista opinnoista"; break;
+                        case 'opiskelu_kotoutuja': opiskelunTyyppi = "kotoutujan omaehtoisesta opiskelusta"; break;
+                        case 'opiskelu_sivutoiminen': opiskelunTyyppi = "sivutoimisesta opiskelusta"; break;
+                    }
+                }
 
-            tuettuOpiskeluLause = alkuosa;
-            if (ehdot.length > 0) {
-                tuettuOpiskeluLause += " " + createListSentence(ehdot) + ".";
-            }
+                let sentence = `${verbi} ${opiskelunTyyppi} ${nimiPart}ajalla ${s.data.alku} – ${s.data.loppu}.`;
 
+                // Lakipykälät (vain jos merkitty dataan)
+                let ehdot = [];
+                if (s.data.edellytys_suunnitelma) ehdot.push("Opiskelusta on sovittu tässä suunnitelmassa (75 §)");
+                if (s.data.edellytys_seuranta) ehdot.push("Opintojen etenemisen seurannasta on sovittu (77 §)");
+                
+                if (ehdot.length > 0) {
+                    sentence += " " + createListSentence(ehdot) + ".";
+                }
+                return sentence;
+            });
+
+            tuettuOpiskeluLause = studySentences.join(' ');
             generatedParts.push(tuettuOpiskeluLause);
         }
 

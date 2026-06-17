@@ -264,8 +264,12 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
         }, 300);
     };
 
+    // --- KORJATTU: Summary kutsuu nyt Golden Master taulukkoa ---
     const summary = useKoulutusSummary(
-        state[UI_KOULUTUS], null, state[UI_YRITTAJYYS], null,
+        state[UI_KOULUTUS], 
+        null, 
+        state[UI_YRITTAJYYS], 
+        null,
         { 
             aidinkieli: state['custom-kielitaso_aidinkieli'], 
             suomiTaso: state['custom-kielitaso_suomi'],
@@ -275,17 +279,13 @@ const KoulutusJaYrittajyys = ({ state, actions }) => {
             valitutAiIdeat: state['custom-valitut_ai_ideat'],
             aiKoulutushistoria: state['custom-ai_koulutushistoria'],
             valitut_ammattikortit: state['custom-valitut_ammattikortit'],
-            tuettu_aktiivinen: state['custom-tuettu_aktiivinen'],
-            tuettu_tyyppi: state['custom-tuettu_tyyppi'],
-            tuettu_opinnon_nimi: state['custom-tuettu_opinnon_nimi'],
-            tuettu_alku_pvm: state['custom-tuettu_alku_pvm'],
-            tuettu_loppu_pvm: state['custom-tuettu_loppu_pvm'],
-            tuettu_perusopetus: state['custom-tuettu_perusopetus'],
-            tuettu_edellytys_suunnitelma: state['custom-tuettu_edellytys_suunnitelma'],
-            tuettu_edellytys_tarkoituksenmukaisuus: state['custom-tuettu_edellytys_tarkoituksenmukaisuus'],
-            tuettu_edellytys_seuranta: state['custom-tuettu_edellytys_seuranta']
+            // Lähetetään Golden Master -taulukko hookille
+            sessionServices: state.sessionServices 
         },
-        data.koulutus, null, data.yrittajyys, data.languageLevels
+        data.koulutus, 
+        null, 
+        data.yrittajyys, 
+        data.languageLevels
     );
 
     let aiIdeas = [];

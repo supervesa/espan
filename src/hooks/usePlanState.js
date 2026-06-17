@@ -4,6 +4,11 @@ import { useState, useCallback } from 'react';
 import { planData } from '../data/planData'; 
 
 const deepMerge = (target, source) => {
+    // Jos kyseessä on taulukko, palautetaan lähde suoraan (Golden Master -yhteensopivuus)
+    if (Array.isArray(source)) {
+        return source;
+    }
+
     const output = { ...target };
     if (target && typeof target === 'object' && source && typeof source === 'object') {
         Object.keys(source).forEach(key => {
@@ -22,8 +27,14 @@ const deepMerge = (target, source) => {
 };
 
 export const usePlanState = (dbPlanData) => {
-    // Alustetaan tila, jossa on mukana myös palvelut
-    const [state, setState] = useState({ asiakas: {}, signals: {}, palvelut: {} });
+    // Alustetaan tila, jossa on mukana myös palvelut (sessionServices)
+    const [state, setState] = useState({ 
+        asiakas: {}, 
+        signals: {}, 
+        palvelut: {},
+        sessionServices: [], // UUSI: Golden Master -taulukko palveluille
+        sessionEducations: [] // UUSI: Golden Master -taulukko koulutuksille
+    });
 
     // --- CORE HANDLERS ---
 
@@ -33,40 +44,34 @@ export const usePlanState = (dbPlanData) => {
 
     const handleSetSignal = useCallback((signalKey, isActive) => {
         setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            if (!newState.signals) newState.signals = {};
-            
+            const newSignals = { ...currentState.signals };
             if (isActive) {
-                newState.signals[signalKey] = { isMuted: false, isPrintable: true };
+                newSignals[signalKey] = { isMuted: false, isPrintable: true };
             } else {
-                delete newState.signals[signalKey];
+                delete newSignals[signalKey];
             }
-            return newState;
+            return { ...currentState, signals: newSignals };
         });
     }, []);
 
     const handleUpdateSection = useCallback((sectionId, data) => {
-        setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            newState[sectionId] = data;
-            return newState;
-        });
+        setState(currentState => ({
+            ...currentState,
+            [sectionId]: data
+        }));
     }, []);
 
     const handleAddService = useCallback((serviceId) => {
         setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            if (!newState.palvelut) newState.palvelut = {};
-            newState.palvelut[serviceId] = true;
-            return newState;
+            const newPalvelut = { ...currentState.palvelut, [serviceId]: true };
+            return { ...currentState, palvelut: newPalvelut };
         });
     }, []);
 
     const handleAddSignal = useCallback((avainsana) => {
         setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            if (!newState.signals) newState.signals = {};
-            if (!newState.signals[avainsana]) newState.signals[avainsana] = { isMuted: false, isPrintable: true };
+            const newSignals = { ...currentState.signals };
+            if (!newSignals[avainsana]) newSignals[avainsana] = { isMuted: false, isPrintable: true };
 
             const aihealueet = dbPlanData?.aihealueet?.length > 0 ? dbPlanData.aihealueet : planData.aihealueet;
             
@@ -77,10 +82,11 @@ export const usePlanState = (dbPlanData) => {
                 if (found) { section = sec; phrase = found; break; }
             }
 
+            const newState = { ...currentState, signals: newSignals };
+
             if (section && phrase) {
                 const sectionId = section.id;
-                if (!newState[sectionId]) newState[sectionId] = {};
-                const currentSelections = newState[sectionId];
+                const currentSelections = { ...(newState[sectionId] || {}) };
                 
                 const initialVariables = {};
                 if (phrase.muuttujat) {
@@ -92,8 +98,11 @@ export const usePlanState = (dbPlanData) => {
                         initialVariables[key] = defaultVal;
                     });
                 }
+                
                 if (section.monivalinta) currentSelections[avainsana] = { avainsana, muuttujat: initialVariables };
                 else { currentSelections.avainsana = avainsana; currentSelections.muuttujat = initialVariables; }
+                
+                newState[sectionId] = currentSelections;
             }
             return newState;
         });
@@ -101,17 +110,22 @@ export const usePlanState = (dbPlanData) => {
 
     const handleRemoveSignal = useCallback((avainsana) => {
         setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            if (newState.signals) delete newState.signals[avainsana];
+            const newSignals = { ...currentState.signals };
+            delete newSignals[avainsana];
             
+            const newState = { ...currentState, signals: newSignals };
             const aihealueet = dbPlanData?.aihealueet?.length > 0 ? dbPlanData.aihealueet : planData.aihealueet;
             
             aihealueet.forEach(sec => {
                 if (newState[sec.id]) {
-                    if (sec.monivalinta) delete newState[sec.id][avainsana];
-                    else if (newState[sec.id].avainsana === avainsana) {
-                        delete newState[sec.id].avainsana;
-                        delete newState[sec.id].muuttujat;
+                    const sectionCopy = { ...newState[sec.id] };
+                    if (sec.monivalinta) {
+                        delete sectionCopy[avainsana];
+                        newState[sec.id] = sectionCopy;
+                    } else if (sectionCopy.avainsana === avainsana) {
+                        delete sectionCopy.avainsana;
+                        delete sectionCopy.muuttujat;
+                        newState[sec.id] = sectionCopy;
                     }
                 }
             });
@@ -121,31 +135,43 @@ export const usePlanState = (dbPlanData) => {
 
     const handleToggleSignalSetting = useCallback((avainsana, setting) => {
         setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            if (newState.signals?.[avainsana]) newState.signals[avainsana][setting] = !newState.signals[avainsana][setting];
-            return newState;
+            if (!currentState.signals?.[avainsana]) return currentState;
+            const newSignals = { ...currentState.signals };
+            newSignals[avainsana] = { 
+                ...newSignals[avainsana], 
+                [setting]: !newSignals[avainsana][setting] 
+            };
+            return { ...currentState, signals: newSignals };
         });
     }, []);
 
     const handleSelectPhrase = useCallback((sectionId, avainsana, isMultiSelect, updatedSelection = null) => {
         setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
+            const newState = { ...currentState };
             if (!newState.signals) newState.signals = {};
-            if (updatedSelection) { newState[sectionId] = updatedSelection; return newState; }
+            const newSignals = { ...newState.signals };
 
-            let section = dbPlanData.aihealueet?.find(s => s.id === sectionId) || planData.aihealueet.find(s => s.id === sectionId);
+            if (updatedSelection) { 
+                return { ...newState, [sectionId]: updatedSelection };
+            }
+
+            const aihealueet = dbPlanData?.aihealueet?.length > 0 ? dbPlanData.aihealueet : planData.aihealueet;
+            let section = aihealueet.find(s => s.id === sectionId);
             let phrase = section?.fraasit?.find(f => f.avainsana === avainsana);
             
-            if (!phrase) return currentState;
+            // JOS fraasia ei löydy muistista, sallitaan se silti (DB-fraasit)
+            // Luodaan minimiobjekti jotta valinta ei blokkaannu
+            if (!phrase) {
+                phrase = { avainsana: avainsana, muuttujat: {} };
+            }
 
-            if (!newState[sectionId]) newState[sectionId] = {};
-            const currentSelections = newState[sectionId];
+            const currentSelections = { ...(newState[sectionId] || {}) };
             const actualIsMultiSelect = section ? section.monivalinta : (isMultiSelect || false);
 
             if (actualIsMultiSelect) {
                 if (currentSelections[avainsana]) {
                     delete currentSelections[avainsana];
-                    delete newState.signals[avainsana];
+                    delete newSignals[avainsana];
                 } else {
                     const initialVariables = {};
                     if (phrase.muuttujat) {
@@ -156,15 +182,15 @@ export const usePlanState = (dbPlanData) => {
                         });
                     }
                     currentSelections[avainsana] = { avainsana: avainsana, muuttujat: initialVariables };
-                    newState.signals[avainsana] = { isMuted: false, isPrintable: true };
+                    newSignals[avainsana] = { isMuted: false, isPrintable: true };
                 }
             } else {
                 if (currentSelections.avainsana === avainsana) {
                     delete currentSelections.avainsana;
                     delete currentSelections.muuttujat;
-                    delete newState.signals[avainsana];
+                    delete newSignals[avainsana];
                 } else {
-                    if (currentSelections.avainsana) delete newState.signals[currentSelections.avainsana];
+                    if (currentSelections.avainsana) delete newSignals[currentSelections.avainsana];
                     const initialVariables = {};
                     if (phrase.muuttujat) {
                         Object.entries(phrase.muuttujat).forEach(([key, config]) => {
@@ -175,43 +201,50 @@ export const usePlanState = (dbPlanData) => {
                     }
                     currentSelections.avainsana = avainsana;
                     currentSelections.muuttujat = initialVariables;
-                    newState.signals[avainsana] = { isMuted: false, isPrintable: true };
+                    newSignals[avainsana] = { isMuted: false, isPrintable: true };
                 }
             }
+            
+            newState[sectionId] = currentSelections;
+            newState.signals = newSignals;
             return newState;
         });
     }, [dbPlanData]);
 
     const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => {
         setState(currentState => {
-            const newState = JSON.parse(JSON.stringify(currentState));
-            
+            // TÄRKEÄ: Golden Master -tuki sessionServices- ja sessionEducations-taulukoille.
+            if (sectionId === 'global' && (avainsana === 'sessionServices' || avainsana === 'sessionEducations')) {
+                const actualValue = value !== undefined ? value : variableKey;
+                return { ...currentState, [avainsana]: actualValue };
+            }
+
             if (sectionId === 'asiakas') {
-                if (!newState.asiakas) newState.asiakas = {};
-                newState.asiakas[avainsana] = value;
-                return newState;
+                const actualValue = value !== undefined ? value : variableKey;
+                return { 
+                    ...currentState, 
+                    asiakas: { ...currentState.asiakas, [avainsana]: actualValue } 
+                };
             }
 
-            let section = dbPlanData.aihealueet?.find(s => s.id === sectionId) || planData.aihealueet.find(s => s.id === sectionId);
+            const newState = { ...currentState };
+            const aihealueet = dbPlanData?.aihealueet?.length > 0 ? dbPlanData.aihealueet : planData.aihealueet;
+            let section = aihealueet.find(s => s.id === sectionId);
             const isMulti = section ? section.monivalinta : false;
-            let target = isMulti ? newState[sectionId]?.[avainsana] : newState[sectionId];
 
-            if (!target) {
-                if (isMulti) {
-                    if (!newState[sectionId]) newState[sectionId] = {};
-                    newState[sectionId][avainsana] = { avainsana: avainsana, muuttujat: {} };
-                    target = newState[sectionId][avainsana];
-                } else {
-                    newState[sectionId] = { avainsana: avainsana, muuttujat: {} };
-                    target = newState[sectionId];
-                }
+            const sectionData = { ...(newState[sectionId] || {}) };
+            
+            if (isMulti) {
+                if (!sectionData[avainsana]) sectionData[avainsana] = { avainsana, muuttujat: {} };
+                sectionData[avainsana] = {
+                    ...sectionData[avainsana],
+                    muuttujat: { ...sectionData[avainsana].muuttujat, [variableKey]: value }
+                };
+            } else {
+                sectionData.muuttujat = { ...(sectionData.muuttujat || {}), [variableKey]: value };
             }
 
-            if (target) {
-                if (!target.muuttujat) target.muuttujat = {};
-                target.muuttujat[variableKey] = value;
-            }
-            return newState;
+            return { ...newState, [sectionId]: sectionData };
         });
     }, [dbPlanData]);
 
@@ -227,51 +260,44 @@ export const usePlanState = (dbPlanData) => {
     // --- DOMAIN SPECIFIC HANDLERS ---
 
     const handleUpdatePalkkatuki = useCallback((key, value) => {
-        setState(prevState => {
-            const newState = JSON.parse(JSON.stringify(prevState));
-            const newPtState = { ...(newState.palkkatuki || {}) };
-            newPtState[key] = value;
-            return { ...newState, palkkatuki: newPtState };
-        });
+        setState(prevState => ({
+            ...prevState,
+            palkkatuki: { ...(prevState.palkkatuki || {}), [key]: value }
+        }));
     }, []);
 
     const handleUpdateTyokyky = useCallback((key, value) => {
         setState(prevState => {
-            const newState = JSON.parse(JSON.stringify(prevState));
-            const newTkState = { ...(newState.tyokyky || {}) };
+            const newTkState = { ...(prevState.tyokyky || {}) };
             if (key === 'togglePalveluohjaus') {
-                const current = newTkState.palveluohjaukset || {};
+                const current = { ...(newTkState.palveluohjaukset || {}) };
                 if (current[value.avainsana]) delete current[value.avainsana];
                 else current[value.avainsana] = value;
                 newTkState.palveluohjaukset = current;
             } else {
                 newTkState[key] = value;
             }
-            return { ...newState, tyokyky: newTkState };
+            return { ...prevState, tyokyky: newTkState };
         });
     }, []);
 
     const handleUpdateTyottomyysturva = useCallback((key, value) => {
         setState(prevState => {
-            const newState = JSON.parse(JSON.stringify(prevState));
-            const newTtState = { ...(newState.tyottomyysturva || {}) };
+            const newTtState = { ...(prevState.tyottomyysturva || {}) };
             if (key === 'updateKysymys') {
-                const currentAnswers = { ...(newTtState.answers || {}) };
-                currentAnswers[value.id] = value.value;
-                newTtState.answers = currentAnswers;
+                newTtState.answers = { ...(newTtState.answers || {}), [value.id]: value.value };
             } else {
                 newTtState[key] = value;
             }
-            return { ...newState, tyottomyysturva: newTtState };
+            return { ...prevState, tyottomyysturva: newTtState };
         });
     }, []);
 
     const handleUpdateKielitaso = useCallback((key, value) => {
         setState(prevState => {
-            const newState = JSON.parse(JSON.stringify(prevState));
-            const current = newState.kielitaso || { aidinkieli: '', muutKielet: [] };
+            const current = { ...(prevState.kielitaso || { aidinkieli: '', muutKielet: [] }) };
             if (key === 'updateAidinkieli') current.aidinkieli = value;
-            return { ...newState, kielitaso: current };
+            return { ...prevState, kielitaso: current };
         });
     }, []);
 
@@ -286,7 +312,7 @@ export const usePlanState = (dbPlanData) => {
         handleScrape,
         setSignal: handleSetSignal,
         updateSection: handleUpdateSection,
-        onAddService: handleAddService, // KORJATTU: Mukana toiminnassa!
+        onAddService: handleAddService,
         onUpdatePalkkatuki: handleUpdatePalkkatuki,
         onUpdateTyokyky: handleUpdateTyokyky,
         onUpdateTyottomyysturva: handleUpdateTyottomyysturva,

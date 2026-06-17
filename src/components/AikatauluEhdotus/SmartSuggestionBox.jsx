@@ -25,9 +25,21 @@ const SmartSuggestionBox = ({ suggestion, onApply }) => {
                         {getIcon()} Älykäs ehdotus
                     </div>
                     <p style={{ fontSize: '0.8rem', fontWeight: '600', margin: '4px 0' }}>{suggestion.rule?.title}</p>
-                    <p style={{ fontSize: '0.7rem', color: '#6b7280' }}><strong>Peruste:</strong> {suggestion.reason}</p>
+                    <p style={{ fontSize: '0.7rem', color: '#6b7280' }}>
+                        <strong>Peruste:</strong> {suggestion.reason}
+                    </p>
+                    {suggestion.forcedMode && (
+                        <p style={{ fontSize: '0.65rem', color: '#ef4444', marginTop: '4px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                            Pakotettu tapa: {suggestion.forcedMode === 'kaynti' ? 'Käyntiasiointi' : 'Puhelu'}
+                        </p>
+                    )}
                 </div>
-                <button className="btn" onClick={() => onApply(suggestion.rule.id)}>Käytä</button>
+                <button 
+                    className="btn" 
+                    onClick={() => onApply(suggestion.rule.id, suggestion.suggestedCount, suggestion.suggestedPeriod, suggestion.forcedMode)}
+                >
+                    Käytä
+                </button>
             </div>
         </div>
     );

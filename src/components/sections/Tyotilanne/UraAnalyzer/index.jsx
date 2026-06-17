@@ -1,4 +1,3 @@
-// --- src/components/sections/Tyotilanne/UraAnalyzer/index.jsx ---
 import React, { useState, useEffect } from 'react';
 import { Wand2, Check, Loader2 } from 'lucide-react';
 import { supabase } from '../../../../utils/supabaseClient';
@@ -129,25 +128,38 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
                 typeof actions.onUpdatePalkkatuki === 'function' ? actions.onUpdatePalkkatuki('tyokokeilu_historia', aiResult.tyokokeilut_pvm) : actions.onUpdateVariable('palkkatuki', 'tyokokeilu_historia', aiResult.tyokokeilut_pvm);
             }
 
+            // --- LOMAKEAUTOMAATIO ---
             if (dynamicKeys) {
-                if (tilaTyokokeilu && dynamicKeys.tyokokeilu) actions.onSelect(dynamicKeys.tyokokeilu, true);
-                if (tilaPalkkatuki && dynamicKeys.palkkatuki) actions.onSelect(dynamicKeys.palkkatuki, true);
+                // Työkokeilua ja palkkatukea ei valita enää tässä. Observer hoitaa ne taulukon perusteella.
                 if (tilaTyoton) actions.onSelect('tyoton_tyonhakija', true); 
             }
 
+            // --- PALVELUPÄIVÄMÄÄRÄT -> GOLDEN MASTER ---
             if (aiResult.nykyinen_palvelu_alku && aiResult.nykyinen_palvelu_loppu) {
-                actions.onUpdateVariable('tyotilanne', 'palvelu_alku', aiResult.nykyinen_palvelu_alku);
-                actions.onUpdateVariable('tyotilanne', 'palvelu_loppu', aiResult.nykyinen_palvelu_loppu);
-                if (typeof actions.onUpdateAsiakas === 'function') {
-                    actions.onUpdateAsiakas('palvelu_alku', aiResult.nykyinen_palvelu_alku);
-                    actions.onUpdateAsiakas('palvelu_loppu', aiResult.nykyinen_palvelu_loppu);
-                }
+                let currentEntityKey = 'tyokokeilu'; // Oletus
+                if (tilaPalkkatuki) currentEntityKey = 'palkkatuki';
+                if (tilaTyokokeilu) currentEntityKey = 'tyokokeilu';
+
+                const newService = {
+                    id: window.crypto.randomUUID(),
+                    entity_key: currentEntityKey,
+                    category: 'palvelu',
+                    data: { 
+                        alku: aiResult.nykyinen_palvelu_alku, 
+                        loppu: aiResult.nykyinen_palvelu_loppu 
+                    },
+                    meta: { source: 'ai_analyzer', timestamp: new Date().toISOString() }
+                };
+
+                const currentServices = Array.isArray(state.sessionServices) ? state.sessionServices : [];
+                actions.onUpdateVariable('global', 'sessionServices', null, [...currentServices, newService]);
             }
 
             activeTriggers.forEach(trigger => { actions.onAddSignal(trigger); actions.onUpdateVariable('tyotilanne', trigger, true); });
             if (finescoSector) actions.onAddSignal(`AI_FINESCO_${finescoSector}`);
             if (escoProfession) actions.onAddSignal(`AI_ESCO_${escoProfession}`);
 
+            // --- ESCO/FINESCO TALLENNUS GLOBAALIIN TILAAN (Täysin alkuperäinen) ---
             if (finescoSector) actions.onUpdateAsiakas('tavoiteammatti_finesco_ala', finescoSector);
 
             if (escoProfession) {
@@ -163,6 +175,7 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
                 actions.onUpdateAsiakas('tavoiteammatti_esco_nimi', title);
             }
 
+            // --- TYÖTTÖMYYSTURVA-KYTKENTÄ ---
             if (aiResult.nykyinen_opiskelija) {
                 actions.onUpdateTyottomyysturva('updateKysymys', { id: 'opiskelija', value: true });
                 actions.onUpdateTyottomyysturva('ai_tunnistus_opiskelija', true);

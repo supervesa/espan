@@ -1,12 +1,5 @@
-// --- src/components/koulutusYrittajyys/SummaryPreview.jsx ---
 import React, { useState } from 'react';
 
-/**
- * Komponentti "Ehdotus yhteenvetoon" -laatikon näyttämiseen.
- * Hallitsee oman "Käytä tätä" -napin palautteen.
- * Näyttää yhteenvedon osat erillisinä kappaleina.
- * On aina näkyvissä.
- */
 const SummaryPreview = ({ summaryData, sectionId, onUpdateCustomText, customTekstit }) => {
     const [actionFeedback, setActionFeedback] = useState('');
 
@@ -23,36 +16,20 @@ const SummaryPreview = ({ summaryData, sectionId, onUpdateCustomText, customTeks
         <div className="summary-preview language-summary-preview">
             <h4>Ehdotus yhteenvetoon:</h4>
 
-            {/* Normaali koulutusvalinta */}
-            {summaryData?.koulutusLause && (
-                <p className="summary-part">{summaryData.koulutusLause}</p>
-            )}
-            {/* Yrittäjyys */}
-            {summaryData?.yrittajyysLause && (
-                <p className="summary-part">{summaryData.yrittajyysLause}</p>
-            )}
-            {/* Kortit */}
-            {summaryData?.ammattikorttiLause && (
-                <p className="summary-part">{summaryData.ammattikorttiLause}</p>
-            )}
-            {/* Kielitaito */}
-            {summaryData?.kielitaitoLause && (
-                <p className="summary-part">{summaryData.kielitaitoLause}</p>
-            )}
-            {/* Digitaidot ja asiointi */}
-            {summaryData?.digitaidotLause && (
-                <p className="summary-part">{summaryData.digitaidotLause}</p>
-            )}
-            {/* AI-Koulutusehdotukset / Ideat */}
-            {summaryData?.ideatLause && (
-                <p className="summary-part">{summaryData.ideatLause}</p>
-            )}
-            {/* Tuettu Opiskelu (AKTIIVINEN TOIMINTA - VIIMEISENÄ) */}
+            {summaryData?.koulutusLause && <p className="summary-part">{summaryData.koulutusLause}</p>}
+            {summaryData?.yrittajyysLause && <p className="summary-part">{summaryData.yrittajyysLause}</p>}
+            {summaryData?.ammattikorttiLause && <p className="summary-part">{summaryData.ammattikorttiLause}</p>}
+            {summaryData?.kielitaitoLause && <p className="summary-part">{summaryData.kielitaitoLause}</p>}
+            {summaryData?.digitaidotLause && <p className="summary-part">{summaryData.digitaidotLause}</p>}
+            {summaryData?.ideatLause && <p className="summary-part">{summaryData.ideatLause}</p>}
+            
+            {/* Tuettu Opiskelu lohko */}
             {summaryData?.tuettuOpiskeluLause && (
-                <p className="summary-part">{summaryData.tuettuOpiskeluLause}</p>
+                <p className="summary-part tuettu-summary-highlight">
+                    {summaryData.tuettuOpiskeluLause}
+                </p>
             )}
 
-            {/* Näytä myös custom-kielitieto, jos se on olemassa */}
             {customTekstit?.customKielitasoText && (
                  <p className="summary-part custom-text-preview"><i>{customTekstit.customKielitasoText}</i></p>
             )}

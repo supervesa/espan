@@ -414,7 +414,7 @@ export const generateFullSummary = (state) => {
     }
     
     // --- UUSI 33 § MODUULIN LISÄYS ---
-    const edellytyksetTeksti = state['custom-edellytykset']?.trim();
+    const edellytyksetTeksti = state['custom-lopullinen_33_arvio']?.trim() || state['custom-edellytykset']?.trim();
     if (edellytyksetTeksti) {
         const tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
         const insertIndex = tyokykyIndex > -1 ? tyokykyIndex + 1 : textParts.length;

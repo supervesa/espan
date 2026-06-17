@@ -3,12 +3,15 @@ import { generateSectionContent, generateFullSummary, generateHybridSummary, gen
 import { planData } from '../data/planData.js';
 import AikatauluEhdotus from './AikatauluEhdotus';
 import CopyButton from './common/CopyButton';
+import ServiceManager from './ServiceManager'; 
+import { Database } from 'lucide-react';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
-const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
+const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions }) => {
     const [feedback, setFeedback] = useState('');
     const [activeSectionId, setActiveSectionId] = useState(null);
+    const [isManagerOpen, setIsManagerOpen] = useState(false); 
     const observerRef = useRef(null); 
 
     // --- VANHA TURVALLINEN KOPIOINTI ---
@@ -47,7 +50,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
         const existsInDb = dbPlanData?.aihealueet?.some(s => s.id === simpleId);
         const existsInStatic = planData.aihealueet.some(s => s.id === simpleId);
         
-        // Salli koulutus ja 33 § edellytykset mennä läpi, vaikkei niitä ole tietokannoissa
         if (!existsInDb && !existsInStatic && !['kielitaso', 'edellytykset'].includes(simpleId) && simpleId !== 'koulutus') { 
              return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
         }
@@ -68,8 +70,8 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
              return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
          }
 
-        // TÄSSÄ 33 § EDELLYTYKSET STATUS (UUSI)
-        if (simpleId === 'edellytykset' && state['custom-edellytykset']) {
+        // --- KORJAUS 1: Tarkistetaan uutta lopullinen_33_arvio -avainta ---
+        if (simpleId === 'edellytykset' && (state['custom-lopullinen_33_arvio'] || state['custom-edellytykset'])) {
             return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
         }
 
@@ -117,13 +119,27 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
     return (
         <>
             <div className="summary-drag-handle"></div>
-            <h2>Yhteenveto</h2>
-            <div className="summary-progress-tracker">
-                {sections.map(section => {
-                    const status = getSectionStatus(section.id);
-                    const chipId = `${section.id.replace('osio-','').replace(/_/g, '-')}-chip`;
-                    return <div key={section.id} id={chipId} className={`chip ${status.chipClass}`}>{section.name}</div>;
-                })}
+            
+            {/* OTSIKKO JA HALLINTA-NAPPI */}
+            <div style={{ padding: '0 0 1rem 0', borderBottom: '1px solid var(--color-border)', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h2 style={{ margin: 0 }}>Yhteenveto</h2>
+                    <button 
+                        className="btn--secondary" 
+                        style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => setIsManagerOpen(true)}
+                    >
+                        <Database size={14} /> Hallitse palveluita
+                    </button>
+                </div>
+
+                <div className="summary-progress-tracker">
+                    {sections.map(section => {
+                        const status = getSectionStatus(section.id);
+                        const chipId = `${section.id.replace('osio-','').replace(/_/g, '-')}-chip`;
+                        return <div key={section.id} id={chipId} className={`chip ${status.chipClass}`}>{section.name}</div>;
+                    })}
+                </div>
             </div>
 
             <ul className="summary-items-list">
@@ -153,9 +169,9 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                      else if (sectionId === 'suunnitelma') {
                          sectionText = state['custom-suunnitelma']?.trim() || '';
                      }
-                     // TÄSSÄ 33 § EDELLYTYKSET LUENTA (UUSI)
+                     // --- KORJAUS 2: Haetaan oikea avain tekstin tulostukseen ---
                      else if (sectionId === 'edellytykset') {
-                         sectionText = state['custom-edellytykset']?.trim() || '';
+                         sectionText = state['custom-lopullinen_33_arvio']?.trim() || state['custom-edellytykset']?.trim() || '';
                      }
                      else if (sectionDataFromPlan) { 
                          sectionText = generateHybridSectionContent(sectionDataFromPlan, selection, state, dbKnowledge);
@@ -230,7 +246,14 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge }) => {
                 {feedback && <p className="feedback-text" style={{ textAlign: 'center', marginTop: '0.25rem' }}>{feedback}</p>}
             </div>
 
-             <AikatauluEhdotus state={state} />
+            <AikatauluEhdotus state={state} actions={actions} />
+
+            <ServiceManager 
+                state={state} 
+                actions={actions} 
+                isOpen={isManagerOpen} 
+                onClose={() => setIsManagerOpen(false)} 
+            />
         </>
     );
 };

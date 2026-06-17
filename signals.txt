@@ -28,3 +28,34 @@ Payload (e.detail): detail.alku, detail.loppu, detail.tyyppi
 
 tähän lisää, vielä, vielä
 
+Päivämäärä-ristiriidan "Hätäapupaketti" (3 askelta)
+
+Jos jokin komponentti alkaa näyttää päivämäärän kohdalla "Tuntematon" tai Invalid Date, toimi näin:
+1. Tarkista lukemisjärjestys (Priorisointi)
+Joskus koodi yrittää lukea tietoa signaalijärjestelmästä (joka voi sisältää vääriä objekteja) ennen kuin se lukee lomakkeen manuaalista kenttää.
+Korjaa näin: Varmista aina, että lomakekenttä (perustiedot) on ensimmäisenä lukemisrivillä.
+Esimerkki: const pvm = perustiedot?.OMA_PVM || signals.signaali_pvm;
+2. Varmista "Lukkopesän ja Avaimen" täsmäävyys
+Jos päivämäärä katoaa tulosteesta, se tarkoittaa, että koodi ei löydä muuttujan nimeä.
+Tarkista, että tietokannan phrases-taulun base_text sisältää täsmälleen saman avaimen (esim. [TH_ALKU_PVM]) kuin mikä löytyy tietokannan variables-taulun variable_key -sarakkeesta. Jos nämä eivät ole identtiset, komponentti ei osaa yhdistää niitä.
+3. "Panssaroitu" parsija (Koodin luotettavuus)
+Jos päivämäärän laskenta (esim. kuukausien välinen ero) epäonnistuu, se johtuu aina siitä, että JavaScriptin new Date() ei ymmärrä pisteitä (12.2.2025).
+Käytä aina tätä "panssaroitua" funktiota:
+JavaScript
+const parseSafeDate = (dateStr) => {
+    // 1. Pura mahdollinen objekti, jos lomake tarjoaa sellaisen
+    let str = typeof dateStr === 'object' ? (dateStr.value || dateStr.oletus || String(dateStr)) : dateStr;
+    if (!str) return null;
+
+    // 2. Jos pisteitä, pilko osiin (varmistaa suomalaisen muodon)
+    if (typeof str === 'string' && str.includes('.')) {
+        const p = str.split('.');
+        if (p.length === 3) return new Date(p[2], p[1] - 1, p[0]);
+    }
+    
+    // 3. Fallback standardille (ISO-muodot jne.)
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+};
+Summa summarum: Jos se hajoaa, katso lokia. Se kertoo tasan, onko kyseessä undefined (tieto ei kulje) vai Invalid Date (tieto kulkee, mutta muoto on väärä). Älä koodaa mitään monimutkaista, ennen kuin tiedät kumpi noista se on.
+

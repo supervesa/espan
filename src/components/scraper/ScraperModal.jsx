@@ -1,7 +1,5 @@
-// --- src/components/scraper/ScraperModal.jsx ---
-
 import React, { useState } from 'react';
-import { BrainCircuit, CheckCircle, Zap } from 'lucide-react';
+import { BrainCircuit, CheckCircle, Zap, Loader2 } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
 import { parsePlanText } from './planParser';
 
@@ -11,14 +9,15 @@ import Tag from '../common/Tag';
 import Checkbox from '../common/Checkbox';
 
 // Imurin omat paneelit
-import ScraperServicesPanel from './ScraperServicesPanel';
+import ScraperGMServicePanel from './ScraperGMServicePanel'; 
+import ScraperGMEducationPanel from './ScraperGMEducationPanel'; // UUSI PANEELI TUOTU
 import ScraperPatevyydetPanel from './ScraperPatevyydetPanel';
 import ScraperVariablesPanel from './ScraperVariablesPanel';
 import ScraperCustomTextsPanel from './ScraperCustomTextsPanel';
 import ScraperTyokykyPanel from './ScraperTyokykyPanel';
-import ScraperEdellytyksetPanel from './ScraperEdellytyksetPanel'; // UUSI PANEELI
+import ScraperEdellytyksetPanel from './ScraperEdellytyksetPanel'; 
 
-const ScraperModal = ({ isOpen, onClose, onApply }) => {
+const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
     const [step, setStep] = useState('input');
     const [rawText, setRawText] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -28,24 +27,23 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         phrases: [], 
         signals: [], 
         services: [], 
+        sessionServices: [],
+        sessionEducations: [], // UUSI: Golden Master koulutukset
         patevyydet: [], 
         variables: {}, 
         customTexts: {},
         tyokykyData: {},
-        edellytyksetData: {} // LISÄTTY TILA
+        edellytyksetData: {} 
     });
 
     const handleAnalyze = async () => {
-        if (!rawText.trim()) {
-            return alert("Liitä tekstiä ensin!");
-        }
-        
+        if (!rawText.trim()) return alert("Liitä tekstiä ensin!");
         setIsAnalyzing(true);
         
         try {
             const [secRes, phraseRes, sigRes, varRes, serviceRes, patevyysRes] = await Promise.all([
                 supabase.from('sections').select('id, section_key, title, is_multi_select'),
-                supabase.from('phrases').select('id, phrase_key, short_title, base_text, extraction_pattern, section_id, grouping_key, metadata'), // Lisätty metadata ja grouping_key
+                supabase.from('phrases').select('id, phrase_key, short_title, base_text, extraction_pattern, section_id, grouping_key, metadata'),
                 supabase.from('system_signals').select('signal_key, label, description'), 
                 supabase.from('variables').select('phrase_id, variable_key, import_behavior'),
                 supabase.from('services').select('*'),
@@ -53,11 +51,6 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
             ]);
                 
             if (secRes.error) throw secRes.error;
-            if (phraseRes.error) throw phraseRes.error;
-            if (sigRes.error) throw sigRes.error;
-            if (varRes.error) throw varRes.error;
-            if (serviceRes.error) throw serviceRes.error;
-            if (patevyysRes.error) throw patevyysRes.error;
 
             const extractedData = parsePlanText(
                 rawText, 
@@ -69,10 +62,7 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                 patevyysRes.data || []
             );
             
-            // Varmistetaan, että erikoisobjektit ovat olemassa, vaikka parseri ei niitä palauttaisi
-            if (!extractedData.tyokykyData) {
-                extractedData.tyokykyData = {};
-            }
+            if (!extractedData.tyokykyData) extractedData.tyokykyData = {};
             if (!extractedData.edellytyksetData) {
                 extractedData.edellytyksetData = {
                     escoNimi: null, finescoAla: null, vaihtoehtoisetAlat: [],
@@ -80,12 +70,9 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
                     selections: { vireilla: null, hylatty: null }
                 };
             }
-
-            // Asetetaan kaikki vapaan tekstin osiot oletuksena aktiivisiksi
+            
             const initialActive = {};
-            Object.keys(extractedData.customTexts).forEach(key => { 
-                initialActive[key] = true; 
-            });
+            Object.keys(extractedData.customTexts).forEach(key => { initialActive[key] = true; });
             
             setActiveSections(initialActive);
             setParsedData(extractedData);
@@ -93,7 +80,7 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
             
         } catch (err) {
             console.error("Virhe analysoinnissa:", err);
-            alert("Virhe analysoitaessa tekstiä. Tarkista tietokantayhteys.");
+            alert("Virhe analysoitaessa tekstiä.");
         } finally {
             setIsAnalyzing(false);
         }
@@ -101,11 +88,28 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
 
     const handleApply = () => {
         if (typeof onApply === 'function') {
+            
+            // --- 1. TALLENNETAAN GM PALVELUT ---
+            const servicesToApply = parsedData.sessionServices || [];
+            if (servicesToApply.length > 0 && actions?.onUpdateVariable) {
+                const currentServices = Array.isArray(state?.sessionServices) ? state.sessionServices : [];
+                const mergedServices = [...currentServices, ...servicesToApply];
+                actions.onUpdateVariable('global', 'sessionServices', null, mergedServices);
+            }
+
+            // --- 2. TALLENNETAAN GM KOULUTUKSET ---
+            const edusToApply = parsedData.sessionEducations || [];
+            if (edusToApply.length > 0 && actions?.onUpdateVariable) {
+                const currentEdus = Array.isArray(state?.sessionEducations) ? state.sessionEducations : [];
+                const mergedEdus = [...currentEdus, ...edusToApply];
+                actions.onUpdateVariable('global', 'sessionEducations', null, mergedEdus);
+                console.log("GM Sync: Koulutukset tallennettu", mergedEdus);
+            }
+
+            // --- 3. MUUT TIEDOT JA TEKSTIT ---
             const filteredCustomTexts = {};
             Object.entries(parsedData.customTexts).forEach(([key, text]) => {
-                if (activeSections[key]) {
-                    filteredCustomTexts[key] = text;
-                }
+                if (activeSections[key]) filteredCustomTexts[key] = text;
             });
 
             onApply({ 
@@ -123,25 +127,10 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         onClose();
     };
 
-    // Apufunktiot tilamuutoksille
     const removeItem = (type, id) => {
         setParsedData(prev => ({ 
             ...prev, 
             [type]: prev[type].filter(item => item.id !== id) 
-        }));
-    };
-
-    const updateVariable = (key, value) => {
-        setParsedData(prev => ({ 
-            ...prev, 
-            variables: { ...prev.variables, [key]: value } 
-        }));
-    };
-
-    const updateCustomText = (key, value) => {
-        setParsedData(prev => ({ 
-            ...prev, 
-            customTexts: { ...prev.customTexts, [key]: value } 
         }));
     };
 
@@ -154,33 +143,15 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
 
     const modalFooter = step === 'input' ? (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', width: '100%' }}>
-            <button className="btn btn--secondary" onClick={resetAndClose}>
-                Peruuta
-            </button>
-            <button 
-                className="btn" 
-                onClick={handleAnalyze} 
-                disabled={isAnalyzing} 
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-                {isAnalyzing ? 'Analysoidaan...' : <><Zap size={18}/> Pura ja analysoi teksti</>}
+            <button className="btn btn--secondary" onClick={resetAndClose}>Peruuta</button>
+            <button className="btn" onClick={handleAnalyze} disabled={isAnalyzing}>
+                {isAnalyzing ? 'Analysoidaan...' : <><Zap size={18}/> Pura ja analysoi</>}
             </button>
         </div>
     ) : (
         <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="btn btn--secondary" onClick={resetAndClose}>
-                    Peruuta
-                </button>
-                <button className="btn btn--secondary" onClick={() => setStep('input')}>
-                    Takaisin tekstiin
-                </button>
-            </div>
-            <button 
-                className="btn" 
-                onClick={handleApply} 
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
+            <button className="btn btn--secondary" onClick={() => setStep('input')}>Takaisin</button>
+            <button className="btn" onClick={handleApply}>
                 <CheckCircle size={18} /> Vie valinnat suunnitelmaan
             </button>
         </div>
@@ -190,121 +161,90 @@ const ScraperModal = ({ isOpen, onClose, onApply }) => {
         <Modal 
             isOpen={isOpen} 
             onClose={resetAndClose} 
-            title={step === 'input' ? 'URA-imuri: Pura vanha suunnitelma' : 'Tarkista ja muokkaa tuodut tiedot'}
+            title={step === 'input' ? 'URA-imuri: Pura vanha suunnitelma' : 'Tarkista tuodut tiedot'}
             icon={BrainCircuit}
             maxWidth="1000px"
             footer={modalFooter}
         >
             {step === 'input' ? (
                 <div style={{ padding: '1rem 0' }}>
-                    <p style={{ color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
-                        Kopioi ja liitä aiempi työllisyyssuunnitelma tai asiantuntijan muistiinpanot tähän. 
-                        Järjestelmä "syö" tekstistä automaattisesti vakiolausekkeet, signaalit ja päivämäärät, ja jakaa loput tekstistä automaattisesti oikeille välilehdille lisätietoihin.
-                    </p>
                     <textarea 
                         className="form-input text-mono" 
                         rows="12" 
                         placeholder="Liitä teksti tähän (Ctrl+V)..."
                         value={rawText} 
                         onChange={(e) => setRawText(e.target.value)} 
-                        style={{ resize: 'vertical' }}
                     />
                 </div>
             ) : (
                 <div className="flex-col-gap" style={{ paddingTop: '1rem' }}>
-                    
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                         
-                        <ScraperServicesPanel 
-                            services={parsedData.services} 
-                            onToggleService={(id) => removeItem('services', id)} 
-                        />
+                        {/* VASEN SARAKE: Koulutukset ja Palvelut */}
+                        <div className="flex-col-gap">
+                            <ScraperGMServicePanel 
+                                services={parsedData.sessionServices} 
+                                onUpdate={(newData) => setParsedData(prev => ({ ...prev, sessionServices: newData }))}
+                                onRemove={(id) => removeItem('sessionServices', id)}
+                            />
+                            
+                            {/* UUSI KOULUTUSPANEELI */}
+                            <ScraperGMEducationPanel 
+                                educations={parsedData.sessionEducations} 
+                                onUpdate={(newData) => setParsedData(prev => ({ ...prev, sessionEducations: newData }))}
+                                onRemove={(id) => removeItem('sessionEducations', id)}
+                            />
+                        </div>
 
+                        {/* KESKISARAKE: Pätevyydet */}
                         <ScraperPatevyydetPanel 
                             patevyydet={parsedData.patevyydet} 
                             onRemove={(id) => removeItem('patevyydet', id)} 
                         />
 
+                        {/* OIKEA SARAKE: Signaalit */}
                         <div className="card-inner" style={{ padding: '1rem', borderLeft: '4px solid var(--color-warning)' }}>
-                            <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', display: 'flex', justifyContent: 'space-between' }}>
-                                <span>Havaitut Signaalit</span>
-                                <span className="text-primary" style={{ fontWeight: 'bold' }}>{parsedData.signals.length} kpl</span>
-                            </h4>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', maxHeight: '100px', overflowY: 'auto' }}>
+                            <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Signaalit</h4>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                                 {parsedData.signals.map(sig => (
-                                    <Tag key={sig.id} onRemove={() => removeItem('signals', sig.id)}>
-                                        {sig.label}
-                                    </Tag>
+                                    <Tag key={sig.id} onRemove={() => removeItem('signals', sig.id)}>{sig.label}</Tag>
                                 ))}
-                                {parsedData.signals.length === 0 && (
-                                    <span className="stat-label">Ei signaaleja.</span>
-                                )}
                             </div>
                         </div>
-
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', alignItems: 'start', marginTop: '0.5rem' }}>
-                        
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '0.5rem' }}>
                         <div className="flex-col-gap">
                             <ScraperCustomTextsPanel 
                                 customTexts={parsedData.customTexts} 
                                 activeSections={activeSections} 
                                 onToggleSection={toggleSection} 
-                                onUpdateText={updateCustomText} 
+                                onUpdateText={(key, val) => setParsedData(prev => ({...prev, customTexts: {...prev.customTexts, [key]: val}}))} 
                             />
                         </div>
 
                         <div className="flex-col-gap">
-                            
-                            {/* UUSI EDELLYTYKSET-PANEELI */}
                             <ScraperEdellytyksetPanel 
                                 edellytyksetData={parsedData.edellytyksetData}
                                 onUpdate={(newData) => setParsedData(prev => ({ ...prev, edellytyksetData: newData }))}
                             />
-
                             <ScraperTyokykyPanel 
                                 tyokykyData={parsedData.tyokykyData}
                                 onUpdate={(newData) => setParsedData(prev => ({ ...prev, tyokykyData: newData }))}
                             />
-
-                            <ScraperVariablesPanel 
-                                variables={parsedData.variables} 
-                                onUpdate={updateVariable} 
-                            />
-
-                            <div className="card-inner" style={{ padding: '1rem', flexGrow: 1 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                                    <h4 style={{ margin: 0, fontSize: '1rem' }}>Aktivoitavat lomakevalinnat</h4>
-                                    <span className="stat-label" style={{ backgroundColor: 'var(--color-bg-secondary)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
-                                        Yhteensä: <strong className="text-primary">{parsedData.phrases.length}</strong>
-                                    </span>
-                                </div>
-                                
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                                    {parsedData.phrases.map(phrase => (
-                                        <div key={phrase.id} style={{ padding: '0.5rem', backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)', borderRadius: '4px' }}>
-                                            <Checkbox 
-                                                label={phrase.label}
-                                                checked={true} 
-                                                onChange={() => removeItem('phrases', phrase.id)} 
-                                            />
-                                            {phrase.variables && Object.keys(phrase.variables).length > 0 && (
-                                                <div style={{ marginTop: '0.25rem', marginLeft: '1.5rem', fontSize: '0.75rem', color: 'var(--color-primary)' }}>
-                                                    + Muuttujat: {Object.values(phrase.variables).join(', ')}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                    {parsedData.phrases.length === 0 && (
-                                        <span className="stat-label">Kaikki valinnat poistettu.</span>
-                                    )}
-                                </div>
+                            <div className="card-inner" style={{ padding: '1rem' }}>
+                                <h4 style={{ margin: 0, fontSize: '1rem' }}>Lomakevalinnat ({parsedData.phrases.length})</h4>
+                                {parsedData.phrases.map(phrase => (
+                                    <Checkbox 
+                                        key={phrase.id}
+                                        label={phrase.label}
+                                        checked={true} 
+                                        onChange={() => removeItem('phrases', phrase.id)} 
+                                    />
+                                ))}
                             </div>
-
                         </div>
                     </div>
-
                 </div>
             )}
         </Modal>

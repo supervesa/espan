@@ -1,13 +1,14 @@
 // --- src/components/admin/AdminStudio.jsx ---
 import React, { useState } from 'react';
-import { FileText, List, Activity, Sparkles, Database, MessageSquare } from 'lucide-react'; // Lisätty MessageSquare
+import { FileText, List, Activity, Sparkles, Database, MessageSquare, AlertCircle } from 'lucide-react'; 
 import { Calendar as CalendarIcon } from 'lucide-react';
 import AvailabilityManager from './AvailabilityManager';
 
 // Modernit hallintapaneelit
 import SectionsManager from './SectionsManager';
 import SignalsManager from './SignalsManager';
-import PhrasesManager from './PhrasesManager'; // <-- UUSI FRAASIKIRJASTO TUOTU TÄHÄN!
+import PhrasesManager from './PhrasesManager'; 
+import TyottomyysturvaManager from './TyottomyysturvaManager'; // <-- TUOTU SISÄÄN TÄSSÄ
 
 // Vanhat paneelit (Legacy)
 import AdminWorkspace from './AdminWorkspace'; 
@@ -20,9 +21,10 @@ const AdminStudio = () => {
 
     const tabs = [
         { id: 'workspace', label: 'Työtila (Vanha)', icon: FileText },
-        { id: 'phrases', label: 'Fraasit (Teemat)', icon: MessageSquare }, // <-- UUSI NAPPULA
+        { id: 'phrases', label: 'Fraasit (Teemat)', icon: MessageSquare }, 
         { id: 'sections', label: 'Lomakerakenne', icon: List },
-        { id: 'availability', label: 'Ajanvaraus', icon: CalendarIcon }, // <-- UUSI!
+        { id: 'tyottomyysturva', label: 'Työttömyysturva', icon: AlertCircle }, // <-- UUSI NAPPULA LISÄTTY
+        { id: 'availability', label: 'Ajanvaraus', icon: CalendarIcon }, 
         { id: 'signals', label: 'Signaalikirjasto', icon: Activity },
         { id: 'ai_rules', label: 'Palveluohjaukset', icon: Sparkles },
         { id: 'import', label: 'Massatuonti', icon: Database }
@@ -68,7 +70,8 @@ const AdminStudio = () => {
                                 borderBottom: isActive ? '3px solid var(--color-primary)' : '3px solid transparent',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s ease',
-                                marginBottom: '-2px'
+                                marginBottom: '-2px',
+                                whiteSpace: 'nowrap'
                             }}
                         >
                             <Icon size={18} />
@@ -88,6 +91,7 @@ const AdminStudio = () => {
                 {activeTab === 'phrases' && <PhrasesManager />}
                 {activeTab === 'sections' && <SectionsManager />}
                 {activeTab === 'signals' && <SignalsManager />}
+                {activeTab === 'tyottomyysturva' && <TyottomyysturvaManager />} {/* <-- RENDERÖINTI LISÄTTY */}
                 
                 {/* VANHAT KOMPONENTIT PAIKOILLAAN */}
                 {activeTab === 'ai_rules' && <div className="animation-fade-in"><ServicesAdmin /></div>}

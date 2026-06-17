@@ -108,6 +108,7 @@ const TyollistymisenEdellytykset = ({ state, actions }) => {
 
             {/* LAATIKKO 1 */}
             <TavoitteetPaneeli 
+            state={state}   
                 data={data} 
                 updateData={updateData} 
                 dbPhrases={phrases} 
@@ -127,7 +128,7 @@ const TyollistymisenEdellytykset = ({ state, actions }) => {
             />
 
             {/* LAATIKKO 3 */}
-            <ElamantilannePaneeli 
+            <ElamantilannePaneeli
                 data={data} 
                 updateData={updateData} 
                 dbPhrases={phrases} 
