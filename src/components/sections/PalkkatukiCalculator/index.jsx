@@ -21,19 +21,22 @@ const PalkkatukiCalculator = ({ state, actions }) => {
     const ptState = state.palkkatuki || {};
 
     const handleSupportToggle = (avain, signaaliNimi, isChecked) => {
-        onUpdatePalkkatuki(avain, isChecked);
+        if(onUpdatePalkkatuki) onUpdatePalkkatuki(avain, isChecked);
         if (isChecked && actions.onAddSignal) actions.onAddSignal(signaaliNimi);
         else if (!isChecked && actions.onRemoveSignal) actions.onRemoveSignal(signaaliNimi);
     };
 
     const handleLisahuomioToggle = (id) => {
         const current = ptState.lisahuomiot || {};
-        onUpdatePalkkatuki('lisahuomiot', { ...current, [id]: !current[id] });
+        if(onUpdatePalkkatuki) onUpdatePalkkatuki('lisahuomiot', { ...current, [id]: !current[id] });
     };
 
-    const { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy } = usePalkkatukiMath(state, ptState, onUpdatePalkkatuki);
-  const { tkCalc, isUnder25 } = useTyokokeiluMath(state, ika, ptState, onUpdatePalkkatuki);
-    const analysis = useSmartAnalysis(state, ptState, ika, ehto24_28_tayttyy, ehto3kk_tayttyy, handleSupportToggle, onUpdatePalkkatuki);
+    const { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy } = usePalkkatukiMath(state, ptState, actions);
+    const { tkCalc, isUnder25 } = useTyokokeiluMath(state, ika, ptState, actions);
+    
+    // HUOM: hyvaksytytPaivat lisätty tähän argumentiksi Smart Analysis 3.1:tä varten!
+    const analysis = useSmartAnalysis(state, ptState, ika, ehto24_28_tayttyy, ehto3kk_tayttyy, hyvaksytytPaivat, tkCalc, handleSupportToggle, onUpdatePalkkatuki);
+    
     useTextGenerator(ptState, tkCalc, isUnder25, onUpdatePalkkatuki);
 
     const tkText = ptState.tyokokeilu_historia || '';
@@ -97,7 +100,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                     </div>
                 </div>
 
-                {/* 2. TYÖKOKEILUN 6 KK LASKURI */}
+                {/* 2. TYÖKOKEILUN LASKURI */}
                 <div className="side-bordered-panel side-bordered-panel--alt">
                     <h3 className="icon-heading">
                         <Briefcase size={20} /> Työkokeilun 6 kk Säännön Laskuri (Laki 55 §)
@@ -121,7 +124,6 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                                 />
                             </div>
 
-                           {/* KORJATTU: Suunnitellun työkokeilun laatikko */}
                             {ptState.suunniteltu_tk_alku && ptState.suunniteltu_tk_loppu && (
                                 <div className="card-inner-sm" style={{ borderLeft: '3px solid var(--color-primary)' }}>
                                     <label className="custom-checkbox-row" style={{ margin: 0, padding: 0 }}>
@@ -131,7 +133,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                                             onChange={(e) => onUpdatePalkkatuki('huomioi_suunniteltu_tk', e.target.checked)} 
                                         />
                                         <div>
-                                            <strong style={{ display: 'block', fontSize: '0.95rem' }}>Huomioi laskurissa uusi suunniteltu kokeilu:</strong>
+                                            <strong style={{ display: 'block', fontSize: '0.95rem' }}>Huomioi uusi suunniteltu kokeilu:</strong>
                                             <span style={{ color: 'var(--color-primary)', fontWeight: '600', fontSize: '0.9rem' }}>
                                                 {parseAnyDate(ptState.suunniteltu_tk_alku)?.toLocaleDateString('fi-FI')} - {parseAnyDate(ptState.suunniteltu_tk_loppu)?.toLocaleDateString('fi-FI')}
                                             </span>
@@ -150,7 +152,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                                     </strong>
                                 </div>
                                 <div className="stat-box">
-                                    <span className="stat-label">Jäljellä (pyöristettynä)</span>
+                                    <span className="stat-label">Jäljellä</span>
                                     <strong className="stat-value-xl" style={{ color: tkCalc.isMaxedOut ? 'var(--color-warning)' : 'var(--color-primary)' }}>
                                         {tkCalc.remainingMonths} kk
                                     </strong>
@@ -184,7 +186,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                     </div>
                 </div>
 
-                {/* 3. RATKAISUKESKUS */}
+                {/* 3. RATKAISUKESKUS 3.0 */}
                 <div className="thv-resolution-hub">
                     <div className="thv-resolution-header">
                         <BrainCircuit size={22} /> Järjestelmän analyysi
@@ -192,21 +194,36 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                     
                     <div className="thv-resolution-grid">
                         <div className="thv-resolution-column">
-                            <h4 className="thv-column-title">Havaitut kriteerit:</h4>
-                            <ul className="thv-resolution-signals">
-                                {analysis.detected.map((cond, i) => <li key={i}>{cond}</li>)}
-                                {analysis.detected.length === 0 && <li style={{ color: 'var(--color-text-secondary)', listStyle: 'none' }}>Ei erityisiä ehtoja havaittu.</li>}
-                            </ul>
+                            <h4 className="thv-column-title">Havaitut kriteerit ja signaalit:</h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                {analysis.detected.map((item, i) => (
+                                    <div key={i} style={{ 
+                                        display: 'flex', alignItems: 'center', gap: '0.5rem', 
+                                        fontSize: '0.85rem', fontWeight: '500', color: 'var(--color-text-primary)',
+                                        backgroundColor: 'var(--color-background)', padding: '0.5rem', 
+                                        borderRadius: 'var(--border-radius)', border: '1px solid var(--color-border)' 
+                                    }}>
+                                        {item.icon} <span>{item.label}</span>
+                                    </div>
+                                ))}
+                                {analysis.detected.length === 0 && <div style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', fontStyle: 'italic' }}>Ei erityisiä ehtoja havaittu vielä.</div>}
+                            </div>
                         </div>
                         <div className="thv-resolution-column">
-                            <h4 className="thv-column-title">Järjestelmän ehdotukset:</h4>
+                            <h4 className="thv-column-title">Ratkaisuehdotukset:</h4>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                                 {analysis.suggestions.map((sugg, i) => (
-                                    <div key={i}>
-                                        <button type="button" onClick={sugg.action} className="thv-action-button">
-                                            {sugg.icon || <Zap size={18} />} {sugg.label}
-                                        </button>
-                                        <p className="thv-resolution-info" style={{ marginTop: '0.4rem' }}>
+                                    <div key={i} className={`thv-suggestion-item status-${sugg.status}`} style={{ marginBottom: '0.5rem', opacity: sugg.status === 'blocked' ? 0.8 : 1 }}>
+                                        {sugg.action ? (
+                                            <button type="button" onClick={sugg.action} className="thv-action-button">
+                                                {sugg.icon || <Zap size={18} />} {sugg.label}
+                                            </button>
+                                        ) : (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'bold', color: sugg.status === 'blocked' ? 'var(--color-danger)' : 'var(--color-success)' }}>
+                                                {sugg.icon} {sugg.label}
+                                            </div>
+                                        )}
+                                        <p className="thv-resolution-info" style={{ marginTop: '0.4rem', color: sugg.status === 'blocked' ? 'var(--color-danger)' : 'inherit' }}>
                                             {sugg.info}
                                         </p>
                                     </div>
@@ -216,17 +233,13 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                     </div>
                 </div>
 
-                {/* 4. ASIANTUNTIJAN VALINNAT */}
+                {/* 4. TARKENTAVAT TIEDOT */}
                 <div className="questions-container">
                     <h3 className="icon-heading">
                         <Building size={20} /> Tarkentavat tiedot
                     </h3>
                     
                     <div className="grid-cols-2 mb-6">
-                        <label className="custom-checkbox-row">
-                            <input type="checkbox" checked={!!ptState.kotikunta_helsinki} onChange={(e) => onUpdatePalkkatuki('kotikunta_helsinki', e.target.checked)} />
-                            Kotikunta: Helsinki (Helsinki-lisän peruste)
-                        </label>
                         <label className="custom-checkbox-row">
                             <input type="checkbox" checked={!!ptState.tyonantaja_yhdistys} onChange={(e) => onUpdatePalkkatuki('tyonantaja_yhdistys', e.target.checked)} />
                             Työnantaja on yhdistys/säätiö

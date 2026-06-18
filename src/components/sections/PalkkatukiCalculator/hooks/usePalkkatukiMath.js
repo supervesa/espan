@@ -16,14 +16,11 @@ const parseSafeDate = (dateStr) => {
     return isNaN(d.getTime()) ? null : d;
 };
 
-// UUSI FUNKTIO: Kaivaa päivämäärän objektin sisältä välittämättä avaimen nimestä
+// Kaivaa päivämäärän objektin sisältä välittämättä avaimen nimestä
 const extractDateFromVariables = (muuttujatObj) => {
     if (!muuttujatObj || typeof muuttujatObj !== 'object') return null;
-    
-    // Käydään läpi kaikki avaimet
     for (const key in muuttujatObj) {
         const val = muuttujatObj[key];
-        // Jos arvo on merkkijono ja näyttää suomalaiselta päivämäärältä (esim. 1.1.2024 tai 01.01.2024)
         if (typeof val === 'string' && /^\d{1,2}\.\d{1,2}\.\d{4}$/.test(val.trim())) {
             return val.trim();
         }
@@ -31,25 +28,15 @@ const extractDateFromVariables = (muuttujatObj) => {
     return null;
 };
 
-export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
+export const usePalkkatukiMath = (state, ptState, actions) => {
+    const { onUpdatePalkkatuki, onAddSignal, onRemoveSignal } = actions || {};
+
     const { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy } = useMemo(() => {
-        console.group('💰 PALKKATUEN LASKURI (DEBUG)');
-        
         const thInfo = state?.suunnitelman_perustiedot?.tyonhaku_alkanut;
-        
-        // 1. Kokeillaan vanhaa reittiä
         let thPvm = state?.suunnitelman_perustiedot?.TH_ALKU_PVM;
         
-        // 2. Kokeillaan kaivaa muuttujista
-        if (!thPvm && thInfo?.muuttujat) {
-            thPvm = extractDateFromVariables(thInfo.muuttujat);
-            if (thPvm) console.log('✅ TH Alku löydetty muuttujien seasta kaivamalla:', thPvm);
-        }
-
-        // 3. Viimeisenä keinona vakio tai value
-        if (!thPvm) {
-            thPvm = thInfo?.muuttujat?.[STATE_MUUTTUJAT.TYONHAKU_ALKUPVM] || thInfo?.value || thInfo?.oletus;
-        }
+        if (!thPvm && thInfo?.muuttujat) thPvm = extractDateFromVariables(thInfo.muuttujat);
+        if (!thPvm) thPvm = thInfo?.muuttujat?.[STATE_MUUTTUJAT.TYONHAKU_ALKUPVM] || thInfo?.value || thInfo?.oletus;
 
         let laskettuIka = null;
         let originalDiffDays = 0;
@@ -60,15 +47,11 @@ export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
 
         if (syntymaVuosi) {
             const vuosiNum = parseInt(String(syntymaVuosi).replace(/\D/g, ''), 10);
-            if (!isNaN(vuosiNum)) {
-                laskettuIka = new Date().getFullYear() - vuosiNum;
-            }
+            if (!isNaN(vuosiNum)) laskettuIka = new Date().getFullYear() - vuosiNum;
         }
 
         const startDate = parseSafeDate(thPvm); 
         const turvallinenAlkuPvm = startDate ? startDate.toLocaleDateString('fi-FI') : 'Ei tiedossa';
-        
-        console.log('1. TH Alku (Ankkuri) Parsittuna:', turvallinenAlkuPvm);
 
         if (startDate) {
             const now = new Date();
@@ -90,8 +73,6 @@ export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
             const daysFromActiveStart = Math.ceil(diffTimeActive / (1000 * 60 * 60 * 24));
             const daysIn28MonthWindow = Math.min(daysFromActiveStart, 852);
             
-            console.log(`2. Laskenta-aika 28kk (852 pv) ikkunassa: ${daysIn28MonthWindow} pv`);
-
             let automaattisetVahennykset = 0;
             const services = state?.sessionServices || [];
             
@@ -101,7 +82,6 @@ export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
 
             services.forEach((srv) => {
                 const tyyppi = srv?.entity_key;
-                
                 if (tyyppi === 'opiskelu_omaehtoinen') {
                     const sAlku = parseSafeDate(srv?.data?.alku);
                     const sLoppu = parseSafeDate(srv?.data?.loppu);
@@ -109,11 +89,9 @@ export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
                     if (sAlku && sLoppu && sLoppu >= sAlku) {
                         const clipAlku = sAlku < todellinenLaskentaAlku ? todellinenLaskentaAlku : sAlku;
                         const clipLoppu = sLoppu > now ? now : sLoppu;
-
                         if (clipLoppu >= clipAlku) {
                             const pituus = Math.ceil(Math.abs(clipLoppu - clipAlku) / (1000 * 60 * 60 * 24)) + 1;
                             automaattisetVahennykset += pituus;
-                            console.log(`   ❌ RIKKURI LÖYDETTY (${tyyppi}): Vähennetään ${pituus} pv`);
                         }
                     }
                 }
@@ -121,12 +99,7 @@ export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
 
             const vahennykset = parseInt(ptState?.vahennysPv, 10) || 0;
             acceptedDays = Math.max(0, daysIn28MonthWindow - vahennykset - automaattisetVahennykset);
-            console.log(`5. LOPPUTULOS: Yhteensä hyväksytyt päivät = ${acceptedDays} pv`);
-        } else {
-            console.log('⚠️ Työnhaun alkupäivää ei löytynyt, laskenta on nollassa.');
         }
-
-        console.groupEnd();
 
         return { 
             ika: laskettuIka, 
@@ -146,6 +119,21 @@ export const usePalkkatukiMath = (state, ptState, onUpdatePalkkatuki) => {
             }
         }
     }, [ehto24_28_tayttyy, ptState?.ehto24_28_tayttyy, onUpdatePalkkatuki]);
+
+    // --- UUSI: Älysignaalien lähettäminen globaaliin tilaan ---
+    useEffect(() => {
+        if (!onAddSignal || !onRemoveSignal) return;
+
+        if (ehto24_28_tayttyy) onAddSignal('sys_ehto_palkkatuki_24');
+        else onRemoveSignal('sys_ehto_palkkatuki_24');
+
+        const kuntaStr = state?.suunnitelman_perustiedot?.kotikunta?.muuttujat?.['[KUNTA]'] || '';
+        const isHelsinki = kuntaStr.toLowerCase().includes('helsinki');
+
+        if (ehto3kk_tayttyy && isHelsinki) onAddSignal('sys_ehto_helsinkilisa');
+        else onRemoveSignal('sys_ehto_helsinkilisa');
+
+    }, [ehto24_28_tayttyy, ehto3kk_tayttyy, state?.suunnitelman_perustiedot?.kotikunta, onAddSignal, onRemoveSignal]);
 
     return { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy };
 };

@@ -1,13 +1,47 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarCheck, Lock, ChevronLeft, ChevronRight, Phone, MapPin, Trash2, AlertTriangle } from 'lucide-react';
+import { CalendarCheck, Lock, ChevronLeft, ChevronRight, Phone, MapPin, Trash2, AlertTriangle, CalendarX } from 'lucide-react';
 
-const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, confirmedCount, weekOffset = 0, onOffsetChange }) => {
+const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, confirmedCount, weekOffset = 0, onOffsetChange, bookedSlots = [] }) => {
     const [currentMode, setCurrentMode] = useState('puhelu');
 
     // SUODATUS: Näytetään vain valitun moodin mukaiset ajat
     const filteredSlots = useMemo(() => {
         return slots.filter(s => s.mode === currentMode);
     }, [slots, currentMode]);
+
+    // UUSI LOGIIKKA: Varatut ajat
+    const visibleBookedSlots = useMemo(() => {
+        if (!bookedSlots || bookedSlots.length === 0) return [];
+        
+        // Koska emme tiedä tarkkaan viikon rajoja tässä komponentissa suoraan,
+        // päättelemme katseluikkunan ensimmäisen vapaan ajan perusteella (jos niitä on).
+        // Muuten näytämme varattuja aikoja noin viikon säteellä tästä päivästä + weekOffset.
+        let referenceDate = new Date();
+        if (slots.length > 0) {
+             referenceDate = new Date(slots[0].time);
+        } else {
+             referenceDate.setDate(referenceDate.getDate() + (weekOffset * 7));
+        }
+
+        // Otetaan referenceDate maanantai ja sunnuntai
+        const startOfWeek = new Date(referenceDate);
+        const day = startOfWeek.getDay() || 7; // Ma on 1, Su on 7
+        startOfWeek.setDate(startOfWeek.getDate() - day + 1);
+        startOfWeek.setHours(0, 0, 0, 0);
+
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
+
+        // Suodatetaan tietokannan varatut ajat, jotka osuvat tälle tarkasteltavalle viikolle
+        const currentWeekBookings = bookedSlots.filter(booking => {
+            const bookingTime = new Date(booking.start_time);
+            return bookingTime >= startOfWeek && bookingTime <= endOfWeek;
+        });
+
+        // Järjestetään aikajärjestykseen
+        return currentWeekBookings.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+    }, [bookedSlots, slots, weekOffset]);
 
     const dailyCounts = useMemo(() => {
         const counts = {};
@@ -70,7 +104,7 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                         
                         return (
                             <button 
-                                key={i} 
+                                key={`free-${i}`} 
                                 onClick={() => toggleSlot(s)}
                                 style={{ padding: '6px 10px', background: inBasket ? '#dcfce7' : '#fff', border: `1px solid ${inBasket ? '#22c55e' : '#cbd5e1'}`, borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', color: inBasket ? '#166534' : '#334155', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                 {s.time.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m} 
@@ -82,6 +116,44 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                     <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Ei {currentMode === 'puhelu' ? 'puheluita' : 'käyntejä'} tälle viikolle.</span>
                 )}
             </div>
+
+            {/* UUSI BETA-OSIO: Varatut ajat katseluikkunassa */}
+            {visibleBookedSlots.length > 0 && (
+                <div style={{ marginBottom: '1.5rem', paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+                    <h5 style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <CalendarX size={12} /> Varatut ajat tällä viikolla
+                    </h5>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {visibleBookedSlots.map((booking, i) => {
+                            const bTime = new Date(booking.start_time);
+                            const h = bTime.getHours();
+                            const m = String(bTime.getMinutes()).padStart(2, '0');
+                            
+                            return (
+                                <div 
+                                    key={`booked-${i}`}
+                                    style={{ 
+                                        padding: '4px 8px', 
+                                        background: '#fef2f2', 
+                                        border: '1px solid #fecaca', 
+                                        borderRadius: '4px', 
+                                        fontSize: '0.7rem', 
+                                        color: '#ef4444', 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        gap: '4px',
+                                        opacity: 0.8
+                                    }}
+                                >
+                                    <Lock size={10} />
+                                    {bTime.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m}
+                                    {booking.contact_method === 'kaynti' ? <MapPin size={10} /> : <Phone size={10} />}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* Ostoskori-osio pysyy ennallaan */}
             {basket.length > 0 && (

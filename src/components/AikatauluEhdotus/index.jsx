@@ -10,7 +10,7 @@ import SmartSuggestionBox from './SmartSuggestionBox';
 import { analyzeSchedule } from './schedulePriorityEngine';
 import { findAvailableSlots } from './schedulingUtils';
 import { generateSmartDraft } from './draftingEngine';
-import { FlaskConical, Calendar, User, Activity, CheckCircle2, Phone, Database, Link, AlertCircle } from 'lucide-react';
+import { FlaskConical, Calendar, User, Activity, CheckCircle2, Phone, Database, Link, AlertCircle, History, Download } from 'lucide-react';
 
 const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -32,10 +32,12 @@ const AikatauluEhdotus = ({ state, actions }) => {
     
     const [weekOffset, setWeekOffset] = useState(0);
     const [basket, setBasket] = useState([]);
+    
+    // --- UUSI TILA BETA-OSIOTA VARTEN ---
+    const [asiakasId, setAsiakasId] = useState('');
 
     const prevPhraseRef = useRef("");
 
-    // --- LISÄTTY: Seurataan datan saapumista AikatauluEhdotukseen ---
     useEffect(() => {
         if (debugMode) {
             console.log("AIKATAULU_DEBUG: state.sessionServices:", state.sessionServices);
@@ -71,6 +73,24 @@ const AikatauluEhdotus = ({ state, actions }) => {
     const laatimisTapa = perustiedotVars?.YHTEYDENOTTOTAPA || "–";
     const suunnitelmaLaadittuPvm = perustiedotVars?.PÄIVÄMÄÄRÄ || "–";
 
+    // Haetaan edellisen tapaamisen päivämäärä OIKESTA polusta
+    const edellinenTapaaminenRaaka = state?.asiakas?.edellinen_tapaaminen_pvm || "–";
+
+    // Turvamuotoilu: estää Reactin kaatumisen ja siistii mahdolliset ISO-stringit
+    const edellinenTapaaminen = useMemo(() => {
+        if (!edellinenTapaaminenRaaka || edellinenTapaaminenRaaka === "–") return "–";
+        try {
+            // Jos se on jo muodossa "12.6.2026", palautetaan sellaisenaan
+            if (typeof edellinenTapaaminenRaaka === 'string' && edellinenTapaaminenRaaka.includes('.')) {
+                return edellinenTapaaminenRaaka;
+            }
+            const d = new Date(edellinenTapaaminenRaaka);
+            return isNaN(d) ? edellinenTapaaminenRaaka : d.toLocaleDateString('fi-FI');
+        } catch (e) {
+            return edellinenTapaaminenRaaka;
+        }
+    }, [edellinenTapaaminenRaaka]);
+
     // Kutsutaan moottoria
     const { suggestion: activeSuggestion, diagnostics } = useMemo(() => {
         const services = Array.isArray(state.sessionServices) ? state.sessionServices : [];
@@ -87,11 +107,28 @@ const AikatauluEhdotus = ({ state, actions }) => {
             type = 'taydentava';
         }
         
-        const searchStart = new Date();
+        // --- UUSI LOGIIKKA: JOUSTAVA KALENTERIHAKU TAVOITTEEN MUKAAN ---
+        let baseSearchStart = new Date();
+        
+        // Jos käytämme moottorin ehdottamaa sääntöä jolla on "Target Date" (esim. 3 kk etappi)
+        if (activeSuggestion && selectedRule.id === activeSuggestion.rule.id && activeSuggestion.targetDate) {
+            baseSearchStart = new Date(activeSuggestion.targetDate);
+            // Haetaan ehdotuksia esim. 14 pv ennen virallista eräpäivää
+            baseSearchStart.setDate(baseSearchStart.getDate() - 14);
+            
+            // Estetään kuitenkin haun meneminen menneisyyteen
+            const today = new Date();
+            if (baseSearchStart < today) {
+                baseSearchStart = today;
+            }
+        }
+        // ---------------------------------------------------------------
+        
+        const searchStart = new Date(baseSearchStart);
         searchStart.setDate(searchStart.getDate() + (weekOffset * 7));
         
         setProposedSlots(findAvailableSlots(type, expertRules, bookedSlots, searchStart, 1));
-    }, [selectedRule, expertRules, bookedSlots, weekOffset]);
+    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion]); // < Lisätty activeSuggestion
 
     const handleRuleChange = (ruleId, suggestedCount = 1, suggestedPeriod = 3, forcedMode = null) => {
         const rule = rules.find(r => r.id === ruleId);
@@ -101,7 +138,10 @@ const AikatauluEhdotus = ({ state, actions }) => {
             setCount(suggestedCount);
             setPeriod(suggestedPeriod);
             setActiveForcedMode(forcedMode);
-            setBasket(generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod));
+            
+            // Välitetään tavoitepäivä, jos sääntö täsmää moottorin ehdotukseen
+            const passedTargetDate = (activeSuggestion && rule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
+            setBasket(generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod, passedTargetDate));
         } else {
             setBasket([]);
             setActiveForcedMode(null);
@@ -110,12 +150,14 @@ const AikatauluEhdotus = ({ state, actions }) => {
 
     const handleCountChange = (newCount) => {
         setCount(newCount);
-        setBasket(generateSmartDraft(selectedRule, expertRules, bookedSlots, newCount, period));
+        const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
+        setBasket(generateSmartDraft(selectedRule, expertRules, bookedSlots, newCount, period, passedTargetDate));
     };
 
     const handlePeriodChange = (newPeriod) => {
         setPeriod(newPeriod);
-        setBasket(generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod));
+        const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
+        setBasket(generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod, passedTargetDate));
     };
 
     const handleBooking = async () => {
@@ -167,6 +209,48 @@ const AikatauluEhdotus = ({ state, actions }) => {
         }
     });
 
+    // --- UUSI BETA-OMINAISUUS: LATAUSFUNKTIO ---
+    const handleDownloadICS = () => {
+        const activeList = confirmedSlots.length > 0 ? confirmedSlots : basket;
+        if (activeList.length === 0) return;
+
+        let icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//SentinelGuardian//FI\nCALSCALE:GREGORIAN\n";
+
+        activeList.forEach((slot, index) => {
+            const startDate = new Date(slot.time);
+            // Oletetaan tapaamisen kestoksi 1 tunti
+            const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); 
+
+            // iCal vaatii aikaleimat UTC muodossa ilman erikoismerkkejä (esim. 20260618T120000Z)
+            const formatICSDate = (date) => {
+                return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+            };
+
+            const modeText = slot.mode === 'kaynti' ? 'läsnä' : 'puhelu';
+            const rawId = asiakasId.trim();
+            const title = `Ajanvaraus/${modeText}${rawId ? ` ${rawId}` : ''}`;
+
+            icsContent += "BEGIN:VEVENT\n";
+            icsContent += `UID:sentinel-event-${startDate.getTime()}-${index}\n`;
+            icsContent += `DTSTAMP:${formatICSDate(new Date())}\n`;
+            icsContent += `DTSTART:${formatICSDate(startDate)}\n`;
+            icsContent += `DTEND:${formatICSDate(endDate)}\n`;
+            icsContent += `SUMMARY:${title}\n`;
+            icsContent += "END:VEVENT\n";
+        });
+
+        icsContent += "END:VCALENDAR";
+
+        // Luodaan tiedosto ja ladataan se selaimen kautta
+        const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+        const link = document.createElement('a');
+        link.href = window.URL.createObjectURL(blob);
+        link.setAttribute('download', 'asiakas_ajat.ics');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     const sessionServices = Array.isArray(state.sessionServices) ? state.sessionServices : [];
 
     if (loading) return <Card title="Ladataan aikatauluavustajaa..."></Card>;
@@ -190,6 +274,7 @@ const AikatauluEhdotus = ({ state, actions }) => {
                     <div className="debug-item"><Activity size={12}/> TH-kesto: <span style={{fontWeight:'bold', color:'var(--color-primary)'}}>{diagnostics.thKestoKk !== null ? `${diagnostics.thKestoKk} kk` : 'Tuntematon'}</span></div>
                     <div className="debug-item"><Activity size={12}/> Yleistuki: {activeSignals.tt_etuus_yleistuki ? <span style={{color:'green', fontWeight:'bold'}}>K</span> : 'E'}</div>
                     <div className="debug-item"><Activity size={12}/> Toimeentulo: {activeSignals.ETUUS_TOIMEENTULOTUKI ? <span style={{color:'green', fontWeight:'bold'}}>K</span> : 'E'}</div>
+                    <div className="debug-item"><History size={12}/> Edellinen: <strong>{edellinenTapaaminen}</strong></div>
                 </div>
 
                 {/* HAVAITUT PALVELUT (AINA DIAGNOSOITU) */}
@@ -274,6 +359,55 @@ const AikatauluEhdotus = ({ state, actions }) => {
                     <CopyButton text={generatePhrase()} />
                 </div>
             </div>
+
+            {/* BETA: ICS VIENTI */}
+            {(basket.length > 0 || confirmedSlots.length > 0) && (
+                <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f0fdf4', border: '1px dashed #22c55e', borderRadius: '8px' }}>
+                    <h4 style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#166534', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '5px', textTransform: 'uppercase' }}>
+                        BETA: Vie kalenteriin
+                    </h4>
+                    <p style={{ fontSize: '0.75rem', color: '#15803d', marginBottom: '10px', fontStyle: 'italic' }}>
+                        Syötä alle asiakkaan tunniste (esim. asiointinumero). Tieto lisätään vain luotavan tiedoston otsikkoon, <strong>sitä ei tallenneta järjestelmään.</strong>
+                    </p>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <input
+                            type="text"
+                            placeholder="Asiakkaan ID"
+                            value={asiakasId}
+                            onChange={(e) => setAsiakasId(e.target.value)}
+                            style={{ 
+                                flex: 1, 
+                                padding: '0.4rem 0.6rem', 
+                                border: '1px solid #bbf7d0', 
+                                borderRadius: '4px', 
+                                fontSize: '0.8rem',
+                                outline: 'none'
+                            }}
+                        />
+                        <button
+                            onClick={handleDownloadICS}
+                            style={{
+                                padding: '0.4rem 1rem',
+                                backgroundColor: '#22c55e',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: 'bold',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                transition: 'background-color 0.2s'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
+                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#22c55e'}
+                        >
+                            <Download size={14} /> Lataa .ics
+                        </button>
+                    </div>
+                </div>
+            )}
         </Card>
     );
 };

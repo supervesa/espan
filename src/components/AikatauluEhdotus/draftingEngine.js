@@ -1,6 +1,6 @@
 import { findAvailableSlots } from './schedulingUtils';
 
-export const generateSmartDraft = (rule, expertRules, bookedSlots, count, periodMonths) => {
+export const generateSmartDraft = (rule, expertRules, bookedSlots, count, periodMonths, targetDate = null) => {
     if (!rule) return [];
     
     const draft = [];
@@ -26,6 +26,20 @@ export const generateSmartDraft = (rule, expertRules, bookedSlots, count, period
     }
 
     let currentDate = new Date();
+
+    // --- UUSI LOGIIKKA: Aloitetaan oikeasta tavoiteajasta ---
+    if (targetDate) {
+        currentDate = new Date(targetDate);
+        // Peruutetaan 14 päivää, jotta ehdotuksia etsitään fiksusti hieman ennen eräpäivää
+        currentDate.setDate(currentDate.getDate() - 14);
+
+        // Estetään haun meneminen menneisyyteen
+        const today = new Date();
+        if (currentDate < today) {
+            currentDate = today;
+        }
+    }
+    // --------------------------------------------------------
 
     // 3. Draftataan ajat
     for (let i = 0; i < count; i++) {

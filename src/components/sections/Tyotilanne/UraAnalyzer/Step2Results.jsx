@@ -1,23 +1,21 @@
-// src/components/sections/Tyotilanne/UraAnalyzer/Step2Results.jsx
-
 import React from 'react';
 import { Briefcase, GraduationCap, CalendarClock, Layers, Info, Tag as TagIcon } from 'lucide-react';
 import Tag from '../../../common/Tag';
 import AlertBox from '../../../common/AlertBox';
+import { ENTITY_DEFINITIONS } from '../../../../data/entityDefinitions'; // LISÄTTY SANAKIRJA
 
 const Step2Results = ({ 
     aiResult, 
     finescoSector, setFinescoSector, 
     escoProfession, setEscoProfession, 
-    tilaTyoton, tilaTyokokeilu, tilaPalkkatuki,
+    tilaTyoton, aktiivisetPalvelut,
     activeTriggers, setActiveTriggers 
 }) => {
 
     const {
         tyohistoria, suoritetut_koulutukset, tyokokeilut_pvm,
         vaihtoehtoiset_ammatit, koulutusehdotukset,
-        nykyinen_opiskelija, nykyinen_yrittaja,
-        nykyinen_palvelu_alku, nykyinen_palvelu_loppu
+        nykyinen_opiskelija, nykyinen_yrittaja
     } = aiResult;
 
     return (
@@ -28,7 +26,7 @@ const Step2Results = ({
                 <textarea className="form-input" rows="8" value={tyohistoria || ''} readOnly />
             </div>
             
-            {/* KORJATTU: Näyttää koulutukset nyt hienona listana! */}
+            {/* KOULUTUSHISTORIA LISTANA */}
             <div className="panel-ai-edu" style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                 <label className="icon-label"><GraduationCap size={16} /> Suoritetut koulutukset</label>
                 {suoritetut_koulutukset && suoritetut_koulutukset.length > 0 ? (
@@ -46,24 +44,31 @@ const Step2Results = ({
                 )}
             </div>
 
-            {/* UUSI: Näyttää käynnissä olevan palvelun ja sen päivät */}
-            {(tilaTyokokeilu || tilaPalkkatuki) && (
+            {/* AKTIIVISET PALVELUT LISTANA */}
+            {aktiivisetPalvelut && aktiivisetPalvelut.length > 0 && (
                 <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-success)', marginBottom: '1rem', gridColumn: 'span 2', backgroundColor: '#f0fdf4' }}>
-                    <label className="icon-label text-success"><CalendarClock size={16} /> Havaittu aktiivinen palvelu</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginTop: '0.5rem', fontSize: '0.9rem' }}>
-                        <strong>{tilaTyokokeilu ? 'Työkokeilu' : 'Palkkatuki'}</strong>
-                        {nykyinen_palvelu_alku && nykyinen_palvelu_loppu ? (
-                            <span style={{ backgroundColor: '#fff', padding: '4px 10px', borderRadius: '15px', border: '1px solid #bbf7d0', color: '#166534' }}>
-                                {nykyinen_palvelu_alku} – {nykyinen_palvelu_loppu}
-                            </span>
-                        ) : (
-                            <span style={{ color: '#ef4444', fontSize: '0.8rem' }}>Päivämääriä ei löytynyt tekstistä.</span>
-                        )}
+                    <label className="icon-label text-success"><CalendarClock size={16} /> Havaitut aktiiviset palvelut ja opinnot</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                        {aktiivisetPalvelut.map((srv, idx) => {
+                            const def = ENTITY_DEFINITIONS[srv.entity_key];
+                            return (
+                                <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0', fontSize: '0.85rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <strong style={{ color: '#166534' }}>{def ? def.label : srv.entity_key}</strong>
+                                        {srv.tarkenne && <span style={{ color: '#64748b', fontStyle: 'italic' }}>({srv.tarkenne})</span>}
+                                    </div>
+                                    <span style={{ backgroundColor: '#f0fdf4', padding: '2px 8px', borderRadius: '12px', color: '#166534', fontWeight: 'bold' }}>
+                                        {srv.alku} – {srv.loppu}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                        <span style={{ fontSize: '0.7rem', color: 'var(--color-success)' }}>Siirtyvät automaattisesti taulukoihin ja kalenteriavustajalle.</span>
                     </div>
                 </div>
             )}
 
-            {/* Työtön-status erikseen */}
+            {/* Työtön-status */}
             {tilaTyoton && (
                 <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-warning)', gridColumn: 'span 2' }}>
                     <label className="icon-label" style={{ color: '#b45309' }}><Layers size={16} /> Asiakkaan status</label>
@@ -140,6 +145,7 @@ const Step2Results = ({
                     )) : <span className="stat-label" style={{ fontStyle: 'italic' }}>Ei signaaleja.</span>}
                 </div>
             </div>
+            
         </div>
     );
 };

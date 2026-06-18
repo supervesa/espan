@@ -3,12 +3,12 @@ import { Wand2, Check, Loader2 } from 'lucide-react';
 import { supabase } from '../../../../utils/supabaseClient';
 import Modal from '../../../common/Modal'; 
 import AlertBox from '../../../common/AlertBox';
-
 import { COMPANY_PATTERN, SCHOOL_PATTERN, HETU_PATTERN, SINGLE_DATE_PATTERN } from '../../../../utils/regex/core';
+import { ENTITY_DEFINITIONS } from '../../../../data/entityDefinitions'; // UUSI: Tuodaan sanakirja
 import Step1Input from './Step1Input';
 import Step2Results from './Step2Results';
 
-const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys, currentSectionState }) => {
+const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys }) => {
     const [step, setStep] = useState(1);
     const [rawData, setRawData] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -20,9 +20,9 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys, currentSect
     const [escoProfession, setEscoProfession] = useState('');
     const [activeTriggers, setActiveTriggers] = useState([]);
     
-    const [tilaTyokokeilu, setTilaTyokokeilu] = useState(false);
-    const [tilaPalkkatuki, setTilaPalkkatuki] = useState(false);
+    // Tila vain työttömyydelle, palvelut asuvat nyt taulukossa
     const [tilaTyoton, setTilaTyoton] = useState(false);
+    const [aktiivisetPalvelut, setAktiivisetPalvelut] = useState([]); // UUSI TILA
 
     const [knownTriggers, setKnownTriggers] = useState([]);
 
@@ -31,7 +31,7 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys, currentSect
             fetchDictionary();
             setStep(1); setRawData(''); setAiResult({});
             setFinescoSector(''); setEscoProfession('');
-            setTilaTyokokeilu(false); setTilaPalkkatuki(false); setTilaTyoton(false);
+            setTilaTyoton(false); setAktiivisetPalvelut([]);
             setActiveTriggers([]); setError(null);
         }
     }, [isOpen]);
@@ -40,7 +40,7 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys, currentSect
         try {
             const { data } = await supabase.from('view_master_dictionary').select('keyword');
             if (data) setKnownTriggers(data.map(d => d.keyword));
-        } catch (err) {}
+        } catch (err) { console.error(err); }
     };
 
     const handleAutoAnonymize = () => {
@@ -73,9 +73,8 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys, currentSect
             setFinescoSector(aiData.finesco_ammattiala || ''); 
             setEscoProfession(aiData.esco_ammatti || '');
             
-            setTilaTyokokeilu(aiData.tila_tyokokeilu === true);
-            setTilaPalkkatuki(aiData.tila_palkkatuki === true);
             setTilaTyoton(aiData.tila_tyoton === true);
+            setAktiivisetPalvelut(aiData.aktiiviset_palvelut || []); // Talteen UI:ta varten
 
             setActiveTriggers(aiData.loydetyt_triggerit || []);
             setStep(2); 
@@ -94,41 +93,41 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys, currentSect
 
             actions.onUpdateCustomText('tyotilanne', finalNotes);
             
-            if (aiResult.koulutusehdotukset?.length > 0) {
-                actions.onUpdateCustomText('ai_koulutus_ideat', JSON.stringify(aiResult.koulutusehdotukset));
-            }
+            if (aiResult.koulutusehdotukset?.length > 0) actions.onUpdateCustomText('ai_koulutus_ideat', JSON.stringify(aiResult.koulutusehdotukset));
             if (aiResult.tyokokeilut_pvm) {
                 typeof actions.onUpdatePalkkatuki === 'function' ? actions.onUpdatePalkkatuki('tyokokeilu_historia', aiResult.tyokokeilut_pvm) : actions.onUpdateVariable('palkkatuki', 'tyokokeilu_historia', aiResult.tyokokeilut_pvm);
             }
 
-            // --- KORJATTU LOMAKEAUTOMAATIO ---
-            // Nyt laitetaan Työtön-ruksi päälle oikealla sectionId:llä ja dynaamisella avaimella
+            // Työtön-ruksi päälle dynaamisella avaimella
             if (dynamicKeys && dynamicKeys.tyoton && tilaTyoton) {
-                // Laitetaan päälle vain jos se ei ole jo päällä (koska onSelect toimii toggle-tyyppisesti)
-                if (!currentSectionState?.[dynamicKeys.tyoton]) {
+                const currentSectionState = state['tyotilanne'] || {};
+                if (!currentSectionState[dynamicKeys.tyoton]) {
                     actions.onSelect('tyotilanne', dynamicKeys.tyoton, true); 
                 }
             }
 
-            // --- KORJATTU GM PALVELUIDEN TALLENNUS ---
-            if (aiResult.nykyinen_palvelu_alku && aiResult.nykyinen_palvelu_loppu) {
-                let currentEntityKey = 'tyokokeilu'; // Oletus
-                if (tilaPalkkatuki) currentEntityKey = 'palkkatuki';
-                if (tilaTyokokeilu) currentEntityKey = 'tyokokeilu';
-
-                const newService = {
-                    id: window.crypto.randomUUID(),
-                    entity_key: currentEntityKey,
-                    category: 'palvelu',
-                    data: { alku: aiResult.nykyinen_palvelu_alku, loppu: aiResult.nykyinen_palvelu_loppu },
-                    meta: { source: 'ai_analyzer', timestamp: new Date().toISOString() }
-                };
+            // --- UUSI: PALVELUIDEN TALLENNUS GOLDEN MASTERIIN ---
+            if (aktiivisetPalvelut && aktiivisetPalvelut.length > 0) {
+                const newServices = aktiivisetPalvelut.map(srv => {
+                    const def = ENTITY_DEFINITIONS[srv.entity_key];
+                    return {
+                        id: window.crypto.randomUUID(),
+                        entity_key: srv.entity_key,
+                        category: def ? def.category : (srv.entity_key.includes('opiskelu') ? 'opiskelu' : 'palvelu'),
+                        data: { 
+                            alku: srv.alku || '', 
+                            loppu: srv.loppu || '',
+                            nimi: srv.tarkenne || '' // Sisältää esim oppilaitoksen tai yrityksen nimen
+                        },
+                        meta: { source: 'ai_analyzer', timestamp: new Date().toISOString() }
+                    };
+                });
 
                 const currentServices = Array.isArray(state.sessionServices) ? state.sessionServices : [];
-                actions.onUpdateVariable('global', 'sessionServices', null, [...currentServices, newService]);
+                actions.onUpdateVariable('global', 'sessionServices', null, [...currentServices, ...newServices]);
             }
 
-            // --- UUSI: GM KOULUTUSTEN TALLENNUS ---
+            // --- KOULUTUSTEN TALLENNUS GOLDEN MASTERIIN ---
             if (aiResult.suoritetut_koulutukset && aiResult.suoritetut_koulutukset.length > 0) {
                 const newEducations = aiResult.suoritetut_koulutukset.map(edu => ({
                     id: window.crypto.randomUUID(),
@@ -177,8 +176,9 @@ const UraAnalyzer = ({ isOpen, onClose, actions, state, dynamicKeys, currentSect
         <Modal isOpen={isOpen} onClose={onClose} title="Työ- ja palveluhistorian AI-analyysi" icon={Wand2} footer={<> <button className="btn btn--secondary" onClick={onClose} disabled={isAnalyzing || isSaving}>Peruuta</button> {step === 1 ? ( <button className="btn" onClick={handleAnalyze} disabled={isAnalyzing || !rawData.trim() || hasRisks} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}> {isAnalyzing ? <><Loader2 size={16} className="animate-spin" /> Analysoidaan...</> : <><Wand2 size={16} /> Pura ja jäsennä</>} </button> ) : ( <button className="btn btn--success" onClick={handleAccept} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'var(--color-success)', borderColor: 'var(--color-success)' }}> {isSaving ? <><Loader2 size={16} className="animate-spin" /> Siirretään...</> : <><Check size={16} /> Hyväksy ja siirrä</>} </button> )} </>}>
             {error && <AlertBox type="danger">{error}</AlertBox>}
             {step === 1 && <Step1Input rawData={rawData} setRawData={setRawData} hasRisks={hasRisks} onAutoAnonymize={handleAutoAnonymize} isAnalyzing={isAnalyzing} />}
-            {step === 2 && <Step2Results aiResult={aiResult} finescoSector={finescoSector} setFinescoSector={setFinescoSector} escoProfession={escoProfession} setEscoProfession={setEscoProfession} tilaTyoton={tilaTyoton} tilaTyokokeilu={tilaTyokokeilu} tilaPalkkatuki={tilaPalkkatuki} activeTriggers={activeTriggers} setActiveTriggers={setActiveTriggers} />}
+            {step === 2 && <Step2Results aiResult={aiResult} finescoSector={finescoSector} setFinescoSector={setFinescoSector} escoProfession={escoProfession} setEscoProfession={setEscoProfession} tilaTyoton={tilaTyoton} aktiivisetPalvelut={aktiivisetPalvelut} activeTriggers={activeTriggers} setActiveTriggers={setActiveTriggers} />}
         </Modal>
     );
 };
+
 export default UraAnalyzer;

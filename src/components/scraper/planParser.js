@@ -3,6 +3,7 @@ import { extractSignals } from '../../utils/regex/signalExtractor';
 import { extractPatevyydet } from '../../utils/regex/patevyysExtractor';
 import { extractTyokyky } from '../../utils/regex/tyokykyExtractor'; 
 import { extractEdellytykset } from '../../utils/regex/edellytyksetExtractor';
+
 import { extractGMServices } from '../../utils/regex/gmServiceExtractor'; 
 import { extractKoulutus } from '../../utils/regex/extractKoulutus'; 
 
@@ -11,18 +12,18 @@ const escoRegex = /tavoiteammatti(?:na on|:)?\s+([a-zäöåA-ZÄÖÅ\s-]+)(?:\.|
 
 export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignals = [], dbVariables = [], dbServices = [], dbPatevyydet = []) => {
     
-    // HUOM: Lisätty sessionEducations tulokseen!
     const result = { 
         phrases: [], 
         signals: [], 
         sessionServices: [], 
-        sessionEducations: [], // UUSI: Golden Master -taulukko koulutuksille
+        sessionEducations: [], 
         patevyydet: [], 
         variables: {}, 
         customTexts: {}, 
         tyokykyData: {}, 
         edellytyksetData: {} 
     };
+
     if (!rawText) return result;
 
     let remainingText = rawText.replace(/\u200B|\u200D|\u200C/g, '').trim();
@@ -30,6 +31,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
     // =========================================================================
     // 1. POIMITAAN LAADINTAPÄIVÄMÄÄRÄ & TUHOTAAN URA-ROSKA
     // =========================================================================
+    
     const uraBoilerplateMatchRegex = /(?:Tämä\s+suunnitelma\s+laadittiin)[^\n\r]*?(\d{1,2}\.\d{1,2}\.\d{4})\.?\s*/i;
     const bpMatch = remainingText.match(uraBoilerplateMatchRegex);
     
@@ -49,12 +51,10 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
     // 2. AJETAAN GOLDEN MASTER UUTTAJAT (Palvelut ja Koulutukset)
     // =========================================================================
     
-    // Palvelut (Työkokeilut, Palkkatuet jne.)
     const gmResult = extractGMServices(remainingText);
     result.sessionServices = gmResult.foundServices;
     remainingText = gmResult.remainingText;
 
-    // Koulutukset (UUSI)
     const eduResult = extractKoulutus(remainingText);
     result.sessionEducations = eduResult.foundEducations;
     remainingText = eduResult.remainingText;
@@ -62,6 +62,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
     // =========================================================================
     // 3. POIMITAAN GLOBAALIT MUUTTUJAT ENNEN KUIN MIKÄÄN SYÖ TEKSTIÄ
     // =========================================================================
+    
     const tyonhakuRegex = /Asiakkaan työnhaku on alkanut\s*(\d{1,2}\.\d{1,2}\.\d{4})/i;
     const tyonhakuMatch = remainingText.match(tyonhakuRegex);
     if (tyonhakuMatch) {
@@ -81,6 +82,42 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         remainingText = remainingText.replace(eiYrittajyysRegex, '').trim();
     }
 
+    const kyllaYrittajyysRegex = /Asiakas on kiinnostunut yrittäjyydestä\.?/i;
+    if (kyllaYrittajyysRegex.test(remainingText)) {
+        result.variables['yrittajyys_kiinnostus'] = 'kylla';
+        remainingText = remainingText.replace(kyllaYrittajyysRegex, '').trim();
+    }
+
+    // --- UUSI: DIGITAIDOT JA ASIOINTI ---
+    
+    // Heikot digitaidot
+    const heikotDigiRegex = /Asiakkaalla on puutteelliset digitaidot(?: tai niitä ei ole lainkaan)?/i;
+    if (heikotDigiRegex.test(remainingText)) {
+        result.signals.push({ id: 'puutteelliset_digitaidot', label: 'Puutteelliset digitaidot' });
+        remainingText = remainingText.replace(heikotDigiRegex, '').trim();
+    }
+    
+    // Hyvät digitaidot
+    const hyvatDigiRegex = /Asiakkaalla on (?:hyvät valmiudet sähköiseen asiointiin[^.]*|hyvät digitaidot)/i;
+    if (hyvatDigiRegex.test(remainingText)) {
+        result.signals.push({ id: 'hyvat_digitaidot', label: 'Hyvät digitaidot' });
+        remainingText = remainingText.replace(hyvatDigiRegex, '').trim();
+    }
+
+    // Ei pankkitunnuksia
+    const eiPankkiaRegex = /(?:ja )?(?:hänellä |asiakkaalla )?ei ole käytössään vahvaa tunnistautumista/i;
+    if (eiPankkiaRegex.test(remainingText)) {
+        result.signals.push({ id: 'ei_pankkitunnuksia', label: 'Ei vahvaa tunnistautumista' });
+        remainingText = remainingText.replace(eiPankkiaRegex, '').trim();
+    }
+
+    // On pankkitunnukset
+    const onPankkiaRegex = /(?:ja )?(?:hänellä |asiakkaalla )?on käytössään vahva tunnistautuminen/i;
+    if (onPankkiaRegex.test(remainingText)) {
+        result.signals.push({ id: 'on_pankkitunnukset', label: 'Vahva tunnistautuminen' });
+        remainingText = remainingText.replace(onPankkiaRegex, '').trim();
+    }
+
     // =========================================================================
     // 4. JAA TEKSTI LOHKOIHIN OTSIKOIDEN PERUSTEELLA
     // =========================================================================
@@ -91,6 +128,10 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         { match: /^Koulutus ja yrittäjyys(?:\s|:|$)/i, key: 'koulutus' },
         { match: /^Asiakkaan työtilanne(?:\s|:|$)/i, key: 'tyotilanne' },
         { match: /^Työnhakuvelvollisuus(?:\s|:|$)/i, key: 'tyonhakuvelvollisuus' },
+        { match: /^Työnhakuprofiili(?:\s|:|$)/i, key: 'tyonhakuprofiili' },
+        { match: /^Työttömyysturva(?:\s|:|$)/i, key: 'tyottomyysturva' },
+        { match: /^Palkkatuki(?:\s|:|$)/i, key: 'palkkatuki' },
+        { match: /^Suunnitelma(?:\s|:|$)/i, key: 'suunnitelma' },
         { match: /^Työkyky(?:\s|:|$)/i, key: 'tyokyky' },
         { match: /^Työllistymisen edellytysten arviointi(?:\s|:|$)/i, key: 'edellytykset' }
     ];
@@ -102,6 +143,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
     for (let line of lines) {
         const cleanLine = line.trim().replace(/\*/g, '');
         if (!cleanLine) continue; 
+
         let foundHeader = false;
         for (const header of URA_HEADERS) {
             const match = cleanLine.match(header.match);
@@ -109,6 +151,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
                 currentSectionKey = header.key;
                 if (!chunks[currentSectionKey]) chunks[currentSectionKey] = [];
                 foundHeader = true;
+                
                 const contentAfterHeader = cleanLine.substring(match[0].length).trim();
                 if (contentAfterHeader) chunks[currentSectionKey].push(contentAfterHeader);
                 break; 
@@ -134,7 +177,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
             const edellytyksetResult = extractEdellytykset(chunkText, dbPhrases, dbSignals); 
             chunkText = edellytyksetResult.remainingText;
             if (edellytyksetResult.edellytyksetData && Object.keys(edellytyksetResult.edellytyksetData).length > 0) {
-                result.edellytyksetData = edellytyksetResult.edellytyksetData;
+                result.edellytyksetData = { ...result.edellytyksetData, ...edellytyksetResult.edellytyksetData };
             }
         }
 
@@ -164,11 +207,24 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
     // =========================================================================
     // 6. SIIVOUS
     // =========================================================================
-    const residueRegexes = [ /Asiakkaalla on voimassa olevat pätevyydet:?/gi, /Asiakkaan äidinkieli on[^.]*\./gi ];
+    const residueRegexes = [ 
+        /Asiakkaalla on voimassa olevat pätevyydet:?/gi, 
+        /Asiakkaan äidinkieli on[^.]*\./gi,
+        // Siivotaan irtonaiset "ja" sanat ja pisteet, jotka jäivät digitaidoista yli
+        /^\s*ja\s*/gi,
+        /^\s*\.\s*/gi
+    ];
     for (const key in result.customTexts) {
         let finalClean = result.customTexts[key];
+        
+        finalClean = finalClean.replace(dateRegex, '').replace(escoRegex, '');
         residueRegexes.forEach(rx => { finalClean = finalClean.replace(rx, ''); });
+        
         finalClean = finalClean.replace(/\s{2,}/g, ' ').trim();
+        if (/^(?:pätevyydet|kortit|pätevyydet:|kortit:)$/i.test(finalClean)) {
+            finalClean = '';
+        }
+
         if (!finalClean) delete result.customTexts[key]; 
         else result.customTexts[key] = finalClean;
     }
