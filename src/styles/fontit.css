@@ -6,12 +6,16 @@
     --font-mono: "JetBrains Mono", "Courier New", monospace;
 
     /* Tekstikoot (Käytetään apuluokissa) */
-    --text-xs: 0.75rem;   /* 12px - Pienet tagit, ikonitekstit */
-    --text-sm: 0.85rem;   /* 13.6px - Apotekstit, kuvaukset, taulukoiden data */
-    --text-base: 1rem;    /* 16px - Leipäteksti, labelit */
-    --text-lg: 1.125rem;  /* 18px - Väliotsikot */
-    --text-xl: 1.5rem;    /* 24px - Osioiden otsikot */
-    --text-2xl: 2.25rem;  /* 36px - Pääotsikot */
+    --text-xxs: 0.625rem;     /* ~10px - Mikrotunnisteet (UUSI) */
+    --text-xs-dense: 0.7rem;  /* ~11px - Tiiviit ruudukot/diagnostiikka (UUSI) */
+    --text-xs: 0.75rem;       /* 12px - Pienet tagit, ikonitekstit */
+    --text-sm-dense: 0.8rem;  /* ~13px - Painikkeet, inputit (UUSI) */
+    --text-sm: 0.85rem;       /* 13.6px - Apotekstit, kuvaukset, taulukoiden data */
+    --text-md: 0.9rem;        /* ~14.4px - Väliotsikot, korostetut rivit (UUSI) */
+    --text-base: 1rem;        /* 16px - Leipäteksti, labelit */
+    --text-lg: 1.125rem;      /* 18px - Väliotsikot */
+    --text-xl: 1.5rem;        /* 24px - Osioiden otsikot */
+    --text-2xl: 2.25rem;      /* 36px - Pääotsikot */
 }
 
 /* 2. GLOBAALIT PERUSTYYLIT (Nollaus ja yhdenmukaistaminen) */
@@ -43,8 +47,12 @@ small {
    ========================================= */
 
 /* Fonttikoot */
+.text-xxs { font-size: var(--text-xxs) !important; }
+.text-xs-dense { font-size: var(--text-xs-dense) !important; }
 .text-xs { font-size: var(--text-xs) !important; }
+.text-sm-dense { font-size: var(--text-sm-dense) !important; }
 .text-sm { font-size: var(--text-sm) !important; }
+.text-md { font-size: var(--text-md) !important; }
 .text-base { font-size: var(--text-base) !important; }
 .text-lg { font-size: var(--text-lg) !important; }
 .text-xl { font-size: var(--text-xl) !important; }
@@ -62,6 +70,7 @@ small {
     text-transform: uppercase !important; 
     letter-spacing: 0.05em; 
 }
+.lh-tight { line-height: 1.2 !important; } /* UUSI: Tiukka riviväli mikroteksteille */
 
 /* Tekstin värit */
 .text-primary { color: var(--color-primary) !important; }
@@ -71,6 +80,8 @@ small {
 .text-warning { color: var(--color-warning) !important; }
 .text-muted { color: #9ca3af !important; }
 .text-ai { color: var(--color-ai) !important; }
+.text-slate-500 { color: #64748b !important; } /* UUSI: Neutraali apuväri */
+.text-slate-700 { color: #334155 !important; } /* UUSI: Tummempi apuväri */
 
 /* Asemointi ja käsittely */
 .text-center { text-align: center !important; }
