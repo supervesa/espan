@@ -3,13 +3,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import Card from '../common/Card';
 import Button from '../common/Button';
-import Badge from '../common/Badge';
-import DataTable from '../common/DataTable';
-import LocationPlanner from './LocationPlanner'; // Kytketty mukaan
+import LocationPlanner from './LocationPlanner'; 
+import AvailabilityForms from './AvailabilityForms'; // UUSI: Tuodaan erillinen lomakekomponentti
 import { 
-    Calendar, Clock, Plus, Trash2, AlertCircle, ChevronLeft, ChevronRight, 
-    CalendarPlus, CalendarOff, Palmtree, MapPin, Phone, Info, X, UserX,
-    Home, Building, Link, Copy, Check, Send
+    Calendar, Plus, Trash2, ChevronLeft, ChevronRight, 
+    CalendarOff, Palmtree, MapPin, Phone, Info, X, UserX,
+    Home, Building, Link, Copy, Send,
+    Landmark, Lock, Flag, Hourglass 
 } from 'lucide-react';
 
 const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
@@ -33,32 +33,16 @@ const formatDateLocal = (date) => {
     return d.toISOString().split('T')[0];
 };
 
-// KORJATTU: Tarkka aikavyöhyketulkinta Suomen paikalliseen aikaan (+2h / +3h)
 const parseDBDateLocal = (dbString) => {
     if (!dbString) return { datePart: '', timeStr: '', isWholeDay: false };
-    
-    // Koko päivän lomat ja sulut (00:00:00 UTC) pysyvät muuttumattomina keskiyössä
-    if (dbString.includes('00:00:00')) {
-        return {
-            datePart: dbString.substring(0, 10),
-            timeStr: '00:00',
-            isWholeDay: true
-        };
-    }
-    
-    // Asiakasvaraukset käännetään dynaamisesti selaimen paikalliseen aikaan
+    if (dbString.includes('00:00:00')) return { datePart: dbString.substring(0, 10), timeStr: '00:00', isWholeDay: true };
     const d = new Date(dbString);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     const hours = String(d.getHours()).padStart(2, '0');
     const minutes = String(d.getMinutes()).padStart(2, '0');
-    
-    return {
-        datePart: `${year}-${month}-${day}`,
-        timeStr: `${hours}:${minutes}`,
-        isWholeDay: false
-    };
+    return { datePart: `${year}-${month}-${day}`, timeStr: `${hours}:${minutes}`, isWholeDay: false };
 };
 
 const AvailabilityManager = () => {
@@ -67,8 +51,11 @@ const AvailabilityManager = () => {
     const [exceptions, setExceptions] = useState([]);
     const [dailyLocations, setDailyLocations] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false); // Käytetään yhä QuickModalissa
 
-    // UUSI: Paikallinen asetustila default-arvoilla (Vastaa expert_location_settings -taulun kantaa)
+    const [ledgerBalance, setLedgerBalance] = useState(0);
+    const [nationalHolidays, setNationalHolidays] = useState([]);
+
     const [settings, setSettings] = useState({
         target_office_percent: 50,
         thursday_office_rate: 100,
@@ -78,17 +65,6 @@ const AvailabilityManager = () => {
         thursday_office_name: 'Viipurinkatu'
     });
 
-    const [newRule, setNewRule] = useState({ 
-        day_of_week: 1, meeting_type: 'normi', start_time: '09:00', end_time: '10:00', 
-        useBatch: false, duration: 60, pause: 15, valid_until: '', contact_method: 'kaynti'
-    });
-    
-    const [newException, setNewException] = useState({ 
-        startDate: '', endDate: '', time: '09:00', meeting_type: 'aktivointi', is_blocked: false, contact_method: 'kaynti'
-    });
-    
-    const [isFullDayBlock, setIsFullDayBlock] = useState(false);
-    const [saving, setSaving] = useState(false);
     const [quickModal, setQuickModal] = useState({ isOpen: false, startDate: '', endDate: '' });
     const [selectedBlock, setSelectedBlock] = useState(null);
     const [activeLocationPopover, setActiveLocationPopover] = useState(null);
@@ -106,147 +82,76 @@ const AvailabilityManager = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [quickModal.isOpen, selectedBlock, activeLocationPopover]);
 
-    useEffect(() => {
-        fetchData();
-    }, [currentWeekStart]);
+    useEffect(() => { fetchData(); }, [currentWeekStart]);
 
     const fetchData = async () => {
         setLoading(true);
         try {
-            const { data: rulesData, error: rulesError } = await supabase
-                .schema('espan')
-                .from('expert_availability_rules')
-                .select('*')
-                .eq('expert_id', EXPERT_ID)
-                .order('day_of_week')
-                .order('start_time');
-            if (rulesError) throw rulesError;
-
             const queryStart = formatDateLocal(addDays(currentWeekStart, -7)); 
             const queryEnd = formatDateLocal(addDays(currentWeekStart, 21));
-            
-            const { data: exceptionsData, error: expError } = await supabase
-                .schema('espan')
-                .from('availability')
-                .select('*')
-                .eq('expert_id', EXPERT_ID)
-                .gte('start_time', `${queryStart} 00:00:00`)
-                .lte('start_time', `${queryEnd} 23:59:59`)
-                .order('start_time');
-            if (expError) throw expError;
+            const todayStr = formatDateLocal(new Date());
 
-            const { data: locData, error: locError } = await supabase
-                .schema('espan')
-                .from('expert_daily_locations')
-                .select('*')
-                .eq('expert_id', EXPERT_ID)
-                .gte('date', queryStart)
-                .lte('date', queryEnd);
-            if (locError) throw locError;
+            const [rulesRes, excRes, locRes, setRes, ledgerRes, holidayRes] = await Promise.all([
+                supabase.schema('espan').from('expert_availability_rules').select('*').eq('expert_id', EXPERT_ID).order('day_of_week').order('start_time'),
+                supabase.schema('espan').from('availability').select('*').eq('expert_id', EXPERT_ID).gte('start_time', `${queryStart} 00:00:00`).lte('start_time', `${queryEnd} 23:59:59`).order('start_time'),
+                supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', EXPERT_ID).gte('date', queryStart).lte('date', queryEnd),
+                supabase.schema('espan').from('expert_location_settings').select('*').eq('expert_id', EXPERT_ID).maybeSingle(),
+                supabase.schema('espan').from('expert_remote_bank_ledger').select('transaction_type').eq('expert_id', EXPERT_ID).gt('expiration_date', todayStr),
+                supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', queryStart).lte('date', queryEnd)
+            ]);
 
-            const { data: settingsData, error: settingsError } = await supabase
-                .schema('espan')
-                .from('expert_location_settings')
-                .select('*')
-                .eq('expert_id', EXPERT_ID)
-                .maybeSingle(); // <-- KORJAUS TÄSSÄ
-            if (settingsError && settingsError.code !== 'PGRST116') {
-                console.warn("Asetuksien haku:", settingsError);
+            setRules(rulesRes.data || []);
+            setExceptions(excRes.data || []);
+            setDailyLocations(locRes.data || []);
+            if (setRes.data) setSettings(setRes.data);
+            setNationalHolidays(holidayRes.data || []);
+
+            if (ledgerRes.data) {
+                const balance = ledgerRes.data.reduce((sum, row) => sum + row.transaction_type, 0);
+                setLedgerBalance(balance);
             }
-
-            setRules(rulesData || []);
-            setExceptions(exceptionsData || []);
-            setDailyLocations(locData || []);
-            
-            if (settingsData) {
-                setSettings(settingsData);
-            }
-        } catch (error) {
-            console.error("Virhe tiedonhaussa:", error);
-        } finally {
-            setLoading(false);
-        }
+        } catch (error) { console.error("Virhe tiedonhaussa:", error); } finally { setLoading(false); }
     };
 
     const weekDays = useMemo(() => [0, 1, 2, 3, 4].map(i => addDays(currentWeekStart, i)), [currentWeekStart]);
     const webCalUrl = `webcal://espan-api.netlify.app/functions/webcal?expert_id=${EXPERT_ID}`;
 
-    // UUSI: Älykäs, ketjutettu haamuehdotusjärjestelmä käyttöliittymään (Matkapäivät + Peräkkäisyys)
     const smartSuggestions = useMemo(() => {
         const suggestions = {};
-        
-        // 1. Tehdään alustava analyysi viikon työpäivien tilasta ja esteistä
         const dayAvailability = weekDays.map((d, idx) => {
             const dStr = formatDateLocal(d);
-            const isBlockedDay = exceptions.some(e => 
-                e.is_blocked && e.meeting_type === 'estetty' && parseDBDateLocal(e.start_time).datePart === dStr
-            );
-            const hasAppointments = exceptions.some(e => 
-                !e.is_blocked && parseDBDateLocal(e.start_time).datePart === dStr
-            );
+            const isBlockedDay = exceptions.some(e => e.is_blocked && e.meeting_type === 'estetty' && parseDBDateLocal(e.start_time).datePart === dStr);
+            const isHolidayDay = nationalHolidays.some(h => h.date === dStr);
+            const hasAppointments = exceptions.some(e => !e.is_blocked && parseDBDateLocal(e.start_time).datePart === dStr);
             const userLoc = dailyLocations.find(l => l.date === dStr);
-            return { dateStr: dStr, dayIndex: idx + 1, isBlockedDay, hasAppointments, userLoc };
+            return { dateStr: dStr, dayIndex: idx + 1, isBlockedDay: isBlockedDay || isHolidayDay, hasAppointments, userLoc };
         });
 
-        // 2. Selvitetään, mitkä päivät tulevat olemaan läsnäolopäiviä (Maanantai on aina oletuksena etä)
         let presenceIndices = [];
-        
-        // Torstai otetaan mukaan, jos liukusäätimen prosenttiarvo sen sallii (Esim. 100% ottaa aina, 50% ottaa joka toinen viikko)
         const isThursdayIncluded = settings.thursday_office_rate > 0; 
-        if (isThursdayIncluded && !dayAvailability[3].isBlockedDay) {
-            presenceIndices.push(4); // Torstain indeksi (1-pohjainen) on 4
-        }
-
-        // Täytetään 50% kiintiötä tekemällä läsnäolopäivistä peräkkäisiä (blokki torstain ympärille: Keskiviikko ensin)
-        if (presenceIndices.includes(4) && !dayAvailability[2].isBlockedDay && presenceIndices.length < 2) {
-            presenceIndices.push(3); // Otetaan keskiviikko mukaan pötköksi
-        }
-        if (!dayAvailability[1].isBlockedDay && presenceIndices.length < 2) {
-            presenceIndices.push(2); // Otetaan tarvittaessa tiistai mukaan pötköksi
-        }
+        if (isThursdayIncluded && !dayAvailability[3].isBlockedDay) presenceIndices.push(4); 
+        if (presenceIndices.includes(4) && !dayAvailability[2].isBlockedDay && presenceIndices.length < 2) presenceIndices.push(3); 
+        if (!dayAvailability[1].isBlockedDay && presenceIndices.length < 2) presenceIndices.push(2); 
 
         presenceIndices.sort();
 
-        // 3. Rakennetaan haamuehdotukset ja ajetaan ketjutettu matkapäivälogiikka
         dayAvailability.forEach((day, idx) => {
             const currentDayNum = idx + 1;
-            
             if (day.isBlockedDay) return;
 
-            // Jos päivä on valittu läsnäolopäiväksi
             if (presenceIndices.includes(currentDayNum)) {
                 const isFirstPresenceDay = presenceIndices[0] === currentDayNum;
-
-                if (isFirstPresenceDay) {
-                    // KETJUTUSSÄÄNTÖ: Viikon ensimmäinen läsnäolopäivä on aina Malminkatu (Matkapäivä)
-                    suggestions[day.dateStr] = { 
-                        type: 'lahityo', 
-                        name: settings.primary_office_name, 
-                        label: `Matkapäivä: ${settings.primary_office_name}` 
-                    };
-                } else if (currentDayNum === 4) {
-                    // Torstain ankkuri on Viipurinkatu
-                    suggestions[day.dateStr] = { 
-                        type: 'lahityo', 
-                        name: settings.thursday_office_name, 
-                        label: `Kokous: ${settings.thursday_office_name}` 
-                    };
-                } else {
-                    suggestions[day.dateStr] = { 
-                        type: 'lahityo', 
-                        name: settings.primary_office_name, 
-                        label: 'Lähityö' 
-                    };
-                }
+                if (isFirstPresenceDay) suggestions[day.dateStr] = { type: 'lahityo', name: settings.primary_office_name, label: `Matkapäivä: ${settings.primary_office_name}` };
+                else if (currentDayNum === 4) suggestions[day.dateStr] = { type: 'lahityo', name: settings.thursday_office_name, label: `Kokous: ${settings.thursday_office_name}` };
+                else suggestions[day.dateStr] = { type: 'lahityo', name: settings.primary_office_name, label: 'Lähityö' };
             } else {
-                // Maanantait ja kaikki muut ylimääräiset päivät oletuksena etätyötä
                 suggestions[day.dateStr] = { type: 'eta', name: 'Etätyö', label: 'Ehdotus: Etätyö' };
             }
         });
-
         return suggestions;
-    }, [weekDays, dailyLocations, exceptions, settings]);
+    }, [weekDays, dailyLocations, exceptions, settings, nationalHolidays]);
 
+    // UI-vakiot kalenteria varten
     const meetingTypes = [
         { id: 'normi', label: 'Normaali', color: 'var(--color-primary)', bg: 'rgba(255, 107, 0, 0.1)' },
         { id: 'aktivointi', label: 'Aktivointi', color: 'var(--color-success)', bg: 'rgba(30, 154, 90, 0.1)' },
@@ -263,7 +168,6 @@ const AvailabilityManager = () => {
     const getMeetingLabel = (typeId) => meetingTypes.find(t => t.id === typeId)?.label || typeId;
     const renderContactIcon = (method, size = 14) => method === 'puhelu' ? <Phone size={size} /> : <MapPin size={size} />;
 
-    // KORJATTU: Liukuva aikarajaus 07:00 - 19:00 (Yhteensä 48 pystyriviä grid-ruudukossa)
     const timeToRow = (timeStr) => {
         const [h, m] = timeStr.split(':').map(Number);
         if (h < 7) return 2; 
@@ -277,55 +181,34 @@ const AvailabilityManager = () => {
         return { gridColumn: dayIndex + 2, gridRow: `${startRow} / ${Math.min(50, endRow)}` };
     };
 
-    const addMinutes = (timeStr, minsToAdd) => {
-        const [h, m] = timeStr.split(':').map(Number);
-        const date = new Date();
-        date.setHours(h, m + minsToAdd, 0);
-        return date.toTimeString().substring(0, 5);
-    };
-
-    const timeToMins = (timeStr) => {
-        const [h, m] = timeStr.split(':').map(Number);
-        return h * 60 + m;
-    };
-
-    const handleStartTimeChange = (val) => {
-        setNewRule(prev => ({ ...prev, start_time: val, end_time: prev.useBatch ? prev.end_time : addMinutes(val, 60) }));
-    };
-
-    // UUSI: Ohjauspaneelin asetusten dynaaminen muuttaminen
     const handleSettingsChange = async (field, value) => {
         const updatedSettings = { ...settings, [field]: value };
         setSettings(updatedSettings);
-
         try {
-            const { error } = await supabase
-                .schema('espan')
-                .from('expert_location_settings')
-                .update({ [field]: value, updated_at: new Date().toISOString() })
-                .eq('expert_id', EXPERT_ID);
-                
-            if (error) throw error;
-        } catch (e) {
-            console.error("Virhe asetuksen tallennuksessa:", e);
-        }
+            await supabase.schema('espan').from('expert_location_settings').update({ [field]: value, updated_at: new Date().toISOString() }).eq('expert_id', EXPERT_ID);
+        } catch (e) { console.error(e); }
     };
 
-    // UUSI: Sijaintitiedon manuaalinen muuttaminen käyttöliittymästä (Kääntää is_auto_generated = false)
     const handleSaveLocation = async (dateStr, type, name) => {
         const finalName = name || customLocationText;
         if (!finalName.trim()) return alert("Kirjoita tai valitse toimipiste!");
 
-        try {
-            const { error } = await supabase.schema('espan').from('expert_daily_locations').upsert({
-                expert_id: EXPERT_ID,
-                date: dateStr,
-                location_type: type,
-                location_name: finalName.trim(),
-                is_auto_generated: false // KÄYTTÄJÄ LUKITSI: CRON ei saa enää koskea tähän
-            }, { onConflict: 'expert_id, date' });
+        const existingLoc = dailyLocations.find(l => l.date === dateStr);
+        const isCurrentlyRemote = existingLoc?.location_type === 'eta' || (!existingLoc && smartSuggestions[dateStr]?.type === 'eta');
 
-            if (error) throw error;
+        try {
+            if (type === 'eta_pankki') {
+                await supabase.schema('espan').from('expert_remote_bank_ledger').insert([{ expert_id: EXPERT_ID, transaction_type: -1, used_date: dateStr, expiration_date: '2099-12-31', description: 'Käytetty pankkipäivä' }]);
+                type = 'eta_pankki'; 
+            } else if (type === 'lahityo' && isCurrentlyRemote) {
+                const wantToBank = window.confirm("Muutit sääntömääräisen etäpäivän lähityöksi. Haluatko tallettaa tämän uhratun etäpäivän pankkiin myöhempää käyttöä varten?");
+                if (wantToBank) {
+                    const expDate = addDays(new Date(), 28);
+                    await supabase.schema('espan').from('expert_remote_bank_ledger').insert([{ expert_id: EXPERT_ID, transaction_type: 1, earned_date: dateStr, expiration_date: formatDateLocal(expDate), description: `Uhrattu etäpäivä (${finalName})` }]);
+                }
+            }
+
+            await supabase.schema('espan').from('expert_daily_locations').upsert({ expert_id: EXPERT_ID, date: dateStr, location_type: type, location_name: finalName.trim(), is_auto_generated: false }, { onConflict: 'expert_id, date' });
             setCustomLocationText('');
             setActiveLocationPopover(null);
             fetchData();
@@ -333,51 +216,25 @@ const AvailabilityManager = () => {
     };
 
     const handleRemoveLocation = async (dateStr) => {
-        try {
-            await supabase.schema('espan').from('expert_daily_locations').delete().eq('expert_id', EXPERT_ID).eq('date', dateStr);
-            setActiveLocationPopover(null);
-            fetchData();
-        } catch (e) { console.error(e); }
+        try { await supabase.schema('espan').from('expert_daily_locations').delete().eq('expert_id', EXPERT_ID).eq('date', dateStr); setActiveLocationPopover(null); fetchData(); } catch (e) { console.error(e); }
     };
 
-    // OHJAUSPANEELIN NAPPIEN SIMULAATIOT
-const handleOptimizeCalendar = async () => {
+    const handleOptimizeCalendar = async () => {
         setSaving(true);
         try {
-            // Huom: Käytetään Netlifyn automaattista reittiä rajapintaan
-            const response = await fetch('/.netlify/functions/optimize-calendar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ expert_id: EXPERT_ID })
-            });
-
-            if (!response.ok) {
-                throw new Error('Palvelin palautti virheen.');
-            }
-
-            alert("Automaatti suoritettu onnistuneesti! Kalenteri on nyt optimoitu 50% tavoitteeseen asetuksiesi pohjalta.");
-            
-            // Haetaan tiedot uudestaan kannasta, jotta ruudukko päivittyy välittömästi!
+            const response = await fetch('/.netlify/functions/optimize-calendar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expert_id: EXPERT_ID }) });
+            if (!response.ok) throw new Error('Palvelin palautti virheen.');
+            alert("Automaatti suoritettu onnistuneesti!");
             fetchData(); 
-        } catch (e) { 
-            console.error(e); 
-            alert("Optimointi epäonnistui. Tarkista konsoli.");
-        } finally { 
-            setSaving(false); 
-        }
+        } catch (e) { console.error(e); alert("Optimointi epäonnistui. Tarkista konsoli."); } finally { setSaving(false); }
     };
 
     const handleLockCurrentWeek = async () => {
         try {
-            // Päivitetään kaikki kuluvan viikon automaattirivit kiinteiksi (is_auto_generated = false)
             const updates = weekDays.map(async (d) => {
                 const dStr = formatDateLocal(d);
                 const loc = dailyLocations.find(l => l.date === dStr);
-                if (loc && loc.is_auto_generated) {
-                    return supabase.schema('espan').from('expert_daily_locations')
-                        .update({ is_auto_generated: false })
-                        .eq('id', loc.id);
-                }
+                if (loc && loc.is_auto_generated) return supabase.schema('espan').from('expert_daily_locations').update({ is_auto_generated: false }).eq('id', loc.id);
                 return Promise.resolve();
             });
             await Promise.all(updates);
@@ -387,14 +244,8 @@ const handleOptimizeCalendar = async () => {
     };
 
     const handleResetSuggestions = async () => {
-        if (!window.confirm("Haluatko varmasti pyyhkiä kaikki automaattisesti luodut haamuehdotukset? Käsin lukitut päivät ja varatut ajat säilytetään.")) return;
-        try {
-            await supabase.schema('espan').from('expert_daily_locations')
-                .delete()
-                .eq('expert_id', EXPERT_ID)
-                .eq('is_auto_generated', true);
-            fetchData();
-        } catch (e) { console.error(e); }
+        if (!window.confirm("Haluatko varmasti pyyhkiä kaikki automaattisesti luodut haamuehdotukset?")) return;
+        try { await supabase.schema('espan').from('expert_daily_locations').delete().eq('expert_id', EXPERT_ID).eq('is_auto_generated', true); fetchData(); } catch (e) { console.error(e); }
     };
 
     const executeBlockSave = async (startDate, endDate) => {
@@ -406,8 +257,7 @@ const handleOptimizeCalendar = async () => {
                 const dStr = formatDateLocal(currentD);
                 const startOfDay = `${dStr} 00:00:00`;
                 await supabase.schema('espan').from('availability').delete().eq('expert_id', EXPERT_ID).gte('start_time', startOfDay).lte('start_time', `${dStr} 23:59:59`);
-                const { error } = await supabase.schema('espan').from('availability').insert([{ expert_id: EXPERT_ID, start_time: startOfDay, meeting_type: 'estetty', is_blocked: true, contact_method: 'kaynti' }]);
-                if (error) throw error;
+                await supabase.schema('espan').from('availability').insert([{ expert_id: EXPERT_ID, start_time: startOfDay, meeting_type: 'estetty', is_blocked: true, contact_method: 'kaynti' }]);
             }
             currentD.setDate(currentD.getDate() + 1);
         }
@@ -416,35 +266,6 @@ const handleOptimizeCalendar = async () => {
     const handleSaveQuickModal = async () => {
         setSaving(true);
         try { await executeBlockSave(quickModal.startDate, quickModal.endDate); setQuickModal({ isOpen: false, startDate: '', endDate: '' }); fetchData(); } catch (error) { console.error(error); } finally { setSaving(false); }
-    };
-
-    const handleAddSingleOrException = async () => {
-        if (!newException.startDate) return alert("Aseta päivä!");
-        setSaving(true);
-        try {
-            if (newException.is_blocked && isFullDayBlock) { await executeBlockSave(newException.startDate, newException.endDate); } else {
-                const timestamp = `${newException.startDate} ${newException.time}:00`;
-                const { error } = await supabase.schema('espan').from('availability').upsert([{ expert_id: EXPERT_ID, start_time: timestamp, meeting_type: newException.meeting_type, is_blocked: newException.is_blocked, contact_method: newException.contact_method }], { onConflict: 'expert_id, start_time' });
-                if (error) throw error;
-            }
-            setNewException(prev => ({ ...prev, startDate: '', endDate: '' })); setIsFullDayBlock(false); fetchData();
-        } catch (error) { console.error(error); } finally { setSaving(false); }
-    };
-
-    const handleAddRule = async () => {
-        if (!newRule.start_time || !newRule.end_time) return alert("Aseta ajat!");
-        setSaving(true);
-        try {
-            const inserts = [{ expert_id: EXPERT_ID, day_of_week: parseInt(newRule.day_of_week), meeting_type: newRule.meeting_type, start_time: newRule.start_time + ':00', end_time: newRule.end_time + ':00', is_active: true, valid_until: newRule.valid_until || null, contact_method: newRule.contact_method }];
-            const { error } = await supabase.schema('espan').from('expert_availability_rules').insert(inserts);
-            if (error) throw error;
-            fetchData();
-        } catch (error) { console.error(error); } finally { setSaving(false); }
-    };
-
-    const handleDeleteRecord = async (table, id) => {
-        if (!window.confirm("Haluatko varmasti poistaa tämän merkinnän?")) return;
-        try { await supabase.schema('espan').from(table).delete().eq('id', id); fetchData(); } catch (e) { console.error(e); }
     };
 
     const handleProcessBlockAction = async () => {
@@ -456,14 +277,12 @@ const handleOptimizeCalendar = async () => {
         } catch (e) { console.error(e); } finally { setSaving(false); }
     };
 
-    const blockedDaysStrs = useMemo(() => {
-        return exceptions.filter(e => e.is_blocked && parseDBDateLocal(e.start_time).timeStr === '00:00').map(e => parseDBDateLocal(e.start_time).datePart);
-    }, [exceptions]);
+    const blockedDaysStrs = useMemo(() => exceptions.filter(e => e.is_blocked && parseDBDateLocal(e.start_time).timeStr === '00:00').map(e => parseDBDateLocal(e.start_time).datePart), [exceptions]);
+    const holidayStrs = useMemo(() => nationalHolidays.map(h => h.date), [nationalHolidays]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
             
-            {/* 1. WEBCAL LATAUSSYÖTE */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--color-surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', gap: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-primary)' }}>
                     <Link size={20} />
@@ -473,19 +292,19 @@ const handleOptimizeCalendar = async () => {
                 <Button variant="secondary" size="sm" icon={Copy} onClick={() => { navigator.clipboard.writeText(webCalUrl); alert('Kalenterilinkki kopioitu!'); }}>Kopioi linkki</Button>
             </div>
 
-            {/* 2. OHJAUSPANEELIKOMPONENTIN INTEGRAATIO */}
             <LocationPlanner 
                 currentWeekStart={currentWeekStart}
                 dailyLocations={dailyLocations}
                 exceptions={exceptions}
+                nationalHolidays={nationalHolidays}
                 settings={settings}
+                ledgerBalance={ledgerBalance}
                 onSettingsChange={handleSettingsChange}
                 onOptimize={handleOptimizeCalendar}
                 onLockWeek={handleLockCurrentWeek}
                 onResetSuggestions={handleResetSuggestions}
             />
 
-            {/* PIKAMODAALI LOMILLE */}
             {quickModal.isOpen && (
                 <div onClick={() => setQuickModal({ isOpen: false, startDate: '', endDate: '' })} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(2px)' }}>
                     <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: 'var(--color-surface)', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '420px' }}>
@@ -510,7 +329,6 @@ const handleOptimizeCalendar = async () => {
                 </div>
             )}
 
-            {/* INTERAKTIIVINEN SOLUMODAALI */}
             {selectedBlock && (
                 <div onClick={() => setSelectedBlock(null)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(2px)' }}>
                     <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: 'var(--color-surface)', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '380px' }}>
@@ -539,7 +357,6 @@ const handleOptimizeCalendar = async () => {
                 </div>
             )}
 
-            {/* 3. LAAJA KALENTERIRUUDUKKO (07:00 - 19:00) */}
             <Card 
                 title="Asiantuntijan kalenteriruudukko (Liukumat 07:00 - 19:00)" 
                 icon={Calendar}
@@ -560,37 +377,37 @@ const handleOptimizeCalendar = async () => {
                     {weekDays.map((d, index) => {
                         const dStr = formatDateLocal(d);
                         const isBlocked = blockedDaysStrs.includes(dStr);
+                        const isHoliday = holidayStrs.includes(dStr);
                         const loc = dailyLocations.find(l => l.date === dStr);
                         const sugg = smartSuggestions[dStr];
 
-                        // Katsotaan onko kyseessä käsin lukittu päivä vai automaattiehdotus
                         const isUserLocked = loc && !loc.is_auto_generated;
+                        const isBankDay = loc?.location_type === 'eta_pankki';
 
                         return (
-                            <div key={index} className="text-center" style={{ backgroundColor: isBlocked ? '#fef2f2' : 'var(--color-surface)', padding: '0.5rem 0', position: 'relative', borderBottom: '1px solid var(--color-border)' }}>
+                            <div key={index} className="text-center" style={{ backgroundColor: isBlocked ? '#fef2f2' : (isHoliday ? '#fdf4ff' : 'var(--color-surface)'), padding: '0.5rem 0', position: 'relative', borderBottom: '1px solid var(--color-border)' }}>
                                 <div className="text-sm fw-semibold text-primary">{['Ma', 'Ti', 'Ke', 'To', 'Pe'][index]}</div>
                                 <div className="text-xs text-secondary mb-1">{d.getDate()}.{d.getMonth()+1}.</div>
                                 
-                                {/* INTERAKTIIVINEN TOIMIPAIKKASELEKTORI POPOVERILLA */}
                                 <div style={{ display: 'flex', justifyContent: 'center', gap: '0.25rem', marginTop: '4px' }}>
                                     <button 
                                         onClick={() => setActiveLocationPopover(activeLocationPopover === dStr ? null : dStr)}
                                         style={{
-                                            border: isUserLocked ? '1px solid var(--color-primary)' : 'none', 
-                                            background: loc ? 'var(--color-background)' : 'none', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer',
-                                            color: loc ? (loc.location_type === 'eta' ? '#2563eb' : 'var(--color-primary)') : 'var(--color-text-secondary)',
+                                            border: isUserLocked ? (isBankDay ? '1px solid var(--color-success)' : '1px solid var(--color-primary)') : 'none', 
+                                            background: loc ? (isBankDay ? 'rgba(30,154,90,0.1)' : 'var(--color-background)') : 'none', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer',
+                                            color: loc ? (isBankDay ? 'var(--color-success)' : (loc.location_type === 'eta' ? '#2563eb' : 'var(--color-primary)')) : 'var(--color-text-secondary)',
                                             fontSize: '0.75rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px'
                                         }}
-                                        title={isUserLocked ? "Käyttäjän lukitsema työskentelypaikka" : "CRON-automaatin haamuehdotus"}
                                     >
                                         {loc ? (
                                             <>
-                                                {loc.location_type === 'eta' ? <Home size={12} /> : <Building size={12} />}
+                                                {isBankDay ? <Landmark size={12} /> : (loc.location_type === 'eta' ? <Home size={12} /> : <Building size={12} />)}
                                                 <span>{loc.location_name}</span>
-                                                {isUserLocked && <Check size={10} className="text-success" />}
+                                                {isUserLocked && <Lock size={10} style={{ marginLeft: '2px' }}/>}
                                             </>
                                         ) : sugg ? (
-                                            <span style={{ opacity: 0.4, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                            <span style={{ opacity: 0.6, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                                <Hourglass size={10} />
                                                 {sugg.type === 'eta' ? <Home size={12} /> : <Building size={12} />}
                                                 {sugg.name}
                                             </span>
@@ -600,6 +417,13 @@ const handleOptimizeCalendar = async () => {
                                     {activeLocationPopover === dStr && (
                                         <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem', zIndex: 1000, boxShadow: '0 10px 25px rgba(0,0,0,0.15)', minWidth: '180px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                             <div className="text-xs fw-bold text-secondary text-left mb-1">Muuta sijaintia:</div>
+                                            
+                                            {ledgerBalance > 0 && !isBankDay && (
+                                                <button onClick={() => handleSaveLocation(dStr, 'eta_pankki', 'Pankki-etäpäivä')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '4px 8px', border: '1px solid var(--color-success)', color: 'var(--color-success)', background: 'rgba(30,154,90,0.1)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left', fontWeight: 'bold' }}>
+                                                    <Landmark size={14} /> Käytä pankkipäivä
+                                                </button>
+                                            )}
+
                                             <button onClick={() => handleSaveLocation(dStr, 'eta', 'Etätyö')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left' }}><Home size={14} /> Etätyö</button>
                                             <button onClick={() => handleSaveLocation(dStr, 'lahityo', 'Malminkatu')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left' }}><Building size={14} /> Malminkatu</button>
                                             <button onClick={() => handleSaveLocation(dStr, 'lahityo', 'Viipurinkatu')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left' }}><Building size={14} /> Viipurinkatu</button>
@@ -622,13 +446,10 @@ const handleOptimizeCalendar = async () => {
                         );
                     })}
 
-                    {/* LIUKUMARUUDUKON PIIRTÄMINEN JA YDINALUEIDEN (09:00 - 15:00) TAUSTAVÄRIVALISTUS */}
                     {Array.from({ length: 48 }).map((_, rowIndex) => {
                         const actualRow = rowIndex + 2;
                         const isFullHour = rowIndex % 4 === 0;
                         const hour = 7 + Math.floor(rowIndex / 4);
-                        
-                        // KORSETUS: Toimistoaika 09:00 - 15:00 valaistaan kirkkaaksi, reuna-ajat pysyvät varjoisina liukumina
                         const isCoreOfficeHour = hour >= 9 && hour < 15;
 
                         return (
@@ -655,18 +476,32 @@ const handleOptimizeCalendar = async () => {
                         );
                     })}
 
-                    {/* KOKO PÄIVÄN SULUT VUOROKAUDEKSI (RIVI 2 -> RIVI 50) */}
                     {weekDays.map((d, dayIndex) => {
                         const dStr = formatDateLocal(d);
-                        if (!blockedDaysStrs.includes(dStr)) return null;
-                        return (
-                            <div key={`blocked-bg-${dStr}`} style={{ gridColumn: dayIndex + 2, gridRow: '2 / 50', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'repeating-linear-gradient(45deg, #fef2f2, #fef2f2 10px, #fee2e2 10px, #fee2e2 20px)' }}>
-                                <div style={{ backgroundColor: '#fff', padding: '0.4rem 0.8rem', borderRadius: '4px', border: '1px solid #fca5a5', color: '#ef4444', fontWeight: 'bold', transform: 'rotate(-90deg)' }}>LOMA / SULJETTU</div>
-                            </div>
-                        );
+                        const holiday = nationalHolidays.find(h => h.date === dStr);
+
+                        if (holiday) {
+                            return (
+                                <div key={`holiday-bg-${dStr}`} style={{ gridColumn: dayIndex + 2, gridRow: '2 / 50', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'repeating-linear-gradient(45deg, #fdf4ff, #fdf4ff 10px, #fae8ff 10px, #fae8ff 20px)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#fff', padding: '0.4rem 0.8rem', borderRadius: '4px', border: '1px solid #d946ef', color: '#c026d3', fontWeight: 'bold', transform: 'rotate(-90deg)' }}>
+                                        <Flag size={14} /> PYHÄ: {holiday.name.toUpperCase()}
+                                    </div>
+                                </div>
+                            );
+                        }
+
+                        if (blockedDaysStrs.includes(dStr)) {
+                            return (
+                                <div key={`blocked-bg-${dStr}`} style={{ gridColumn: dayIndex + 2, gridRow: '2 / 50', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'repeating-linear-gradient(45deg, #fef2f2, #fef2f2 10px, #fee2e2 10px, #fee2e2 20px)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#fff', padding: '0.4rem 0.8rem', borderRadius: '4px', border: '1px solid #fca5a5', color: '#ef4444', fontWeight: 'bold', transform: 'rotate(-90deg)' }}>
+                                        <Palmtree size={14} /> LOMA / SULJETTU
+                                    </div>
+                                </div>
+                            );
+                        }
+                        return null;
                     })}
 
-                    {/* TOISTUVAT RUNKOSÄÄNNÖT */}
                     {rules.filter(r => {
                         const dStr = formatDateLocal(weekDays[r.day_of_week - 1]);
                         if (blockedDaysStrs.includes(dStr)) return false;
@@ -686,7 +521,6 @@ const handleOptimizeCalendar = async () => {
                         </div>
                     ))}
 
-                    {/* POIKKEUKSET JA REAALIAIKAISET VARAUKSET */}
                     {exceptions.filter(e => parseDBDateLocal(e.start_time).timeStr !== '00:00').map(exc => {
                         const { datePart, timeStr } = parseDBDateLocal(exc.start_time);
                         const dayIndex = weekDays.findIndex(d => formatDateLocal(d) === datePart);
@@ -712,56 +546,14 @@ const handleOptimizeCalendar = async () => {
                 </div>
             </Card>
 
-            {/* 4. LOMAKKEET ALHAALLA KOSKEMATTOMINA */}
-            <div className="grid-cols-2">
-                <div className="flex-col-gap">
-                    <Card title="Toistuvat viikkosäännöt (Runkosuunnitelma)" icon={Clock} variant="bordered">
-                        <div style={{ backgroundColor: 'var(--color-background)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                <div>
-                                    <label className="text-sm fw-semibold text-primary">Päivä</label>
-                                    <select className="modern-select mt-2" value={newRule.day_of_week} onChange={e => setNewRule({...newRule, day_of_week: e.target.value})}>
-                                        {['Ma', 'Ti', 'Ke', 'To', 'Pe'].map((name, i) => <option key={i} value={i+1}>{name}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-sm fw-semibold text-primary">Tyyppi</label>
-                                    <select className="modern-select mt-2" value={newRule.meeting_type} onChange={e => setNewRule({...newRule, meeting_type: e.target.value})}>
-                                        {meetingTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-sm fw-semibold text-primary">Alkaa klo</label>
-                                    <input type="time" className="modern-input mt-2" value={newRule.start_time} onChange={e => handleStartTimeChange(e.target.value)} />
-                                </div>
-                                <div>
-                                    <label className="text-sm fw-semibold text-primary">Päättyy klo</label>
-                                    <input type="time" className="modern-input mt-2" value={newRule.end_time} onChange={e => setNewRule({...newRule, end_time: e.target.value})} />
-                                </div>
-                            </div>
-                            <Button variant="primary" icon={Plus} disabled={saving} onClick={handleAddRule} fullWidth style={{ marginTop: '1.5rem' }}>Tallenna runkoaika</Button>
-                        </div>
-                    </Card>
-                </div>
+            {/* UUSI: Tuodaan erillinen lomakekomponentti sivuille */}
+            <AvailabilityForms 
+                expertId={EXPERT_ID} 
+                rules={rules} 
+                exceptions={exceptions} 
+                fetchData={fetchData} 
+            />
 
-                <div className="flex-col-gap">
-                    <Card title="Yksittäiset päivät ja poikkeukset" icon={Palmtree} variant="bordered">
-                        <div style={{ backgroundColor: 'var(--color-background)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                <div>
-                                    <label className="text-sm fw-semibold text-primary">Valitse päivä</label>
-                                    <input type="date" className="modern-input mt-2" value={newException.startDate} onChange={e => setNewException({...newException, startDate: e.target.value, endDate: e.target.value})} />
-                                </div>
-                                <div>
-                                    <label className="text-sm fw-semibold text-primary">Aika</label>
-                                    <input type="time" className="modern-input mt-2" value={newException.time} onChange={e => setNewException({...newException, time: e.target.value})} />
-                                </div>
-                            </div>
-                            <Button variant="primary" icon={Plus} disabled={saving} onClick={handleAddSingleOrException} fullWidth style={{ marginTop: '1.5rem' }}>Luo yksittäinen palveluaika</Button>
-                        </div>
-                    </Card>
-                </div>
-            </div>
         </div>
     );
 };

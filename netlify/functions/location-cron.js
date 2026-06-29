@@ -8,7 +8,7 @@ const handler = async (event, context) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     try {
-        console.log("CRON: Aloitetaan asiantuntijoiden kalenterien optimointi...");
+        console.log("CRON: Aloitetaan asiantuntijoiden Master 2.0 -kalenterien optimointi...");
 
         // 1. Haetaan kaikkien asiantuntijoiden asetukset
         const { data: expertsSettings, error: settingsError } = await supabase.schema('espan').from('expert_location_settings').select('*');
@@ -20,119 +20,247 @@ const handler = async (event, context) => {
         }
 
         const today = new Date();
-        const endDate = new Date();
-        endDate.setDate(today.getDate() + 105); // 15 viikon (3,5 kk) horisontti
+        const endDate = new Date(today);
+        endDate.setDate(today.getDate() + 105); // 3,5 kk horisontti
         
         const startDateStr = today.toISOString().split('T')[0];
         const endDateStr = endDate.toISOString().split('T')[0];
 
-        // Käsitellään jokainen asiantuntija erikseen
+        // 2. PORTINVARTIJA-DATA: Haetaan kansalliset pyhäpäivät kerralla yhteisesti kaikille asiantuntijoille
+        const { data: holidays } = await supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', startDateStr).lte('date', endDateStr);
+        const holidayList = holidays || [];
+
+        // Käsitellään jokainen asiantuntija erikseen omassa 2 viikon syklitoteutuksessaan
         for (const settings of expertsSettings) {
             const expertId = settings.expert_id;
             console.log(`CRON: Käsitellään asiantuntija: ${expertId}`);
 
-            // 2. Haetaan varaukset (sis. kontaktimenetelmän) ja käyttäjän omat lukitukset tälle asiantuntijalle
-            const { data: availability } = await supabase.schema('espan').from('availability')
-                .select('start_time, is_blocked, meeting_type, contact_method')
-                .eq('expert_id', expertId)
-                .gte('start_time', `${startDateStr} 00:00:00`)
-                .lte('start_time', `${endDateStr} 23:59:59`);
-            
-            const { data: existingLocations } = await supabase.schema('espan').from('expert_daily_locations')
-                .select('*')
-                .eq('expert_id', expertId)
-                .gte('date', startDateStr)
-                .lte('date', endDateStr);
+            // Haetaan asiantuntijan omat varaukset, lukitukset ja etäpäiväpankin tilanne
+            const [availRes, locRes, ledgerRes] = await Promise.all([
+                supabase.schema('espan').from('availability').select('start_time, is_blocked, meeting_type, contact_method').eq('expert_id', expertId).gte('start_time', `${startDateStr} 00:00:00`).lte('start_time', `${endDateStr} 23:59:59`),
+                supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', expertId).gte('date', startDateStr).lte('date', endDateStr),
+                supabase.schema('espan').from('expert_remote_bank_ledger').select('transaction_type').eq('expert_id', expertId).gt('expiration_date', startDateStr)
+            ]);
 
+            const availability = availRes.data || [];
+            const existingLocations = locRes.data || [];
+            const ledger = ledgerRes.data || [];
+
+            // Etäpäiväpankin premium-saldo ja syklirullaava vajaussaldo (Deficit)
+            let currentBalance = ledger.reduce((sum, row) => sum + row.transaction_type, 0);
+            let carriedDeficit = 0; 
             let newLocations = [];
 
-            // 3. Etsitään kuluvan viikon maanantai
+            // Etsitään kuluvan viikon maanantai viikko- ja syklitason analyysiä varten
             let currentWeekStart = new Date(today);
             const dayOffset = currentWeekStart.getDay() === 0 ? -6 : 1 - currentWeekStart.getDay();
             currentWeekStart.setDate(currentWeekStart.getDate() + dayOffset); 
 
-            // Kelataan viikko kerrallaan eteenpäin
+            // PYÖRITETÄÄN AS_ASIANTUNTIJAN KALENTERIA KIINTEISSÄ 2 VIIKON (14 PV) SYKLEISSÄ
             while (currentWeekStart < endDate) {
-                
-                // Arvotaan torstain ankkuri kerran koko viikolle ohjausprosentin mukaan
-                const shouldBeOfficeThu = (Math.random() * 100) < settings.thursday_office_rate;
-                
-                for (let i = 0; i < 5; i++) {
-                    let d = new Date(currentWeekStart);
-                    d.setDate(d.getDate() + i);
-                    const dateStr = d.toISOString().split('T')[0];
-                    const dayNum = d.getDate();
-                    const dayOfWeek = i + 1; // 1=Ma, 2=Ti, 3=Ke, 4=To, 5=Pe
+                let cycleDays = [];
 
-                    // SUOJA 1: Käyttäjän käsin lukitsema sijainti ohitetaan
-                    const lockedLoc = existingLocations?.find(l => l.date === dateStr && !l.is_auto_generated);
-                    if (lockedLoc) continue; 
-
-                    // SUOJA 2: Lomat ja varaukset
-                    const dayAppts = availability?.filter(a => a.start_time.startsWith(dateStr)) || [];
+                // Luodaan kahden viikon (10 työpäivän) jaksolohko
+                for (let w = 0; w < 2; w++) {
+                    const weekStart = new Date(currentWeekStart);
+                    weekStart.setDate(weekStart.getDate() + (w * 7));
                     
-                    // Koko päivän loma tekee vain reiän, siirrytään suoraan seuraavaan päivään (Nollavelka)
-                    const isHoliday = dayAppts.some(a => a.is_blocked && a.meeting_type === 'estetty');
-                    if (isHoliday) continue; 
+                    // Arvotaan kyseisen viikon torstain ihannetila runkosäännön mukaan
+                    const shouldBeOfficeThu = (Math.random() * 100) < settings.thursday_office_rate;
 
-                    // ASIAKASANKKURI: Onko päivällä yhtään kasvokkaista asiakastapaamista?
-                    const hasInPersonMeeting = dayAppts.some(a => a.contact_method === 'kaynti');
+                    for (let i = 0; i < 5; i++) {
+                        let d = new Date(weekStart);
+                        d.setDate(d.getDate() + i);
+                        const dateStr = d.toISOString().split('T')[0];
+                        const dayNum = d.getDate();
+                        const dayOfWeek = i + 1; // 1=Ma, 2=Ti, 3=Ke, 4=To, 5=Pe
 
-                    let assignedType = 'eta';
-                    let assignedName = 'Etätyö';
+                        let dayObj = { 
+                            dateStr, dayOfWeek, weekIndex: w, dayNum,
+                            type: 'eta', name: 'Etätyö', 
+                            isUserLocked: false, isAnchor: false 
+                        };
 
-                    // LOGIIKKAHIERARKIA
-                    if (hasInPersonMeeting) {
-                        // 1. Asiakasankkuri: Pakottaa lähityön. Torstai -> Viipuri, muut päivät -> Malmi.
-                        assignedType = 'lahityo';
-                        assignedName = (dayOfWeek === 4) ? settings.thursday_office_name : settings.primary_office_name;
-                    } else {
-                        // 2. Normaali runkorytmi (koskee tyhjiä päiviä tai päiviä, joilla on pelkkiä puheluita)
-                        if (dayOfWeek === 1) {
-                            // Maanantai on aina etä
-                            assignedType = 'eta';
-                        } 
-                        else if (dayOfWeek === 2 || dayOfWeek === 3) {
-                            // Tiistai ja keskiviikko ovat aina ydinblokki
-                            assignedType = 'lahityo';
-                            assignedName = settings.primary_office_name;
-                        } 
-                        else if (dayOfWeek === 4) {
-                            // Torstai ohjautuu viikon arvonnan mukaan
-                            if (shouldBeOfficeThu) {
-                                assignedType = 'lahityo';
-                                assignedName = settings.thursday_office_name;
+                        // KOSKEMATTOMAT SUOJAT (Käsin lukitut, pyhät ja lomat)
+                        const lockedLoc = existingLocations.find(l => l.date === dateStr && !l.is_auto_generated);
+                        if (lockedLoc) {
+                            dayObj.isUserLocked = true;
+                            dayObj.type = lockedLoc.location_type;
+                            dayObj.name = lockedLoc.location_name;
+                            cycleDays.push(dayObj);
+                            continue;
+                        }
+
+                        const isHoliday = holidayList.some(h => h.date === dateStr);
+                        if (isHoliday) {
+                            dayObj.type = 'pyha';
+                            dayObj.name = 'Pyhäpäivä';
+                            dayObj.isUserLocked = true;
+                            cycleDays.push(dayObj);
+                            continue;
+                        }
+
+                        const dayAppts = availability.filter(a => a.start_time.startsWith(dateStr));
+                        const isPersonalBlocked = dayAppts.some(a => a.is_blocked && a.meeting_type === 'estetty');
+                        if (isPersonalBlocked) {
+                            dayObj.type = 'loma';
+                            dayObj.name = 'Loma/Este';
+                            dayObj.isUserLocked = true;
+                            cycleDays.push(dayObj);
+                            continue;
+                        }
+
+                        // KASVOKKAINEN ASIAKASANKKURI PASSIIVISESSA SUOJASSA
+                        const hasInPersonMeeting = dayAppts.some(a => a.contact_method === 'kaynti');
+                        if (hasInPersonMeeting) {
+                            dayObj.type = 'lahityo';
+                            dayObj.name = (dayOfWeek === 4) ? settings.thursday_office_name : settings.primary_office_name;
+                            dayObj.isAnchor = true;
+                            cycleDays.push(dayObj);
+                            continue;
+                        }
+
+                        // VAPAAT PÄIVÄT MERKITÄÄN PEHMEÄKSI RUNKOTEMPLATEKSI
+                        dayObj.shouldBeOfficeThu = shouldBeOfficeThu;
+                        cycleDays.push(dayObj);
+                    }
+                }
+
+                // LEIVOTAAN PEHMEILLE PÄIVILLE ALUSTAVAT SIJAINNIT VIIKKOTYYPIN MUKAAN
+                cycleDays.forEach(day => {
+                    if (day.isUserLocked || day.isAnchor || day.type === 'pyha' || day.type === 'loma') return;
+
+                    if (day.shouldBeOfficeThu) {
+                        // SKENAARIO 1: Matkaviikko (Torstai toimistolla -> Ke-To lukitaan käsikädessä)
+                        if (day.dayOfWeek === 1) {
+                            day.type = 'eta';
+                        } else if (day.dayOfWeek === 2 || day.dayOfWeek === 3) {
+                            day.type = 'lahityo';
+                            day.name = settings.primary_office_name;
+                        } else if (day.dayOfWeek === 4) {
+                            day.type = 'lahityo';
+                            day.name = settings.thursday_office_name;
+                            day.isAnchor = true; // Suojataan Viipurinkatu-torstai trimmaukselta
+                        } else if (day.dayOfWeek === 5) {
+                            const isAllowedFriday = (day.dayNum <= 7) || (day.dayNum >= 15 && day.dayNum <= 21);
+                            if (isAllowedFriday) {
+                                day.type = 'lahityo';
+                                day.name = settings.primary_office_name;
                             } else {
-                                assignedType = 'eta';
-                            }
-                        } 
-                        else if (dayOfWeek === 5) {
-                            // Perjantain joustosääntö
-                            const isAllowedFriday = (dayNum <= 7) || (dayNum >= 15 && dayNum <= 21);
-                            // Läsnäolo sallitaan VAIN jos torstai oli läsnä JA viikko on sallittu
-                            if (shouldBeOfficeThu && isAllowedFriday) {
-                                assignedType = 'lahityo';
-                                assignedName = settings.primary_office_name;
-                            } else {
-                                assignedType = 'eta';
+                                day.type = 'eta';
                             }
                         }
+                    } else {
+                        // SKENAARIO 2: Paikallisviikko (Torstai kotona -> Ti-Ke muodostaa yhtenäisen blokin)
+                        if (day.dayOfWeek === 1 || day.dayOfWeek === 4 || day.dayOfWeek === 5) {
+                            day.type = 'eta'; // Perjantai etäksi saarekesuojan vuoksi
+                        } else if (day.dayOfWeek === 2 || day.dayOfWeek === 3) {
+                            day.type = 'lahityo';
+                            day.name = settings.primary_office_name;
+                        }
                     }
+                });
 
-                    // Lisätään ehdotus tallennuslistaan
-                    newLocations.push({ 
-                        expert_id: expertId, 
-                        date: dateStr, 
-                        location_type: assignedType, 
-                        location_name: assignedName, 
-                        is_auto_generated: true 
+                // LASKETAAN SYKLIN AKTIIVISET TYÖPÄIVÄT JA LÄHITYÖTAVOITE (50%)
+                const activeWorkingDays = cycleDays.filter(d => d.type !== 'pyha' && d.type !== 'loma').length;
+                let targetOfficeDays = Math.ceil(activeWorkingDays * 0.5) + carriedDeficit;
+                let currentOfficeDays = cycleDays.filter(d => d.type === 'lahityo').length;
+
+                // ================= ILMAINEN TASAPAINOTUS (TRIMMAUS) =================
+                if (currentOfficeDays > targetOfficeDays) {
+                    // Liikaa toimistopäiviä. Kevennetään reunapäiviä luomatta saarekkeita (Vain matkaviikkojen perjantai tai tiistai)
+                    cycleDays.forEach(day => {
+                        if (currentOfficeDays <= targetOfficeDays) return;
+                        if (day.isUserLocked || day.isAnchor) return;
+
+                        if (day.dayOfWeek === 5 && day.type === 'lahityo') {
+                            day.type = 'eta_kevennys';
+                            day.name = '⚖️ Etätyö (Tasapainotus)';
+                            currentOfficeDays--;
+                        }
+                    });
+
+                    cycleDays.forEach(day => {
+                        if (currentOfficeDays <= targetOfficeDays) return;
+                        if (day.isUserLocked || day.isAnchor) return;
+
+                        if (day.dayOfWeek === 2 && day.type === 'lahityo') {
+                            day.type = 'eta_kevennys';
+                            day.name = '⚖️ Etätyö (Tasapainotus)';
+                            currentOfficeDays--;
+                        }
                     });
                 }
 
-                currentWeekStart.setDate(currentWeekStart.getDate() + 7); // Siirrytään seuraavaan viikkoon
+                // ================= VAJEEN TÄYTTÖ TAI RULLAUS ETEENPÄIN =================
+                if (currentOfficeDays < targetOfficeDays) {
+                    // Kalenterissa liikaa etää. Täytetään laajentamalla olemassa olevia matkablokkeja saarekkeettomasti
+                    cycleDays.forEach(day => {
+                        if (currentOfficeDays >= targetOfficeDays) return;
+                        if (day.isUserLocked || day.isAnchor) return;
+
+                        if (day.dayOfWeek === 5 && day.shouldBeOfficeThu && day.type !== 'lahityo') {
+                            day.type = 'lahityo';
+                            day.name = settings.primary_office_name;
+                            currentOfficeDays++;
+                        }
+                    });
+
+                    // Tarkistetaan jäikö sykli silti vajaaksi saarekesuojan takia (esim. kaksi paikallisviikkoa putkeen)
+                    if (currentOfficeDays < targetOfficeDays) {
+                        carriedDeficit = targetOfficeDays - currentOfficeDays; // Rullataan vaje seuraavaan sykliin
+                    } else {
+                        carriedDeficit = 0;
+                    }
+                } else {
+                    carriedDeficit = 0;
+                }
+
+                // ================= PREMIUM-ETÄPÄIVÄPANKKI (SILTAPÄIVÄT) =================
+                if (currentBalance > 0) {
+                    cycleDays.forEach((day, idx) => {
+                        if (currentBalance <= 0) return;
+                        if (day.isUserLocked || day.isAnchor) return;
+
+                        // Tiistai-pyhä -> Maanantai etäksi pankista
+                        if (day.dayOfWeek === 2 && day.type === 'pyha' && idx > 0) {
+                            const prev = cycleDays[idx - 1];
+                            if (prev.type === 'lahityo' && !prev.isUserLocked && !prev.isAnchor) {
+                                prev.type = 'eta_pankki';
+                                prev.name = 'Ehdotus: Pankki-etä (Silta)';
+                                currentBalance--;
+                            }
+                        }
+                        // Torstai-pyhä -> Perjantai etäksi pankista
+                        if (day.dayOfWeek === 4 && day.type === 'pyha' && idx < cycleDays.length - 1) {
+                            const next = cycleDays[idx + 1];
+                            if (next.type === 'lahityo' && !next.isUserLocked && !next.isAnchor) {
+                                next.type = 'eta_pankki';
+                                next.name = 'Ehdotus: Pankki-etä (Silta)';
+                                currentBalance--;
+                            }
+                        }
+                    });
+                }
+
+                // KERÄTÄÄN SYKLIN VALMIIT AUTOMAATTIEHDOTUKSET TALLENNUSLISTALLE
+                cycleDays.forEach(day => {
+                    if (!day.isUserLocked) {
+                        newLocations.push({ 
+                            expert_id: expertId, 
+                            date: day.dateStr, 
+                            location_type: day.type, 
+                            location_name: day.name, 
+                            is_auto_generated: true 
+                        });
+                    }
+                });
+
+                // Siirretään pääluuppia eteenpäin tasan 14 päivää
+                currentWeekStart.setDate(currentWeekStart.getDate() + 14);
             }
 
-            // 4. Tallennetaan generoitu data kantaan UPSERT-komennolla (päivittää vain muuttuneet automaattirivit)
+            // 4. Tallennetaan generoitu data kantaan UPSERT-komennolla (Yksilöllisesti kullekin asiantuntijalle)
             if (newLocations.length > 0) {
                 const { error: upsertError } = await supabase.schema('espan').from('expert_daily_locations').upsert(newLocations, { onConflict: 'expert_id, date' });
                 
@@ -144,8 +272,8 @@ const handler = async (event, context) => {
             }
         }
 
-        console.log("CRON: Kaikki asiantuntijat optimoitu onnistuneesti!");
-        return { statusCode: 200, body: 'Schedule optimized' };
+        console.log("CRON: Kaikki asiantuntijat optimoitu onnistuneesti Master 2.0 -logiikalla!");
+        return { statusCode: 200, body: 'Schedule optimized successfully with Master 2.0' };
 
     } catch (error) {
         console.error('CRON Error:', error);

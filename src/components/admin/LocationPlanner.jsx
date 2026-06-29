@@ -1,13 +1,16 @@
 // --- src/components/admin/LocationPlanner.jsx ---
-import React from 'react';
+import React, { useState } from 'react';
 import Card from '../common/Card';
 import Button from '../common/Button';
-import { Info, Building, Home, Sliders, CalendarCheck, RotateCcw, ShieldCheck, CheckCircle } from 'lucide-react';
+import { Info, Building, Home, Sliders, CalendarCheck, RotateCcw, ShieldCheck, CheckCircle, Landmark, Printer, Flag, Lightbulb, Zap } from 'lucide-react';
+import ReportModal from './ReportModal'; 
 
 const LocationPlanner = ({ 
     currentWeekStart, 
     dailyLocations, 
-    exceptions, 
+    exceptions,
+    nationalHolidays = [], 
+    ledgerBalance = 0,     
     settings, 
     onSettingsChange, 
     onOptimize, 
@@ -15,14 +18,14 @@ const LocationPlanner = ({
     onResetSuggestions 
 }) => {
 
-    // Apufunktio päivämäärän muuntamiseen ISO-merkkijonoksi (YYYY-MM-DD)
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+
     const formatDateStr = (date) => {
         const d = new Date(date);
         d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
         return d.toISOString().split('T')[0];
     };
 
-    // Apufunktio selkeiden suomalaisten päivämäärävälien muotoiluun (esim. 29.6. – 12.7.)
     const formatRangeText = (start, dayOffsetStart, dayOffsetEnd) => {
         const s = new Date(start);
         s.setDate(s.getDate() + dayOffsetStart);
@@ -31,7 +34,26 @@ const LocationPlanner = ({
         return `${s.getDate()}.${s.getMonth() + 1}. – ${e.getDate()}.${e.getMonth() + 1}.`;
     };
 
-    // Lasketaan seurantajaksot (Aina tästä hetkestä eteenpäin)
+    // UUSI FUNKTIO: Pyhäpäivien synkronointi (Taustapalvelu)
+    const handleSyncHolidays = async () => {
+        try {
+            alert('Synkronoidaan Suomen pyhäpäiviä tietokantaan. Odota hetki...');
+            const response = await fetch('/.netlify/functions/sync-holidays', {
+                method: 'POST'
+            });
+            
+            const result = await response.json();
+            if (response.ok) {
+                alert(`Onnistui! ${result.message}\nVoit joutua päivittämään sivun nähdäksesi uudet pyhät kalenterissa.`);
+            } else {
+                throw new Error(result.error || 'Synkronointi epäonnistui.');
+            }
+        } catch (error) {
+            console.error(error);
+            alert('Virhe pyhäpäivien päivityksessä. Tarkista konsoli.');
+        }
+    };
+
     const stats = React.useMemo(() => {
         const data = {
             total: { label: '4 viikon kokonaissaldo', office: 0, remote: 0, totalWorkingDays: 0, percent: 0, targetDays: 0 },
@@ -49,14 +71,13 @@ const LocationPlanner = ({
                 currentDay.setDate(weekStart.getDate() + d);
                 const dStr = formatDateStr(currentDay);
 
-                // Suodatetaan koko päivän lomat ja sulut pois työpäivistä (Nollavelka-periaate)
                 const isBlockedDay = exceptions.some(e => 
-                    e.is_blocked && 
-                    e.meeting_type === 'estetty' && 
-                    e.start_time.substring(0, 10) === dStr
+                    e.is_blocked && e.meeting_type === 'estetty' && e.start_time.substring(0, 10) === dStr
                 );
+                
+                const isHolidayDay = nationalHolidays.some(h => h.date === dStr);
 
-                if (!isBlockedDay) {
+                if (!isBlockedDay && !isHolidayDay) {
                     data[targetCycle].totalWorkingDays += 1;
                     data.total.totalWorkingDays += 1;
 
@@ -64,16 +85,14 @@ const LocationPlanner = ({
                     if (loc?.location_type === 'lahityo') {
                         data[targetCycle].office += 1;
                         data.total.office += 1;
-                    } else if (loc?.location_type === 'eta') {
+                    } else if (loc?.location_type === 'eta' || loc?.location_type === 'eta_pankki') {
                         data[targetCycle].remote += 1;
                         data.total.remote += 1;
                     }
-                    // Huom: Jos location_type on 'loma', se ei kerrytä toimisto- tai etäpäivien saldoa.
                 }
             }
         }
 
-        // Lasketaan prosentit ja ehdottomat minimitavoitteet (pyöristys aina ylöspäin)
         ['total', 'cycle1', 'cycle2'].forEach(key => {
             if (data[key].totalWorkingDays > 0) {
                 data[key].percent = Math.round((data[key].office / data[key].totalWorkingDays) * 100);
@@ -82,9 +101,86 @@ const LocationPlanner = ({
         });
 
         return data;
-    }, [currentWeekStart, dailyLocations, exceptions, settings.target_office_percent]);
+    }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, settings.target_office_percent]);
 
-    // Apufunktio toimintaohjeen ja tekstien dynaamiseen laskentaan
+    // UUSI TUTKA: Älykäs Siltapäivä- ja Putkikatkaisija -algoritmi
+    const smartTips = React.useMemo(() => {
+        if (ledgerBalance <= 0) return [];
+        const tips = [];
+        
+        // Rakennetaan nopea välimuisti tulevan 4 viikon päivistä
+        const daysMap = {};
+        for (let i = 0; i < 28; i++) {
+            const d = new Date(currentWeekStart);
+            d.setDate(d.getDate() + i);
+            const dStr = formatDateStr(d);
+            const isHol = nationalHolidays.some(h => h.date === dStr);
+            const isBlock = exceptions.some(e => e.is_blocked && e.meeting_type === 'estetty' && e.start_time.startsWith(dStr));
+            const loc = dailyLocations.find(l => l.date === dStr);
+            daysMap[dStr] = { date: d, dStr, isHol, isBlock, loc, dayOfWeek: d.getDay() };
+        }
+
+        const dateKeys = Object.keys(daysMap);
+        
+        // 1. SILTAPÄIVÄTUTKA
+        for (let i = 0; i < dateKeys.length; i++) {
+            const dayData = daysMap[dateKeys[i]];
+            if (dayData.isHol) {
+                // Tiistai-pyhä -> Ehdotetaan Maanantaita
+                if (dayData.dayOfWeek === 2 && i > 0) {
+                    const prevDay = daysMap[dateKeys[i-1]];
+                    if (!prevDay.isHol && !prevDay.isBlock && prevDay.loc?.location_type !== 'eta' && prevDay.loc?.location_type !== 'eta_pankki') {
+                        tips.push({
+                            dateStr: prevDay.dStr,
+                            type: 'bridge',
+                            text: `Vinkki: ${dayData.date.getDate()}.${dayData.date.getMonth()+1}. on pyhä (tiistai). Ottamalla maanantain ${prevDay.date.getDate()}.${prevDay.date.getMonth()+1}. pankki-etäpäiväksi saat pitkän vapaan viikonlopun!`
+                        });
+                    }
+                }
+                // Torstai-pyhä -> Ehdotetaan Perjantaita
+                if (dayData.dayOfWeek === 4 && i < dateKeys.length - 1) {
+                    const nextDay = daysMap[dateKeys[i+1]];
+                    if (!nextDay.isHol && !nextDay.isBlock && nextDay.loc?.location_type !== 'eta' && nextDay.loc?.location_type !== 'eta_pankki') {
+                        tips.push({
+                            dateStr: nextDay.dStr,
+                            type: 'bridge',
+                            text: `Vinkki: ${dayData.date.getDate()}.${dayData.date.getMonth()+1}. on pyhä (torstai). Ottamalla perjantain ${nextDay.date.getDate()}.${nextDay.date.getMonth()+1}. pankki-etäpäiväksi saat pitkän vapaan viikonlopun!`
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2. PUTKIKATKAISIJA (Vain jos siltapäiviä ei löytynyt)
+        if (tips.length === 0) {
+            for (let w = 0; w < 4; w++) {
+                const weekDays = [];
+                for (let d = 0; d < 5; d++) {
+                    const date = new Date(currentWeekStart);
+                    date.setDate(date.getDate() + (w * 7) + d);
+                    weekDays.push(daysMap[formatDateStr(date)]);
+                }
+                
+                const officeDays = weekDays.filter(day => day && !day.isHol && !day.isBlock && day.loc?.location_type === 'lahityo');
+                
+                if (officeDays.length >= 4) {
+                    // Yritetään keventää keskiviikkoa tai perjantaita (Torstai suojattu ankkurina)
+                    const candidate = officeDays.find(d => d.dayOfWeek === 3) || officeDays.find(d => d.dayOfWeek === 5);
+                    if (candidate) {
+                        tips.push({
+                            dateStr: candidate.dStr,
+                            type: 'streak',
+                            text: `Vinkki: Viikolla on raskas ${officeDays.length} päivän lähityöputki. Haluatko käyttää pankkipäivän ${['','Maanantaina','Tiistaina','Keskiviikkona','Torstaina','Perjantaina'][candidate.dayOfWeek]} ${candidate.date.getDate()}.${candidate.date.getMonth()+1}. putken katkaisemiseksi?`
+                        });
+                        break; 
+                    }
+                }
+            }
+        }
+
+        return tips.slice(0, 2); 
+    }, [currentWeekStart, nationalHolidays, exceptions, dailyLocations, ledgerBalance]);
+
     const renderActionGuidance = (item) => {
         const diff = item.office - item.targetDays;
         
@@ -115,6 +211,58 @@ const LocationPlanner = ({
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             
+            {/* ================= PANKKIPANEELI & ÄLYKKÄÄT VINKIT ================= */}
+            <div style={{ backgroundColor: ledgerBalance > 0 ? 'rgba(30,154,90,0.05)' : 'var(--color-surface)', padding: '1.2rem', borderRadius: '8px', border: ledgerBalance > 0 ? '1px solid var(--color-success)' : '1px solid var(--color-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <Landmark size={28} style={{ color: ledgerBalance > 0 ? 'var(--color-success)' : 'var(--color-text-secondary)' }} />
+                        <div>
+                            <h4 style={{ margin: 0, color: ledgerBalance > 0 ? 'var(--color-success)' : 'var(--color-text)', fontSize: '1.1rem', fontWeight: 'bold' }}>
+                                Etäpäiväpankki (Ledger)
+                            </h4>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
+                                {ledgerBalance > 0 
+                                    ? `Sinulla on ${ledgerBalance} ansaittua etäpäivää käytettävissä. Voit ylittää viikon etäpäiväsäännöt sijoittamalla saldon mihin tahansa kalenteripäivään.` 
+                                    : 'Ei kertyneitä saldoja. Voit ansaita ylimääräisiä etäpäiviä tekemällä lähityötä silloin kun automaatti ehdottaa etätyötä.'}
+                            </p>
+                        </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '2rem', fontWeight: '800', fontFamily: 'monospace', color: ledgerBalance > 0 ? 'var(--color-success)' : 'var(--color-text-secondary)' }}>
+                            {ledgerBalance}
+                        </span>
+                        <span className="text-secondary fw-semibold text-sm" style={{ marginLeft: '4px' }}>pv</span>
+                    </div>
+                </div>
+
+                {/* VINKKILUETTELO */}
+                {smartTips.length > 0 && (
+                    <div style={{ marginTop: '1.2rem', borderTop: '1px dashed var(--color-success)', paddingTop: '1rem' }}>
+                        <h5 style={{ margin: '0 0 0.75rem 0', color: 'var(--color-success)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Lightbulb size={16} /> Älykkäät ehdotukset
+                        </h5>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {smartTips.map((tip, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '0.75rem', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                                    <div style={{ fontSize: '0.85rem', color: '#166534', flex: 1, lineHeight: 1.4 }}>
+                                        {tip.text}
+                                    </div>
+                                    <Button 
+                                        variant="secondary" 
+                                        size="sm" 
+                                        icon={Zap} 
+                                        style={{ marginLeft: '1rem', borderColor: 'var(--color-success)', color: 'var(--color-success)' }} 
+                                        onClick={() => alert(`Siirry kalenteriruudukkoon päivän ${tip.dateStr} kohdalle, klikkaa sijaintia ja valitse listasta 'Käytä pankkipäivä'.`)}
+                                    >
+                                        Miten toimin?
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {/* ================= 1. 4 VIIKON KOKONAISSALDO (MASTER PANEL) ================= */}
             <Card title="Yhteenveto: 4 viikon kokonaistilanne" icon={Info} variant={isOverallDeficit ? 'warning' : 'default'}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -137,15 +285,11 @@ const LocationPlanner = ({
                         </div>
                     </div>
 
-                    {/* Progress Bar aitoon 0-100% skaalaan 50% keskiviivalla */}
                     <div style={{ position: 'relative', width: '100%', height: '16px', backgroundColor: 'var(--color-border)', borderRadius: '8px', overflow: 'visible', marginTop: '4px' }}>
-                        {/* 50% Tavoiteryhmäviiva */}
                         <div style={{ position: 'absolute', left: '50%', top: '-4px', bottom: '-4px', width: '2px', backgroundColor: 'var(--color-text)', zIndex: 10 }} />
                         <div style={{ position: 'absolute', left: '50%', top: '-20px', transform: 'translateX(-50%)', fontSize: '0.7rem', fontWeight: '700', color: 'var(--color-text-secondary)' }}>
                             TAVOITE 50%
                         </div>
-
-                        {/* Täyttöpalkki */}
                         <div style={{ 
                             width: `${Math.min(100, stats.total.percent)}%`, 
                             height: '100%', 
@@ -157,7 +301,7 @@ const LocationPlanner = ({
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', color: 'var(--color-text-secondary)', backgroundColor: 'rgba(0,0,0,0.01)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
                         <div>Toteuma: <strong>{stats.total.office} pv</strong> lähityötä / <strong>{stats.total.remote} pv</strong> etätyötä</div>
-                        <div>Aktiiviset työpäivät (ilman lomia): <strong>{stats.total.totalWorkingDays} pv</strong></div>
+                        <div>Aktiiviset työpäivät (lomat/pyhät poistettu): <strong>{stats.total.totalWorkingDays} pv</strong></div>
                         <div>Vaatimus: <strong>{stats.total.targetDays} pv</strong> toimistolla</div>
                     </div>
                 </div>
@@ -182,7 +326,6 @@ const LocationPlanner = ({
                                 </span>
                             </div>
                             
-                            {/* Sub-cycle Progress Bar 0-100% skaalalla ja 50% viivalla */}
                             <div style={{ position: 'relative', width: '100%', height: '10px', backgroundColor: 'var(--color-border)', borderRadius: '5px', overflow: 'visible', marginTop: '12px', marginBottom: '4px' }}>
                                 <div style={{ position: 'absolute', left: '50%', top: '-3px', bottom: '-3px', width: '2px', backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 10 }} />
                                 <div style={{ 
@@ -202,6 +345,14 @@ const LocationPlanner = ({
                                 <span>Lähityö: <strong>{item.office} / {item.totalWorkingDays} pv</strong></span>
                                 <span style={{ marginLeft: 'auto' }}>Minimitavoite: <strong>{item.targetDays} pv</strong></span>
                             </div>
+
+                            {/* UUSI: ENNUSTE-VAROITUS SEURAAVALLE JAKSOLLE */}
+                            {key === 'cycle2' && (
+                                <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.7rem', color: 'var(--color-text-secondary)', fontStyle: 'italic', display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
+                                    <Info size={12} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                    Huom: Tämä on vasta ennuste. Luvut elävät reaaliajassa tekemiesi kalenterimuutosten myötä.
+                                </p>
+                            )}
                         </div>
                     );
                 })}
@@ -212,7 +363,6 @@ const LocationPlanner = ({
                 <Card title="Automaation runkosäännöt ja oletukset (Default)" icon={Sliders} variant="bordered">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
                         
-                        {/* Torstain kokousprosentti */}
                         <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
                                 <label className="text-sm fw-semibold text-primary">Torstain kokouspäivän läsnäoloaste (Kuukausitaso)</label>
@@ -234,7 +384,6 @@ const LocationPlanner = ({
                             </div>
                         </div>
 
-                        {/* Perjantain joustovara */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', borderTop: '1px dashed var(--color-border)', paddingTop: '1rem' }}>
                             <div>
                                 <label className="text-sm fw-semibold text-primary">Perjantain maksimilähityö</label>
@@ -262,7 +411,7 @@ const LocationPlanner = ({
                         </div>
 
                         <div style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', lineHeight: 1.4, backgroundColor: 'rgba(0,0,0,0.02)', padding: '0.6rem', borderRadius: '4px' }}>
-                            <strong>Nollavelka-automatiikka aktiivinen:</strong> Maanantait ovat aina lukittuja etäpäiviksi. Läsnäolopäivät ryhmitellään peräkkäisiksi blokeiksi, ja lomat vähentävät jakson kokonaistavoitetta luomatta kurontavelkaa tuleville viikoille.
+                            <strong>Nollavelka-automatiikka aktiivinen:</strong> Maanantait ovat aina lukittuja etäpäiviksi. Läsnäolopäivät ryhmitellään peräkkäisiksi blokeiksi, ja lomat sekä pyhät vähentävät jakson kokonaistavoitetta luomatta kurontavelkaa tuleville viikoille.
                         </div>
                     </div>
                 </Card>
@@ -270,6 +419,17 @@ const LocationPlanner = ({
                 {/* ================= 4. MANUAALISET PAINIKKEET ================= */}
                 <Card title="Manuaaliset ohitukset" icon={CalendarCheck} variant="bordered">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', height: '100%', justifyContent: 'center' }}>
+                        
+                        <Button variant="secondary" icon={Printer} onClick={() => setIsReportModalOpen(true)} fullWidth>
+                            Lataa seurantaraportti
+                        </Button>
+                        <hr style={{ border: 'none', borderTop: '1px dashed var(--color-border)', margin: '0.5rem 0' }} />
+                        
+                        {/* UUSI PYHÄ-NAPPI */}
+                        <Button variant="secondary" icon={Flag} onClick={handleSyncHolidays} fullWidth>
+                            Hae & Päivitä Suomen pyhäpäivät
+                        </Button>
+
                         <Button variant="primary" icon={Sliders} onClick={onOptimize} fullWidth>
                             Optimoi kalenteri (Aja CRON nyt)
                         </Button>
@@ -285,6 +445,12 @@ const LocationPlanner = ({
                     </div>
                 </Card>
             </div>
+            
+            <ReportModal 
+                isOpen={isReportModalOpen} 
+                onClose={() => setIsReportModalOpen(false)} 
+                expertId="00000000-0000-0000-0000-000000000000"
+            />
         </div>
     );
 };

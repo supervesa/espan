@@ -20,7 +20,7 @@ exports.handler = async (event, context) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     try {
-        // 3. Haetaan sijainnit tietokannasta (otetaan esim. kuukausi taaksepäin ja puoli vuotta eteenpäin)
+        // 3. Haetaan sijainnit tietokannasta (otetaan kuukausi taaksepäin ja 15 viikkoa eteenpäin)
         const today = new Date();
         today.setDate(today.getDate() - 30);
         const queryStart = today.toISOString().split('T')[0];
@@ -41,11 +41,16 @@ exports.handler = async (event, context) => {
             'PRODID:-//Espan//Tyopisteet//FI',
             'CALSCALE:GREGORIAN',
             'X-WR-CALNAME:Työpisteet (Espan)',
-            'X-APPLE-CALENDAR-COLOR:#FF6B00'
+            'X-APPLE-CALENDAR-COLOR:#FF6B00',
+            'METHOD:PUBLISH'
         ];
 
         // 5. Muutetaan tietokantarivit kalenteritapahtumiksi (Koko päivän tapahtumat)
         (data || []).forEach(loc => {
+            
+            // SUODATIN: Ohitetaan lomat ja pyhät täysin, jottei asiantuntijan kalenteriin tule tuplamerkintöjä
+            if (loc.location_type === 'loma' || loc.location_type === 'pyha') return;
+
             // Muutetaan "2026-10-06" muotoon "20261006"
             const dateStr = loc.date.replace(/-/g, '');
             
@@ -54,8 +59,33 @@ exports.handler = async (event, context) => {
             d.setDate(d.getDate() + 1);
             const nextDateStr = d.toISOString().split('T')[0].replace(/-/g, '');
 
-            const icon = loc.location_type === 'eta' ? '🏠' : '🏢';
-            const summary = `${icon} ${loc.location_name}`;
+            // DYNAMIIKKA: Määritetään otsikko, status ja kuvaus tilan mukaan
+            let prefix = '';
+            let statusStr = 'CONFIRMED';
+            let description = '';
+            let locName = loc.location_name;
+
+            if (loc.location_type === 'eta_pankki' || loc.location_type === 'eta_pankki_ehdotus') {
+                // PANKKIPÄIVÄ (Erikoiskohtelu)
+                prefix = loc.is_auto_generated ? '⏳ [Ehdotus] 🏦 ' : '🏦 ';
+                statusStr = loc.is_auto_generated ? 'TENTATIVE' : 'CONFIRMED';
+                description = loc.is_auto_generated 
+                    ? 'Automaatin ehdotus: Haluatko käyttää säästetyn pankkipäivän tähän? Kirjaudu Espaniin hyväksyäksesi.' 
+                    : 'Ansaittu etäpäivä (Pankista käytetty).';
+                locName = 'Pankki-etäpäivä';
+            } else if (loc.is_auto_generated) {
+                // AUTOMAATIN EHDOTUS (TENTATIVE)
+                prefix = '⏳ [Ehdotus] ';
+                statusStr = 'TENTATIVE'; // Tekee Outlookissa vinoviivoitetun reunan
+                description = 'Tämä on automaatin 4 viikon saldovarmistukseen perustuva alustava ehdotus. Kirjaudu Espaniin lukitaksesi viikon.';
+            } else {
+                // LUKITTU PÄIVÄ (CONFIRMED)
+                prefix = '🔒 ';
+                statusStr = 'CONFIRMED'; // Kiinteä värilohko
+                description = 'Sijainti lukittu (Asiakastapaaminen, ankkurisääntö tai manuaalinen vahvistus).';
+            }
+
+            const summary = `${prefix}${locName}`;
 
             icsContent.push(
                 'BEGIN:VEVENT',
@@ -64,7 +94,8 @@ exports.handler = async (event, context) => {
                 `DTSTART;VALUE=DATE:${dateStr}`,
                 `DTEND;VALUE=DATE:${nextDateStr}`,
                 `SUMMARY:${summary}`,
-                `DESCRIPTION:Asiantuntijan työskentelypaikka: ${loc.location_name}`,
+                `STATUS:${statusStr}`,
+                `DESCRIPTION:${description}`,
                 'END:VEVENT'
             );
         });
