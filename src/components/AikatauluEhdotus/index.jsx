@@ -1,3 +1,4 @@
+// --- src/components/admin/AikatauluEhdotus.jsx ---
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 import { useSignal } from '../signals/useSignal';
@@ -40,6 +41,44 @@ const AikatauluEhdotus = ({ state, actions }) => {
     const [expertLocations, setExpertLocations] = useState([]);
 
     const prevPhraseRef = useRef("");
+
+    // --- ISÄNTÄ JA RENKI -TULKKI ---
+    const applyLocationInterpreter = (slots) => {
+        if (!slots) return [];
+        
+        return slots.filter(slot => {
+            const slotDateStr = slot.time.toISOString().split('T')[0];
+            const dayLoc = expertLocations.find(l => l.date === slotDateStr);
+            
+            // SÄÄNTÖ 0: ESTETÄÄN LOMAT, PYHÄT JA "EI ASIAKASAIKOJA" (SISÄTYÖT) KOKONAAN
+            if (dayLoc && (dayLoc.location_type === 'loma' || dayLoc.location_type === 'pyha' || dayLoc.location_type.startsWith('sisatyot_'))) {
+                return false;
+            }
+
+            // SÄÄNTÖ 1: Etäpuheluita EI saa varata päiville, joita ei ole vielä lukittu.
+            // Piilotetaan etäajat, jos viikko on pelkkä automaatin haamuehdotus.
+            if (dayLoc && dayLoc.is_auto_generated && slot.mode === 'puhelu') {
+                return false; 
+            }
+            return true;
+        }).map(slot => {
+            const slotDateStr = slot.time.toISOString().split('T')[0];
+            const dayLoc = expertLocations.find(l => l.date === slotDateStr);
+            
+            // Vain KÄSIN LUKITUT lokaatiot saavat ylikirjoittaa aikoja lennosta
+            if (dayLoc && !dayLoc.is_auto_generated) {
+                // SÄÄNTÖ 2: Jos päivä on lukittu etäksi, käännetään avoimet käyntiajat lennosta puheluiksi
+                if (dayLoc.location_type === 'eta') {
+                    return { ...slot, mode: 'puhelu', isTranslated: true };
+                }
+                // SÄÄNTÖ 3: Jos päivä on lukittu lähityöksi, käännetään avoimet puhelut lennosta käynneiksi (varmistus)
+                else if (dayLoc.location_type === 'lahityo') {
+                    return { ...slot, mode: 'kaynti', isTranslated: true };
+                }
+            }
+            return slot;
+        });
+    };
 
     // --- UUSI TÄYSIN DYNAAMINEN TULKKIPÄÄTTELY ---
     const interpreterState = useMemo(() => {
@@ -120,16 +159,14 @@ const AikatauluEhdotus = ({ state, actions }) => {
         if (selectedRule.metadata?.triggers?.require_yleistuki) type = 'aktivointi';
         else if (selectedRule.title.toLowerCase().includes('täydentävä')) type = 'taydentava';
         
-        let baseSearchStart = new Date();
-        if (activeSuggestion && selectedRule.id === activeSuggestion.rule.id && activeSuggestion.targetDate) {
-            baseSearchStart = new Date(activeSuggestion.targetDate);
-            baseSearchStart.setDate(baseSearchStart.getDate() - 14);
-            if (baseSearchStart < new Date()) baseSearchStart = new Date();
-        }
-        const searchStart = new Date(baseSearchStart);
+        // KORJAUS 2: baseSearchStart on AINA nykyhetki (ei koskaan siirretä tulevaisuuteen pysyvästi)
+        const searchStart = new Date();
         searchStart.setDate(searchStart.getDate() + (weekOffset * 7));
-        setProposedSlots(findAvailableSlots(type, expertRules, bookedSlots, searchStart, 1));
-    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion]);
+        
+        // HAE NORMAALIT AJAT JA AJA NE TULKIN LÄPI
+        const rawSlots = findAvailableSlots(type, expertRules, bookedSlots, searchStart, 1);
+        setProposedSlots(applyLocationInterpreter(rawSlots));
+    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion, expertLocations]);
 
     const handleRuleChange = (ruleId, suggestedCount = 1, suggestedPeriod = 3, forcedMode = null) => {
         const rule = rules.find(r => r.id === ruleId);
@@ -140,23 +177,47 @@ const AikatauluEhdotus = ({ state, actions }) => {
             setActiveForcedMode(forcedMode);
             setIsMandatory(rule.title.toLowerCase().includes('alkuhaastattelu') || rule.title.toLowerCase().includes('työnhakukeskustelu'));
             const passedTargetDate = (activeSuggestion && rule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
-            setBasket(generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod, passedTargetDate));
+            
+            // KORJAUS 2: LASKETAAN DYNAMINEN HYPPY VIIKKOIHIN TÄSSÄ (JOTTA KÄYTTÄJÄ VOI PERUUTTAA NYKYHETKEEN)
+            let newOffset = 0;
+            if (passedTargetDate) {
+                const now = new Date();
+                const target = new Date(passedTargetDate);
+                target.setDate(target.getDate() - 14); // Yritetään ehdottaa 2 vko ennen deadlinea
+                if (target > now) {
+                    const diffTime = target.getTime() - now.getTime();
+                    newOffset = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+                    if (newOffset < 0) newOffset = 0;
+                }
+            }
+            setWeekOffset(newOffset);
+            
+            // KÄÄNNETÄÄN KORIN EHDOTUKSET LENNOSSA
+            const rawBasket = generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod, passedTargetDate);
+            setBasket(applyLocationInterpreter(rawBasket));
         } else {
             setBasket([]);
             setActiveForcedMode(null);
+            setWeekOffset(0);
         }
     };
 
     const handleCountChange = (newCount) => {
         setCount(newCount);
         const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
-        setBasket(generateSmartDraft(selectedRule, expertRules, bookedSlots, newCount, period, passedTargetDate));
+        
+        // KÄÄNNETÄÄN KORIN EHDOTUKSET LENNOSSA
+        const rawBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, newCount, period, passedTargetDate);
+        setBasket(applyLocationInterpreter(rawBasket));
     };
 
     const handlePeriodChange = (newPeriod) => {
         setPeriod(newPeriod);
         const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
-        setBasket(generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod, passedTargetDate));
+        
+        // KÄÄNNETÄÄN KORIN EHDOTUKSET LENNOSSA
+        const rawBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod, passedTargetDate);
+        setBasket(applyLocationInterpreter(rawBasket));
     };
 
     const handleBooking = async () => {
@@ -199,6 +260,9 @@ const AikatauluEhdotus = ({ state, actions }) => {
         }
     });
 
+    // Haistelee, onko Tulkki tehnyt lennosta muutoksia aikoihin
+    const hasTranslatedSlots = proposedSlots.some(s => s.isTranslated) || basket.some(s => s.isTranslated);
+
     if (loading) return <Card title="Ladataan aikatauluavustajaa..."></Card>;
 
     return (
@@ -217,6 +281,17 @@ const AikatauluEhdotus = ({ state, actions }) => {
 
             {selectedRule && (
                 <>
+                    {/* ============ UUSI INFO-BANNERI ============ */}
+                    {hasTranslatedSlots && (
+                        <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                            <AlertCircle size={18} color="#1d4ed8" style={{ flexShrink: 0, marginTop: '2px' }} />
+                            <div style={{ fontSize: '0.85rem', color: '#1e3a8a', lineHeight: 1.4 }}>
+                                <strong>Älykäs sovitus aktiivinen:</strong> Järjestelmä on lennosta kääntänyt osan avoimista ajoista (käynti ↔ puhelu) vastaamaan kalenteriisi lukittua etä- tai lähityöpaikkaa.
+                            </div>
+                        </div>
+                    )}
+                    {/* =========================================== */}
+
                     <BasketSlotPicker 
                         slots={proposedSlots} 
                         basket={basket}

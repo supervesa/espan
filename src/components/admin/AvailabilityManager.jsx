@@ -4,7 +4,7 @@ import { supabase } from '../../utils/supabaseClient';
 import Card from '../common/Card';
 import Button from '../common/Button';
 import LocationPlanner from './LocationPlanner'; 
-import AvailabilityForms from './AvailabilityForms'; // UUSI: Tuodaan erillinen lomakekomponentti
+import AvailabilityForms from './AvailabilityForms'; 
 import { 
     Calendar, Plus, Trash2, ChevronLeft, ChevronRight, 
     CalendarOff, Palmtree, MapPin, Phone, Info, X, UserX,
@@ -51,7 +51,7 @@ const AvailabilityManager = () => {
     const [exceptions, setExceptions] = useState([]);
     const [dailyLocations, setDailyLocations] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false); // Käytetään yhä QuickModalissa
+    const [saving, setSaving] = useState(false); 
 
     const [ledgerBalance, setLedgerBalance] = useState(0);
     const [nationalHolidays, setNationalHolidays] = useState([]);
@@ -151,18 +151,17 @@ const AvailabilityManager = () => {
         return suggestions;
     }, [weekDays, dailyLocations, exceptions, settings, nationalHolidays]);
 
-    // UI-vakiot kalenteria varten
     const meetingTypes = [
-        { id: 'normi', label: 'Normaali', color: 'var(--color-primary)', bg: 'rgba(255, 107, 0, 0.1)' },
-        { id: 'aktivointi', label: 'Aktivointi', color: 'var(--color-success)', bg: 'rgba(30, 154, 90, 0.1)' },
-        { id: 'taydentava', label: 'Täydentävä', color: '#2563eb', bg: 'rgba(37, 99, 235, 0.1)' }
+        { id: 'normi', label: 'Normaali', color: 'var(--color-primary)', bg: 'rgba(255, 107, 0, 0.05)' },
+        { id: 'aktivointi', label: 'Aktivointi', color: 'var(--color-success)', bg: 'rgba(30, 154, 90, 0.05)' },
+        { id: 'taydentava', label: 'Täydentävä', color: '#2563eb', bg: 'rgba(37, 99, 235, 0.05)' }
     ];
 
     const getMeetingStyle = (typeId, isBlocked = false) => {
         const typeConfig = meetingTypes.find(t => t.id === typeId) || meetingTypes[0];
         if (isBlocked && typeId === 'estetty') return { backgroundColor: '#fef2f2', border: '1px dashed #e34a4a', color: '#e34a4a' };
         if (isBlocked && typeId !== 'estetty') return { backgroundColor: 'var(--color-surface)', border: `1px dashed ${typeConfig.color}`, color: typeConfig.color, opacity: 0.65 };
-        return { backgroundColor: typeConfig.bg, border: `2px solid ${typeConfig.color}`, color: typeConfig.color };
+        return { backgroundColor: typeConfig.bg, border: `1px dashed ${typeConfig.color}`, color: typeConfig.color };
     };
 
     const getMeetingLabel = (typeId) => meetingTypes.find(t => t.id === typeId)?.label || typeId;
@@ -200,7 +199,7 @@ const AvailabilityManager = () => {
             if (type === 'eta_pankki') {
                 await supabase.schema('espan').from('expert_remote_bank_ledger').insert([{ expert_id: EXPERT_ID, transaction_type: -1, used_date: dateStr, expiration_date: '2099-12-31', description: 'Käytetty pankkipäivä' }]);
                 type = 'eta_pankki'; 
-            } else if (type === 'lahityo' && isCurrentlyRemote) {
+            } else if (type.includes('lahityo') && isCurrentlyRemote) {
                 const wantToBank = window.confirm("Muutit sääntömääräisen etäpäivän lähityöksi. Haluatko tallettaa tämän uhratun etäpäivän pankkiin myöhempää käyttöä varten?");
                 if (wantToBank) {
                     const expDate = addDays(new Date(), 28);
@@ -383,6 +382,7 @@ const AvailabilityManager = () => {
 
                         const isUserLocked = loc && !loc.is_auto_generated;
                         const isBankDay = loc?.location_type === 'eta_pankki';
+                        const isInternalWork = loc?.location_type.startsWith('sisatyot_');
 
                         return (
                             <div key={index} className="text-center" style={{ backgroundColor: isBlocked ? '#fef2f2' : (isHoliday ? '#fdf4ff' : 'var(--color-surface)'), padding: '0.5rem 0', position: 'relative', borderBottom: '1px solid var(--color-border)' }}>
@@ -393,17 +393,17 @@ const AvailabilityManager = () => {
                                     <button 
                                         onClick={() => setActiveLocationPopover(activeLocationPopover === dStr ? null : dStr)}
                                         style={{
-                                            border: isUserLocked ? (isBankDay ? '1px solid var(--color-success)' : '1px solid var(--color-primary)') : 'none', 
-                                            background: loc ? (isBankDay ? 'rgba(30,154,90,0.1)' : 'var(--color-background)') : 'none', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer',
-                                            color: loc ? (isBankDay ? 'var(--color-success)' : (loc.location_type === 'eta' ? '#2563eb' : 'var(--color-primary)')) : 'var(--color-text-secondary)',
+                                            border: isUserLocked ? (isBankDay ? '1px solid var(--color-success)' : (isInternalWork ? '1px solid #64748b' : '1px solid var(--color-primary)')) : 'none', 
+                                            background: loc ? (isBankDay ? 'rgba(30,154,90,0.1)' : (isInternalWork ? '#f1f5f9' : 'var(--color-background)')) : 'none', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer',
+                                            color: loc ? (isBankDay ? 'var(--color-success)' : (isInternalWork ? '#475569' : (loc.location_type === 'eta' ? '#2563eb' : 'var(--color-primary)'))) : 'var(--color-text-secondary)',
                                             fontSize: '0.75rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px'
                                         }}
                                     >
                                         {loc ? (
                                             <>
-                                                {isBankDay ? <Landmark size={12} /> : (loc.location_type === 'eta' ? <Home size={12} /> : <Building size={12} />)}
+                                                {isBankDay ? <Landmark size={12} /> : (isInternalWork ? <Lock size={12} /> : (loc.location_type === 'eta' ? <Home size={12} /> : <Building size={12} />))}
                                                 <span>{loc.location_name}</span>
-                                                {isUserLocked && <Lock size={10} style={{ marginLeft: '2px' }}/>}
+                                                {isUserLocked && !isInternalWork && <Lock size={10} style={{ marginLeft: '2px' }}/>}
                                             </>
                                         ) : sugg ? (
                                             <span style={{ opacity: 0.6, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '2px' }}>
@@ -415,7 +415,7 @@ const AvailabilityManager = () => {
                                     </button>
 
                                     {activeLocationPopover === dStr && (
-                                        <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem', zIndex: 1000, boxShadow: '0 10px 25px rgba(0,0,0,0.15)', minWidth: '180px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem', zIndex: 1000, boxShadow: '0 10px 25px rgba(0,0,0,0.15)', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                             <div className="text-xs fw-bold text-secondary text-left mb-1">Muuta sijaintia:</div>
                                             
                                             {ledgerBalance > 0 && !isBankDay && (
@@ -428,6 +428,12 @@ const AvailabilityManager = () => {
                                             <button onClick={() => handleSaveLocation(dStr, 'lahityo', 'Malminkatu')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left' }}><Building size={14} /> Malminkatu</button>
                                             <button onClick={() => handleSaveLocation(dStr, 'lahityo', 'Viipurinkatu')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left' }}><Building size={14} /> Viipurinkatu</button>
                                             
+                                            <div style={{ margin: '4px 0', borderTop: '1px solid var(--color-border)' }}></div>
+                                            
+                                            {/* UUDET: Sisäisen työn vaihtoehdot (Ei asiakasaikoja) */}
+                                            <button onClick={() => handleSaveLocation(dStr, 'sisatyot_eta', 'Ei asiakasaikoja (Etä)')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left', color: '#475569' }}><Lock size={14} /> Ei asiakasaikoja (Etä)</button>
+                                            <button onClick={() => handleSaveLocation(dStr, 'sisatyot_lahityo', 'Ei asiakasaikoja (Toimisto)')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', textAlign: 'left', color: '#475569' }}><Lock size={14} /> Ei asiakasaikoja (Toimisto)</button>
+
                                             <div style={{ display: 'flex', gap: '2px', marginTop: '4px', borderTop: '1px dashed var(--color-border)', paddingTop: '6px' }}>
                                                 <input type="text" placeholder="Muu paikka..." value={customLocationText} onChange={e => setCustomLocationText(e.target.value)} style={{ width: '100%', fontSize: '0.75rem', padding: '2px 4px', border: '1px solid var(--color-border)', borderRadius: '4px' }} />
                                                 <button onClick={() => handleSaveLocation(dStr, 'lahityo', null)} style={{ border: 'none', background: 'var(--color-primary)', color: '#fff', borderRadius: '4px', padding: '2px 6px' }}><Send size={12} /></button>
@@ -502,25 +508,70 @@ const AvailabilityManager = () => {
                         return null;
                     })}
 
+                    {/* ================= 1. RUNKOSÄÄNNÖT (KEHYS / ASTIA) ================= */}
                     {rules.filter(r => {
                         const dStr = formatDateLocal(weekDays[r.day_of_week - 1]);
                         if (blockedDaysStrs.includes(dStr)) return false;
                         if (r.valid_until && dStr > r.valid_until.substring(0, 10)) return false; 
                         return true;
-                    }).map(rule => (
-                        <div 
-                            key={`rule-${rule.id}`} 
-                            onClick={() => setSelectedBlock({ data: rule, actionType: 'delete_rule', title: `Runkosääntö: ${getMeetingLabel(rule.meeting_type)}`, timeInfo: `${['Ma','Ti','Ke','To','Pe'][rule.day_of_week - 1]} klo ${rule.start_time.substring(0,5)}`, contact_method: rule.contact_method })}
-                            style={{ ...getGridPlacement(rule.day_of_week - 1, rule.start_time, rule.end_time), ...getMeetingStyle(rule.meeting_type, false), margin: '2px', borderRadius: '4px', padding: '0.25rem 0.5rem', zIndex: 5, display: 'flex', flexDirection: 'column', overflow: 'hidden', cursor: 'pointer' }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <span className="text-xs fw-semibold" style={{ lineHeight: 1.1 }}>{getMeetingLabel(rule.meeting_type)}</span>
-                                {renderContactIcon(rule.contact_method, 12)}
-                            </div>
-                            <span className="text-xs font-mono" style={{ opacity: 0.8, marginTop: 'auto' }}>{rule.start_time.substring(0,5)}</span>
-                        </div>
-                    ))}
+                    }).map(rule => {
+                        const dStr = formatDateLocal(weekDays[rule.day_of_week - 1]);
+                        const dayLoc = dailyLocations.find(l => l.date === dStr);
+                        
+                        // HAISTELLAAN TULKKIMUUTOKSET REAALIAJASSA
+                        const isTranslatedToRemote = dayLoc && !dayLoc.is_auto_generated && dayLoc.location_type === 'eta' && rule.contact_method === 'kaynti';
+                        const isTranslatedToOffice = dayLoc && !dayLoc.is_auto_generated && dayLoc.location_type === 'lahityo' && rule.contact_method === 'puhelu';
+                        const isTranslated = isTranslatedToRemote || isTranslatedToOffice;
+                        const isInternalWork = dayLoc && dayLoc.location_type.startsWith('sisatyot_'); // UUSI: Onko päivä sisäistä työtä
+                        const effectiveMethod = isTranslatedToRemote ? 'puhelu' : (isTranslatedToOffice ? 'kaynti' : rule.contact_method);
 
+                        const baseStyle = getMeetingStyle(rule.meeting_type, false);
+
+                        return (
+                            <div 
+                                key={`rule-${rule.id}`} 
+                                onClick={() => setSelectedBlock({ data: rule, actionType: 'delete_rule', title: `Runkosääntö: ${getMeetingLabel(rule.meeting_type)}`, timeInfo: `${['Ma','Ti','Ke','To','Pe'][rule.day_of_week - 1]} klo ${rule.start_time.substring(0,5)}`, contact_method: rule.contact_method })}
+                                style={{ 
+                                    ...getGridPlacement(rule.day_of_week - 1, rule.start_time, rule.end_time), 
+                                    ...baseStyle,
+                                    backgroundColor: isInternalWork ? 'rgba(241, 245, 249, 0.6)' : 'rgba(248, 250, 252, 0.4)', // Sisäisessä työssä harmaa tausta
+                                    border: isInternalWork ? '1px dashed #94a3b8' : `1px dashed ${baseStyle.color}`,       
+                                    color: isInternalWork ? '#64748b' : baseStyle.color, // Harmaa teksti sisäisessä työssä
+                                    margin: '2px', 
+                                    borderRadius: '4px', 
+                                    padding: '0.25rem 0.5rem', 
+                                    zIndex: 4, 
+                                    display: 'flex', 
+                                    flexDirection: 'column', 
+                                    overflow: 'hidden', 
+                                    cursor: 'pointer' 
+                                }}
+                            >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <span className="text-xs fw-semibold" style={{ lineHeight: 1.1 }}>
+                                        {getMeetingLabel(rule.meeting_type)}
+                                        {isTranslatedToRemote && ' (Etänä)'}
+                                        {isTranslatedToOffice && ' (Lähityönä)'}
+                                    </span>
+                                    
+                                    {/* UUSI: VISUAALINEN ILMOITUS TULKKIMUUTOKSESTA TAI ESTOSTA */}
+                                    {isInternalWork ? (
+                                        <Lock size={12} color="#94a3b8" />
+                                    ) : isTranslated ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', backgroundColor: 'var(--color-surface)', padding: '1px 4px', borderRadius: '3px', border: `1px solid ${baseStyle.color}`, boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                                            {renderContactIcon(effectiveMethod, 10)}
+                                            <span style={{ fontSize: '0.55rem', fontWeight: '800', color: baseStyle.color }}>⚡Sopeutettu</span>
+                                        </div>
+                                    ) : (
+                                        renderContactIcon(rule.contact_method, 12)
+                                    )}
+                                </div>
+                                <span className="text-xs font-mono" style={{ opacity: 0.8, marginTop: 'auto' }}>{rule.start_time.substring(0,5)}</span>
+                            </div>
+                        );
+                    })}
+
+                    {/* ================= 2. VARATUT AJAT (SISÄLTÖ) ================= */}
                     {exceptions.filter(e => parseDBDateLocal(e.start_time).timeStr !== '00:00').map(exc => {
                         const { datePart, timeStr } = parseDBDateLocal(exc.start_time);
                         const dayIndex = weekDays.findIndex(d => formatDateLocal(d) === datePart);
@@ -528,25 +579,55 @@ const AvailabilityManager = () => {
 
                         const isBooked = exc.is_blocked && exc.meeting_type !== 'estetty';
                         const actionType = isBooked ? 'cancel_booking' : 'delete_exception';
+                        
+                        const typeConfig = meetingTypes.find(t => t.id === exc.meeting_type) || meetingTypes[0];
+
+                        // MUOTOILLAAN VARATUT AJAT ISTUMAAN NÄTISTI KEHYKSEN SISÄÄN (VIBRANT LOOK)
+                        const excStyle = isBooked ? {
+                            backgroundColor: typeConfig.color, // Täysin solid, voimakas taustaväri
+                            color: '#ffffff',                  // Valkoinen kontrastiteksti
+                            border: 'none',
+                            width: 'calc(100% - 12px)',        // Sisäänvedetty marginaali (Loksahdus-efekti)
+                            margin: '2px auto',
+                            boxShadow: '0 3px 6px rgba(0, 0, 0, 0.16)',
+                            borderRadius: '4px',
+                            padding: '0.25rem 0.5rem',
+                            zIndex: 10, // Aina kehyksen päällä
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                            cursor: 'pointer'
+                        } : {
+                            ...getMeetingStyle(exc.meeting_type, exc.is_blocked),
+                            margin: '2px 4px',
+                            borderRadius: '4px',
+                            padding: '0.25rem 0.5rem',
+                            zIndex: 10,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                            cursor: 'pointer'
+                        };
 
                         return (
                             <div 
                                 key={`exc-${exc.id}`} 
                                 onClick={() => setSelectedBlock({ data: exc, actionType: actionType, title: isBooked ? `Varattu: ${getMeetingLabel(exc.meeting_type)}` : `Avoin poikkeusaika: ${getMeetingLabel(exc.meeting_type)}`, timeInfo: `${datePart.split('-').reverse().join('.')} klo ${timeStr}`, contact_method: exc.contact_method })}
-                                style={{ ...getGridPlacement(dayIndex, timeStr, null), ...getMeetingStyle(exc.meeting_type, exc.is_blocked), margin: '2px 4px', borderRadius: '4px', padding: '0.25rem 0.5rem', zIndex: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden', cursor: 'pointer' }}
+                                style={{ ...getGridPlacement(dayIndex, timeStr, null), ...excStyle }}
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <span className="text-xs fw-bold" style={{ lineHeight: 1.1 }}>{isBooked ? `VARATTU: ${getMeetingLabel(exc.meeting_type)}` : `Avoin: ${getMeetingLabel(exc.meeting_type)}`}</span>
+                                    <span className="text-xs fw-bold" style={{ lineHeight: 1.1 }}>
+                                        {isBooked ? `VARATTU: ${getMeetingLabel(exc.meeting_type)}` : `Avoin: ${getMeetingLabel(exc.meeting_type)}`}
+                                    </span>
                                     {renderContactIcon(exc.contact_method, 12)}
                                 </div>
-                                <span className="text-xs font-mono" style={{ marginTop: 'auto', opacity: 0.9 }}>{timeStr}</span>
+                                <span className="text-xs font-mono" style={{ marginTop: 'auto', opacity: isBooked ? 0.9 : 0.9 }}>{timeStr}</span>
                             </div>
                         );
                     })}
                 </div>
             </Card>
 
-            {/* UUSI: Tuodaan erillinen lomakekomponentti sivuille */}
             <AvailabilityForms 
                 expertId={EXPERT_ID} 
                 rules={rules} 
