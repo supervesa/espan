@@ -2,8 +2,9 @@
 import React, { useState } from 'react';
 import Card from '../common/Card';
 import Button from '../common/Button';
-import { Info, Building, Home, Sliders, CalendarCheck, RotateCcw, ShieldCheck, CheckCircle, Landmark, Printer, Flag, Lightbulb, Zap } from 'lucide-react';
+import { Info, Sliders, CalendarCheck, RotateCcw, Landmark, Printer, Flag, Lightbulb, Zap } from 'lucide-react';
 import ReportModal from './ReportModal'; 
+import LocalTransportPanel from './LocalTransportPanel';
 
 const LocationPlanner = ({ 
     currentWeekStart, 
@@ -262,6 +263,15 @@ const LocationPlanner = ({
                     </div>
                 )}
             </div>
+
+            {/* ================= LIPPULASKURI (ERIYTETTY KOMPONENTTI) ================= */}
+            <LocalTransportPanel 
+                currentWeekStart={currentWeekStart}
+                dailyLocations={dailyLocations}
+                exceptions={exceptions}
+                nationalHolidays={nationalHolidays}
+                settings={settings}
+            />
 
             {/* ================= 1. 4 VIIKON KOKONAISSALDO (MASTER PANEL) ================= */}
             <Card title="Yhteenveto: 4 viikon kokonaistilanne" icon={Info} variant={isOverallDeficit ? 'warning' : 'default'}>

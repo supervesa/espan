@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarCheck, Lock, ChevronLeft, ChevronRight, Phone, MapPin, Trash2, AlertTriangle, CalendarX } from 'lucide-react';
+import { CalendarCheck, Lock, ChevronLeft, ChevronRight, Phone, MapPin, Trash2, AlertTriangle, CalendarX, Star, AlertCircle, Info } from 'lucide-react';
 
 const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, confirmedCount, weekOffset = 0, onOffsetChange, bookedSlots = [] }) => {
     const [currentMode, setCurrentMode] = useState('puhelu');
@@ -54,12 +54,24 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
 
     const isHC = Math.max(0, ...Object.values(dailyCounts)) > 3;
 
+    // Tunnistetaan, onko ruudulla mitään poikkeusaikoja, jotta seliterivi voidaan näyttää
+    const hasSpecialSlots = useMemo(() => {
+        return filteredSlots.some(s => s.isAnchor || s.isBorrowed);
+    }, [filteredSlots]);
+
     const toggleSlot = (slotObj) => {
         const existingIndex = basket.findIndex(b => b.time.getTime() === slotObj.time.getTime());
         if (existingIndex >= 0) {
             setBasket(basket.filter((_, i) => i !== existingIndex));
         } else {
-            setBasket([...basket, { time: slotObj.time, mode: slotObj.mode || currentMode }]);
+            // TALLENNETAAN MYÖS TULKIN VAROITUKSET OSTOSKORIIN
+            setBasket([...basket, { 
+                time: slotObj.time, 
+                mode: slotObj.mode || currentMode,
+                isAnchor: slotObj.isAnchor,
+                isBorrowed: slotObj.isBorrowed,
+                label: slotObj.label
+            }]);
         }
     };
 
@@ -95,6 +107,16 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                 )}
             </div>
 
+            {/* UUSI: SELITELAATIKKO (Legend) */}
+            {hasSpecialSlots && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '12px', padding: '8px 12px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.7rem', color: '#475569' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}><Info size={12} color="#64748b" /> Erikoisajat:</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Star size={10} fill="#fbbf24" color="#d97706" /> Vain alkuhaastattelulle</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={10} color="#f97316" /> Lainattu täydentävistä</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><AlertCircle size={10} color="#ef4444" /> Lainattu aktivoinnista</div>
+                </div>
+            )}
+
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1.5rem' }}>
                 {filteredSlots.length > 0 ? (
                     filteredSlots.map((s, i) => {
@@ -102,13 +124,63 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                         const h = s.time.getHours();
                         const m = String(s.time.getMinutes()).padStart(2, '0');
                         
+                        // Määritetään värit ja ikonit Tulkin datan perusteella
+                        let bg = '#fff';
+                        let borderColor = '#cbd5e1';
+                        let textColor = '#334155';
+                        const isSevere = s.label?.includes('aktivoinnista');
+                        
+                        if (inBasket) {
+                            bg = '#dcfce7';
+                            borderColor = '#22c55e';
+                            textColor = '#166534';
+                        } else if (s.isAnchor) {
+                            bg = '#fef3c7'; // vaalea kulta
+                            borderColor = '#fbbf24';
+                            textColor = '#92400e';
+                        } else if (s.isBorrowed) {
+                            bg = isSevere ? '#fef2f2' : '#fff7ed'; // punertava tai oranssihtava
+                            borderColor = isSevere ? '#fca5a5' : '#fdba74';
+                            textColor = isSevere ? '#b91c1c' : '#c2410c';
+                        }
+                        
                         return (
                             <button 
                                 key={`free-${i}`} 
                                 onClick={() => toggleSlot(s)}
-                                style={{ padding: '6px 10px', background: inBasket ? '#dcfce7' : '#fff', border: `1px solid ${inBasket ? '#22c55e' : '#cbd5e1'}`, borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', color: inBasket ? '#166534' : '#334155', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                {s.time.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m} 
-                                {s.mode === 'kaynti' ? <MapPin size={12} /> : <Phone size={12} />}
+                                style={{ 
+                                    padding: '6px 10px', 
+                                    background: bg, 
+                                    border: `1px solid ${borderColor}`, 
+                                    borderRadius: '6px', 
+                                    fontSize: '0.75rem', 
+                                    fontWeight: 600, 
+                                    cursor: 'pointer', 
+                                    color: textColor, 
+                                    transition: 'all 0.2s', 
+                                    display: 'flex',
+                                    flexDirection: 'column', 
+                                    alignItems: 'flex-start', 
+                                    gap: '2px',
+                                    minWidth: '130px' // Pidetään napit hieman leveämpinä
+                                }}>
+                                
+                                {/* Ylärivi: Kellonaika ja Tyyppi */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '8px' }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        {s.time.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m} 
+                                    </span>
+                                    {s.mode === 'kaynti' ? <MapPin size={12} /> : <Phone size={12} />}
+                                </div>
+
+                                {/* Alarivi: Varoitusteksti, jos olemassa */}
+                                {(s.isAnchor || s.isBorrowed) && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', opacity: 0.9, marginTop: '2px' }}>
+                                        {s.isAnchor && <><Star size={10} fill="#fbbf24" color="#d97706" /> Alkuhaastattelu</>}
+                                        {s.isBorrowed && !isSevere && <><AlertTriangle size={10} color="#f97316" /> Lainattu: Täydentävä</>}
+                                        {s.isBorrowed && isSevere && <><AlertCircle size={10} color="#ef4444" /> Lainattu: Aktivointi</>}
+                                    </div>
+                                )}
                             </button>
                         );
                     })
@@ -117,7 +189,7 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                 )}
             </div>
 
-            {/* UUSI BETA-OSIO: Varatut ajat katseluikkunassa */}
+            {/* BETA-OSIO: Varatut ajat katseluikkunassa */}
             {visibleBookedSlots.length > 0 && (
                 <div style={{ marginBottom: '1.5rem', paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
                     <h5 style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -155,7 +227,7 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                 </div>
             )}
 
-            {/* Ostoskori-osio pysyy ennallaan */}
+            {/* Ostoskori-osio */}
             {basket.length > 0 && (
                 <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
                     <div style={{ background: isHC ? '#fef2f2' : '#f8fafc', padding: '8px 12px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -174,9 +246,24 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                         {basket.sort((a,b) => a.time - b.time).map((item, idx) => {
                             const h = item.time.getHours();
                             const m = String(item.time.getMinutes()).padStart(2, '0');
+                            const isSevere = item.label?.includes('aktivoinnista');
+                            
                             return (
-                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '6px 10px', borderRadius: '6px', fontSize: '0.75rem' }}>
-                                    <strong>{item.time.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m}</strong>
+                                <div key={idx} style={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between', 
+                                    alignItems: 'center', 
+                                    background: '#f8fafc', 
+                                    padding: '6px 10px', 
+                                    borderRadius: '6px', 
+                                    fontSize: '0.75rem',
+                                    borderLeft: item.isAnchor ? '3px solid #fbbf24' : (item.isBorrowed ? (isSevere ? '3px solid #fca5a5' : '3px solid #fdba74') : 'none')
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        {item.isAnchor && <Star size={12} fill="#fbbf24" color="#d97706" />}
+                                        {item.isBorrowed && (isSevere ? <AlertCircle size={12} color="#ef4444" /> : <AlertTriangle size={12} color="#f97316" />)}
+                                        <strong>{item.time.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m}</strong>
+                                    </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <div style={{ display: 'flex', gap: '4px' }}>
                                             <button onClick={() => updateBasketMode(item.time, 'puhelu')} title="Vaihda puheluksi" style={{ border: 'none', background: item.mode === 'puhelu' ? '#e2e8f0' : 'transparent', padding: '4px', borderRadius: '4px', cursor: 'pointer', color: item.mode === 'puhelu' ? '#0f172a' : '#94a3b8' }}><Phone size={12}/></button>
