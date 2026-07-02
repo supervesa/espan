@@ -2,22 +2,23 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
-import { parseTicketData } from './utils/ticketParser.js';
+// HUOM: AI-parseria ei enää importata täällä!
 
 const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
-
-// Alustetaan Supabase Service Role Keyllä, jotta taustajärjestelmä voi ohittaa RLS-säännöt
-const supabase = createClient(
-    process.env.VITE_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 export const handler = async (event) => {
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
-    console.log("Käynnistetään sähköpostien haku ja tekoälyjäsennys...");
+    // SIIRRETTY TÄNNE: Alustetaan Supabase vasta kun funktiota kutsutaan.
+    // Tämä korjaa Netlifyn "supabaseKey is required" -virheen lopullisesti!
+    const supabase = createClient(
+        process.env.VITE_SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+
+    console.log("Käynnistetään sähköpostien nopea haku (ilman tekoälyä)...");
 
     const client = new ImapFlow({
         host: 'imap.gmail.com',
@@ -67,12 +68,13 @@ export const handler = async (event) => {
 
             console.log(`Gmail löysi yhteensä ${targetMessages.length} potentiaalista matkakohdetta.`);
 
-            const MAX_NEW_TICKETS_PER_RUN = 3;
+            // Voidaan nyt nostaa rajaa, koska AI ei hidasta prosessia
+            const MAX_NEW_TICKETS_PER_RUN = 10; 
             let newlyProcessedCount = 0;
 
             for (const uid of targetMessages) {
                 if (newlyProcessedCount >= MAX_NEW_TICKETS_PER_RUN) {
-                    console.log(` Saavutettiin eräajon maksimiraja (${MAX_NEW_TICKETS_PER_RUN} uutta kuittia). Katkaistaan luuppi.`);
+                    console.log(` Saavutettiin eräajon maksimiraja. Katkaistaan luuppi.`);
                     break;
                 }
 
@@ -113,10 +115,8 @@ export const handler = async (event) => {
                 const cleanHtml = $.html();
                 const cleanText = $.text().replace(/\s+/g, ' ').trim();
 
-                // COPIER-ESTO / SUODATUS: Jos viesti on OnniBusilta, mutta siinä ei ole tilausyhteenvetoa,
-                // kyseessä on muistutus ("Matkasi lähestyy!") tai uutiskirje. Ohitetaan se suoraan!
+                // Muistutusten suodatus (OnniBus)
                 if (isOnni && !cleanText.includes('TILAUKSEN YHTEENVETO')) {
-                    console.log(` ⚠️ Ohitetaan OnniBus-viesti (ei sisällä tilausyhteenvetoa): "${subject}"`);
                     continue;
                 }
 
@@ -143,28 +143,13 @@ export const handler = async (event) => {
 
                 const bucketFileUrl = urlData.publicUrl;
 
-                console.log(`Kutsutaan tekoälyä kohteelle: ${providerPrefix}`);
-                
-                let aiResult;
-                try {
-                    aiResult = await parseTicketData(cleanText, emailReceivedAt.toISOString(), subject, fromAddress);
-                } catch (aiError) {
-                    console.error("Tekoäly lakkasi vastaamasta tälle riville:", aiError.message);
-                    continue; 
-                }
+                // TÄSSÄ KOHTAA EI ENÄÄ KUTSUTA TEKOÄLYÄ!
+                // Valmistellaan vain placeholder-tiedot kantaan.
 
                 let keywords = [providerPrefix];
                 if (isVR) keywords.push('juna');
                 if (isOnni || isKorsisaari) keywords.push('bussi', 'linja-auto');
                 if (isKorsisaari) keywords.push('paikallisliikenne', 'klaukkala');
-
-                const aiMetadata = {
-                    confidenceScore: aiResult.confidenceScore,
-                    leadTimeHours: aiResult.leadTimeHours,
-                    smartTags: aiResult.smartTags,
-                    priceTrend: aiResult.priceTrend,
-                    anomalyInfo: aiResult.anomalyInfo || null
-                };
 
                 const { error: insertError } = await supabase
                     .schema('espan')
@@ -173,18 +158,18 @@ export const handler = async (event) => {
                         expert_id: EXPERT_ID,
                         status: 'pending',
                         email_received_at: emailReceivedAt.toISOString(),
-                        departure_time: aiResult.departure_time,
-                        total_price: aiResult.total_price,
-                        route_info: aiResult.route_info,
+                        departure_time: emailReceivedAt.toISOString(), // Placeholder-aika
+                        total_price: 0, // Placeholder-hinta
+                        route_info: "Odottaa AI-analyysia...", 
                         keywords: keywords,
                         bucket_file_url: bucketFileUrl,
-                        ai_metadata: aiMetadata
+                        ai_metadata: null // Jätetään tyhjäksi, jotta UI osaa näyttää latausnapin
                     }]);
 
                 if (insertError) {
                     console.error("Virhe tietokantatallennuksessa:", insertError);
                 } else {
-                    console.log(`✅ Onnistunut kirjaus: ${aiResult.route_info} (${aiResult.total_price} €)`);
+                    console.log(`✅ Kuitti haettu ja tallennettu jonoon: ${subject}`);
                     results.push({ subject, from: fromAddress, status: 'processed' });
                     newlyProcessedCount++; 
                 }
