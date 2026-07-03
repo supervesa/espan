@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Button from '../../common/Button';
 import AIInsightsPanel from './AIInsightsPanel';
-import { CheckCircle, Trash2, MapPin, Calendar, CreditCard, Loader2 } from 'lucide-react';
+import { CheckCircle, Trash2, MapPin, Calendar, CreditCard, Loader2, Save, Undo } from 'lucide-react';
 
 const TicketSplitScreen = ({ receipt, onApprove, onReject, onCancel }) => {
     const [formData, setFormData] = useState({
@@ -11,11 +11,12 @@ const TicketSplitScreen = ({ receipt, onApprove, onReject, onCancel }) => {
         total_price: receipt.total_price || ''
     });
 
-    // UUDET TILAT KUITIN LATAUSTA VARTEN
     const [htmlContent, setHtmlContent] = useState('');
     const [loadingReceipt, setLoadingReceipt] = useState(false);
 
-    // HAETAAN KUITIN SISÄLTÖ JA KORJATAAN MERKKIKOODAUS
+    // Onko tämä uusi kuitti vai vanhan muokkaus?
+    const isAlreadyApproved = receipt.status === 'approved';
+
     useEffect(() => {
         const fetchReceiptHtml = async () => {
             if (!receipt.bucket_file_url) return;
@@ -23,13 +24,9 @@ const TicketSplitScreen = ({ receipt, onApprove, onReject, onCancel }) => {
             setLoadingReceipt(true);
             try {
                 const response = await fetch(receipt.bucket_file_url);
-                
-                // Haetaan data puskurina (buffer) ja pakotetaan UTF-8 dekoodaus,
-                // jotta ääkköset (ä, ö) näkyvät oikein riippumatta Supabasen asetuksista.
                 const buffer = await response.arrayBuffer();
                 const decoder = new TextDecoder('utf-8');
                 const text = decoder.decode(buffer);
-                
                 setHtmlContent(text);
             } catch (error) {
                 console.error("Kuitin lataus epäonnistui:", error);
@@ -53,16 +50,20 @@ const TicketSplitScreen = ({ receipt, onApprove, onReject, onCancel }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto', paddingRight: '1rem' }}>
                 <div>
                     <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.25rem', color: 'var(--color-text)' }}>
-                        Vahvista matkakulu
+                        {isAlreadyApproved ? 'Muokkaa matkan tietoja' : 'Vahvista matkakulu'}
                     </h3>
                     <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
-                        Tarkista tekoälyn poimimat tiedot ja korjaa tarvittaessa ennen hyväksyntää.
+                        {isAlreadyApproved 
+                            ? 'Voit korjata matkustuspäivää, hintaa tai reittiä. Muutokset päivittyvät suoraan budjettiin.' 
+                            : 'Tarkista tekoälyn poimimat tiedot ja korjaa tarvittaessa ennen hyväksyntää.'}
                     </p>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div>
-                        <label className="text-sm fw-semibold text-primary" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}><Calendar size={14}/> Lähtöaika</label>
+                        <label className="text-sm fw-semibold text-primary" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                            <Calendar size={14}/> Matkustuspäivä (Lähtöaika)
+                        </label>
                         <input 
                             type="datetime-local" 
                             className="modern-input" 
@@ -71,7 +72,9 @@ const TicketSplitScreen = ({ receipt, onApprove, onReject, onCancel }) => {
                         />
                     </div>
                     <div>
-                        <label className="text-sm fw-semibold text-primary" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}><MapPin size={14}/> Reitti / Selite</label>
+                        <label className="text-sm fw-semibold text-primary" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                            <MapPin size={14}/> Reitti / Selite
+                        </label>
                         <input 
                             type="text" 
                             className="modern-input" 
@@ -80,7 +83,9 @@ const TicketSplitScreen = ({ receipt, onApprove, onReject, onCancel }) => {
                         />
                     </div>
                     <div>
-                        <label className="text-sm fw-semibold text-primary" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}><CreditCard size={14}/> Hinta (€)</label>
+                        <label className="text-sm fw-semibold text-primary" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                            <CreditCard size={14}/> Hinta (€)
+                        </label>
                         <input 
                             type="number" 
                             step="0.01"
@@ -92,19 +97,21 @@ const TicketSplitScreen = ({ receipt, onApprove, onReject, onCancel }) => {
                     </div>
                 </div>
 
-                <AIInsightsPanel metadata={receipt.ai_metadata} />
+                {/* Tekoälypaneeli näytetään vain jos kyseessä ei ole käyttäjän manuaalisesti luoma "0€ ohituskuitti" */}
+                {!receipt.ai_metadata?.isVirtual && (
+                    <AIInsightsPanel metadata={receipt.ai_metadata} />
+                )}
 
                 <div style={{ marginTop: 'auto', paddingTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <Button variant="success" icon={CheckCircle} onClick={handleSave} fullWidth>
-                        Hyväksy kuitti kirjanpitoon
+                    <Button variant="success" icon={isAlreadyApproved ? Save : CheckCircle} onClick={handleSave} fullWidth>
+                        {isAlreadyApproved ? 'Tallenna muutokset' : 'Hyväksy kuitti kirjanpitoon'}
                     </Button>
                     <div style={{ display: 'flex', gap: '0.75rem' }}>
                         <Button variant="secondary" onClick={onCancel} fullWidth>Peruuta</Button>
-                        <Button variant="danger" icon={Trash2} onClick={() => onReject(receipt.id)} fullWidth>Hylkää</Button>
+                        <Button variant="danger" icon={isAlreadyApproved ? Undo : Trash2} onClick={() => onReject(receipt.id)} fullWidth>
+                            {isAlreadyApproved ? 'Hylkää ja poista kuitti' : 'Hylkää'}
+                        </Button>
                     </div>
-                    <p style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary)', textAlign: 'center', margin: 0 }}>
-                        Hyväksyminen vahvistaa tekoälyn oletukset ja tarkentaa tulevaisuuden ennusteita.
-                    </p>
                 </div>
             </div>
 
@@ -131,7 +138,11 @@ const TicketSplitScreen = ({ receipt, onApprove, onReject, onCancel }) => {
                             title="Tosite"
                         />
                     ) : (
-                        <div style={{ margin: 'auto', color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}>Tositetiedostoa ei voitu ladata.</div>
+                        <div style={{ margin: 'auto', color: 'var(--color-text-secondary)', fontSize: '0.9rem', textAlign: 'center' }}>
+                            {receipt.ai_metadata?.isVirtual 
+                                ? "Tämä on manuaalisesti luotu ohitusmerkintä, ei alkuperäistä tositetta." 
+                                : "Tositetiedostoa ei voitu ladata."}
+                        </div>
                     )}
 
                 </div>

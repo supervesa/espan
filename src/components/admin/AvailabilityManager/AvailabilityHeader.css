@@ -1,0 +1,59 @@
+/* --- src/components/admin/AvailabilityManager/AvailabilityHeader.css --- */
+
+.availability-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--color-surface);
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+/* Näkymä-toggle (Vasen reuna) */
+.availability-header__toggle {
+    display: flex;
+    background-color: #f1f5f9;
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+}
+
+.availability-header__toggle button {
+    flex: 1;
+}
+
+/* Viikkovieritin (Oikea reuna) */
+.availability-header__scroller {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background-color: #fff;
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+}
+
+.availability-header__week-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 140px;
+}
+
+.availability-header__week-number {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.availability-header__week-dates {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    font-weight: 600;
+}

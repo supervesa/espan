@@ -6,8 +6,11 @@ export const parseTicketData = async (emailText, emailReceivedAt, subject, sende
     let analyzedText = emailText;
     let deterministicFacts = "";
 
-    // Tarkistetaan onko kyseessä aito OnniBus-kuitti
-    if (sender.toLowerCase().includes('onnibus') || subject.toLowerCase().includes('onnibus')) {
+    const isKorsisaari = sender.toLowerCase().includes('payiq') || subject.toLowerCase().includes('korsisaari');
+    const isOnnibus = sender.toLowerCase().includes('onnibus') || subject.toLowerCase().includes('onnibus');
+
+    // 1. ONNIBUS-LOGIIKKA
+    if (isOnnibus) {
         const searchKeyword = 'TILAUKSEN YHTEENVETO';
         
         // Joustava giljotiini: Etsitään missä kohti tekstiä alkaa "TILAUKSEN YHTEENVETO"
@@ -25,11 +28,13 @@ export const parseTicketData = async (emailText, emailReceivedAt, subject, sende
             const firstDepartureTime = `20${YY}-${MM}-${DD}T${HH}:${mm}:00`;
 
             if (matches.length === 1) {
-                deterministicFacts = `
+                deterministicFacts += `
 !!! HUOMIO: OHJELMALLISESTI VAHVISTETUT FAKTAT !!!
-Tietokone on jo lukenut matkalipun viivakoodista seuraavat faktat. ÄLÄ YRITÄ ARVATA NÄITÄ, vaan käytä tismalleen näitä arvoja:
-- Matkan tyyppi: Yksisuuntainen
-- departure_time: "${firstDepartureTime}"
+Tietokone on lukenut kuitista vain YHDEN matkan viivakoodin. Käytä EHDOTTOMASTI näitä arvoja:
+- Matkan tyyppi: Yksisuuntainen. 
+- Aseta 'route_info' tarkkaan muotoon: "Yhdensuuntainen: [Mistä] - [Mihin]". (Älä ikinä käytä sanaa meno-paluu tälle kuitille!).
+- Aseta 'departure_time': "${firstDepartureTime}"
+- Lisää 'smartTags'-taulukkoon tagi "Yhdensuuntainen ➡️".
 `;
                 console.log(`[Ticket Parser] Löydettiin 1 OnniBus-matka: ${firstDepartureTime}`);
             
@@ -37,18 +42,29 @@ Tietokone on jo lukenut matkalipun viivakoodista seuraavat faktat. ÄLÄ YRITÄ 
                 const [ , rDD, rMM, rYY, rHH, rmm ] = matches[1];
                 const returnTime = `20${rYY}-${rMM}-${rDD}T${rHH}:${rmm}:00`;
                 
-                deterministicFacts = `
+                deterministicFacts += `
 !!! HUOMIO: OHJELMALLISESTI VAHVISTETUT FAKTAT !!!
-Tietokone on lukenut viivakoodeista, että kyseessä on MENOPALUU-matka (tai useampi lippu samassa kuitissa). Noudata EHDOTTOMASTI näitä ohjeita:
-- Aseta 'route_info' muotoon: "Meno-paluu: [Mistä] - [Mihin]"
+Tietokone on lukenut kuitista USEAMMAN viivakoodin, joten kyseessä on MENOPALUU. Noudata EHDOTTOMASTI näitä ohjeita:
+- Aseta 'route_info' tarkkaan muotoon: "Meno-paluu: [Mistä] - [Mihin]"
 - Aseta 'departure_time' ensimmäisen matkan ajaksi: "${firstDepartureTime}"
-- Toisen matkan (paluu) aika on: "${returnTime}" (käytä tätä tietoa ostoennakon tai trendin arvioinnissa, mutta tallenna departure_timeen vain ensimmäinen aika).
-- Varmista, että etsit 'total_price' kenttään KOKO KUITIN loppusumman, joka löytyy tyypillisesti TOSITE-otsikoiden yhteydestä.
-- Lisää smartTags-taulukkoon tagit "Meno-paluu 🔄" ja "OnniBus 🚌".
+- Toisen matkan (paluu) aika on: "${returnTime}" (käytä tätä ostoennakon arvioinnissa, mutta tallenna departure_timeen vain eka).
+- Varmista, että etsit 'total_price' kenttään KOKO KUITIN KOKONAISSUMMAN, ei vain yhtä matkaa.
+- Lisää 'smartTags'-taulukkoon tagit "Meno-paluu 🔄" ja "OnniBus 🚌".
 `;
                 console.log(`[Ticket Parser] Löydettiin Menopaluu! Meno: ${firstDepartureTime}, Paluu: ${returnTime}`);
             }
         }
+    }
+
+    // 2. KORSISAARI / PAIKALLISLIIKENNE -LOGIIKKA
+    if (isKorsisaari) {
+        deterministicFacts += `
+!!! HUOMIO PAIKALLISLIIKENTEESTÄ !!!
+Kyseessä on paikallisliikenteen kuitti (Korsisaari / PayiQ). Noudata näitä ohjeita:
+1. Koska kertalipuissa ei lue erikseen lähtöaikaa tulevaisuudessa, aseta 'departure_time' samaksi kuin kuitin ostoaika: "${emailReceivedAt}".
+2. Etsi kokonaishinta (total_price) sanojen "Yhteensä", "Loppusumma" tai "Hinta" läheisyydestä.
+3. ÄLYKÄS TAGI (TÄRKEÄ): Jos kuitin loppusumma on suuri (esim. yli 40€) TAI tekstissä mainitaan sana "kausilippu" tai "30", lisää EHDOTTOMASTI 'smartTags'-listaan tagi "Kausilippu 🎫".
+`;
     }
 
     // JSON-SKEEMA GEMINILLE
@@ -66,7 +82,7 @@ Tietokone on lukenut viivakoodeista, että kyseessä on MENOPALUU-matka (tai use
                 description: "2-4 tagia (max 20 merkkiä/kpl). Sisällytä kulkuväline-emoji ja tilannekuvaus."
             },
             priceTrend: { type: SchemaType.NUMBER, description: "Arvio hinnasta prosentteina vs. keskihinta (esim. -10 jos halpa, 15 jos kallis, 0 jos normaali)" },
-            anomalyInfo: { type: SchemaType.STRING, nullable: true, description: "Lyhyt selitys, jos havaitsit poikkeavuuden" }
+            anomalyInfo: { type: SchemaType.STRING, nullable: true, description: "Lyhyt selitys, jos havaitsit poikkeavuuden. Jos kaikki kunnossa, aseta null." }
         },
         required: ["total_price", "departure_time", "route_info", "confidenceScore", "leadTimeHours", "smartTags", "priceTrend"]
     };
@@ -78,6 +94,7 @@ SÄHKÖPOSTIN METADATA:
 - Otsikko: ${subject}
 - Lähettäjä: ${sender}
 - Saapunut (ostohetki): ${emailReceivedAt}
+
 ${deterministicFacts}
 
 KUITIN (LEIKATTU) RAAKATEKSTI:
@@ -85,9 +102,9 @@ ${analyzedText}
 
 OHJEET:
 1. Etsi kokonaishinta (total_price).
-2. Päättele reitti (Mistä - Mihin), tai tottele vahvistettuja faktoja.
-3. Laske ostoennakko (leadTimeHours) sähköpostin saapumisajan ja (ensimmäisen) matkan lähtöajan välillä.
-4. Luo älykkäät tagit.
+2. Päättele reitti (Mistä - Mihin), tai tottele vahvistettuja faktoja jos niitä yllä annettiin.
+3. Laske ostoennakko (leadTimeHours) sähköpostin saapumisajan ja matkan lähtöajan välillä.
+4. Luo älykkäät tagit faktojen ja sisällön pohjalta.
 5. Palauta vastaus tiukasti JSON-skeeman mukaisesti.
     `;
 

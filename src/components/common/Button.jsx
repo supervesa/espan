@@ -23,7 +23,10 @@ const Button = ({
         borderRadius: 'var(--border-radius)',
         cursor: disabled ? 'not-allowed' : 'pointer',
         transition: 'all 0.15s ease',
-        border: '1px solid transparent',
+        // KORJAUS: Purettiin 'border: 1px solid transparent' erillisiksi säännöiksi
+        borderWidth: '1px',
+        borderStyle: 'solid',
+        borderColor: 'transparent',
         width: fullWidth ? '100%' : 'auto',
     };
 

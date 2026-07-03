@@ -13,12 +13,18 @@ export const useLocalTransportStats = ({
     dailyLocations, 
     exceptions, 
     nationalHolidays, 
-    settings 
+    settings,
+    arriveDayBefore
 }) => {
     
     const ticketPrice = settings?.bus_ticket_price_eur || 8.06;
 
-    // 1. KULUVAN VIIKON ENNUSTE (Vain 5 päivää)
+    // KORJAUS: Vakaa tekstiavain (esim. "2026-07-03")
+    const weekStartKey = currentWeekStart 
+        ? new Date(currentWeekStart).toISOString().split('T')[0] 
+        : null;
+
+    // 1. KULUVAN VIIKON ENNUSTE
     const forecast = useMemo(() => {
         if (!currentWeekStart) return null;
 
@@ -44,7 +50,19 @@ export const useLocalTransportStats = ({
 
         let tulo = 0, vali = 0, lahto = 0, localTickets = 0;
         
-        if (officeDaysCount >= 2) {
+        if (arriveDayBefore && officeDaysCount > 0) {
+            if (officeDaysCount === 1) {
+                tulo = 1;
+                vali = 0;
+                lahto = 0;
+                localTickets = 1;
+            } else {
+                tulo = 2;
+                vali = (officeDaysCount - 2) * 2;
+                lahto = 1;
+                localTickets = ((officeDaysCount - 1) * 2) + 1;
+            }
+        } else if (officeDaysCount >= 2) {
             tulo = 1;
             vali = (officeDaysCount - 2) * 2;
             lahto = 1;
@@ -60,15 +78,14 @@ export const useLocalTransportStats = ({
             lahto,
             ticketPrice
         };
-    }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, settings, ticketPrice]);
+    }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, settings, ticketPrice, arriveDayBefore]);
 
-    // 2. HINNASTON HAKU SUPABASESTA (Ajetaan kerran)
+    // 2. HINNASTON HAKU SUPABASESTA
     const [dbPrices, setDbPrices] = useState([]);
     
     useEffect(() => {
         const fetchPrices = async () => {
             try {
-                // KORJATTU: Lisätty .schema('espan')
                 const { data, error } = await supabase
                     .schema('espan')
                     .from('ticket_prices')
@@ -77,7 +94,6 @@ export const useLocalTransportStats = ({
                 if (error) throw error;
                 
                 if (data) {
-                    // Muutetaan kanta-data suoraan algoritmin ymmärtämään muotoon
                     const formattedPrices = data.map(row => ({
                         name: row.trip_count ? `${row.trip_count} matkan sarjalippu` : `${row.validity_days}pv Kausilippu`,
                         type: row.ticket_type,
@@ -95,7 +111,7 @@ export const useLocalTransportStats = ({
         fetchPrices();
     }, []);
 
-    // 3. ÄLYKÄS SÄÄSTÖTUTKA (28 pv optimointi todellisella aikavälillä)
+    // 3. ÄLYKÄS SÄÄSTÖTUTKA
     const optimization = useMemo(() => {
         if (!currentWeekStart || dbPrices.length === 0) return null;
         
@@ -129,12 +145,20 @@ export const useLocalTransportStats = ({
                 }
             }
             
-            if (weeklyOfficeDays >= 2) {
-                const tripsThisWeek = (weeklyOfficeDays - 1) * 2;
-                total28DayTrips += tripsThisWeek;
-                
-                if (firstTicketDay === null) firstTicketDay = weekFirstOfficeDay;
-                lastTicketDay = weekLastOfficeDay;
+            if (weeklyOfficeDays > 0) {
+                let tripsThisWeek = 0;
+
+                if (w === 0 && arriveDayBefore) {
+                    tripsThisWeek = weeklyOfficeDays === 1 ? 1 : ((weeklyOfficeDays - 1) * 2) + 1;
+                } else if (weeklyOfficeDays >= 2) {
+                    tripsThisWeek = (weeklyOfficeDays - 1) * 2;
+                }
+
+                if (tripsThisWeek > 0) {
+                    total28DayTrips += tripsThisWeek;
+                    if (firstTicketDay === null) firstTicketDay = weekFirstOfficeDay;
+                    lastTicketDay = weekLastOfficeDay;
+                }
             }
         }
 
@@ -143,7 +167,6 @@ export const useLocalTransportStats = ({
         let recommended = { name: 'Yksittäisliput kuitilla', price: singleTicketsCost };
 
         if (total28DayTrips > 0) {
-            // Vertaillaan Supabasesta haettuihin tuotteisiin
             const validOptions = dbPrices.filter(p => p.days >= spanDays && p.trips >= total28DayTrips);
             
             validOptions.forEach(opt => {
@@ -159,10 +182,9 @@ export const useLocalTransportStats = ({
             recommended,
             savings: singleTicketsCost - recommended.price
         };
-    }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, ticketPrice, dbPrices]);
+    }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, ticketPrice, dbPrices, arriveDayBefore]);
 
-
-    // 4. EDELLISEN VIIKON TOTEUMA (Historiadata Supabasesta)
+    // 4. EDELLISEN VIIKON TOTEUMA
     const [historicalData, setHistoricalData] = useState({
         ticketCount: 0,
         totalCost: 0,
@@ -172,20 +194,19 @@ export const useLocalTransportStats = ({
     });
 
     useEffect(() => {
-        if (!currentWeekStart) return;
+        if (!weekStartKey) return;
         let isMounted = true;
 
         const fetchHistoricalData = async () => {
             setHistoricalData(prev => ({ ...prev, loading: true }));
             try {
-                // Lasketaan edellisen viikon aikaikkuna (7 päivää taaksepäin nykyviikon alusta)
-                const prevWeekStart = new Date(currentWeekStart);
+                // Rakennetaan päivämäärät vakaasta avaimesta
+                const prevWeekStart = new Date(weekStartKey);
                 prevWeekStart.setDate(prevWeekStart.getDate() - 7);
                 
                 const startStr = prevWeekStart.toISOString();
-                const endStr = currentWeekStart.toISOString();
+                const endStr = new Date(weekStartKey).toISOString();
 
-                // KORJATTU: Lisätty .schema('espan')
                 const { data, error } = await supabase
                     .schema('espan')
                     .from('expert_ticket_receipts')
@@ -201,7 +222,6 @@ export const useLocalTransportStats = ({
                     const ticketCount = data.length;
                     const totalCost = data.reduce((sum, row) => sum + Number(row.total_price), 0);
                     
-                    // Katsotaan onko tekoäly jättänyt metatietoihin hintatrendejä tai poikkeamia
                     let aiMessage = null;
                     const receiptWithInsights = data.find(r => r.ai_metadata && (r.ai_metadata.priceTrendInfo || r.ai_metadata.anomalyInfo));
                     if (receiptWithInsights) {
@@ -223,7 +243,8 @@ export const useLocalTransportStats = ({
 
         fetchHistoricalData();
         return () => { isMounted = false; };
-    }, [currentWeekStart]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [weekStartKey]);
 
     return { forecast, optimization, historicalData };
 };

@@ -1,23 +1,61 @@
-import React, { useState } from 'react';
+// --- src/components/admin/journey/JourneyManager.jsx ---
+import React, { useState, useEffect } from 'react';
 import Card from '../../common/Card';
+import Button from '../../common/Button';
+import Badge from '../../common/Badge';
+import AlertBox from '../../common/AlertBox';
+import Accordion from '../../common/Accordion'; // UUSI IMPORT!
 import TicketSplitScreen from './TicketSplitScreen';
-import { useJourneyManager } from '../../../hooks/useJourneyManager';
-import { Bus, Train, Ticket, ChevronRight, Inbox, Clock, Loader2, RefreshCw } from 'lucide-react';
+import JourneyMatchmaker from './JourneyMatchmaker';
 
-const JourneyManager = () => {
+import { useJourneyManager } from '../../../hooks/useJourneyManager';
+import { useLocalTransportStats } from '../../../hooks/useLocalTransportStats';
+
+import { Bus, Train, Inbox, Clock, Loader2, RefreshCw, AlertTriangle, CheckCircle } from 'lucide-react';
+
+const JourneyManager = ({ 
+    currentWeekStart, 
+    dailyLocations = [], 
+    exceptions = [], 
+    nationalHolidays = [], 
+    settings = {}, 
+    arriveDayBefore = false 
+}) => {
     const [selectedReceipt, setSelectedReceipt] = useState(null);
-    const [isSyncing, setIsSyncing] = useState(false); // Tila manuaaliselle sähköpostien haulle
+    const [isSyncing, setIsSyncing] = useState(false);
     
-    // Otetaan älykäs Hook käyttöön, lisätään refreshReceipts jonon päivittämiseen
     const { 
         pendingReceipts, 
+        approvedReceipts,
         loading, 
         approveReceipt, 
         rejectReceipt,
-        refreshReceipts
+        refreshReceipts,
+        fetchApprovedReceipts,
+        addVirtualReceipt
     } = useJourneyManager();
 
-    // Funktio, joka kutsuu Netlify-funktiota ja hakee uudet kuitit livenä sähköpostista
+    const { forecast } = useLocalTransportStats({
+        currentWeekStart,
+        dailyLocations,
+        exceptions,
+        nationalHolidays,
+        settings,
+        arriveDayBefore
+    });
+
+    const weekStartKey = currentWeekStart 
+        ? new Date(currentWeekStart).toISOString().split('T')[0] 
+        : new Date().toISOString().split('T')[0];
+
+    useEffect(() => {
+        const start = currentWeekStart ? new Date(currentWeekStart) : new Date();
+        const end = new Date(start);
+        end.setDate(end.getDate() + 7);
+        fetchApprovedReceipts(start.toISOString(), end.toISOString());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [weekStartKey]);
+
     const handleFetchTickets = async () => {
         setIsSyncing(true);
         try {
@@ -25,12 +63,9 @@ const JourneyManager = () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
-            
             const result = await response.json();
-            
             if (response.ok) {
                 alert(`Haku onnistui! Prosessoituja uusia kuitteja: ${result.processedCount || 0}`);
-                // Päivitetään Supabase-jono heti käyttöliittymään
                 await refreshReceipts();
             } else {
                 throw new Error(result.error || 'Sähköpostien haku epäonnistui.');
@@ -53,7 +88,7 @@ const JourneyManager = () => {
     };
 
     const handleReject = async (receiptId) => {
-        if (!window.confirm("Haluatko varmasti hylätä ja piilottaa tämän kuitin?")) return;
+        if (!window.confirm("Haluatko varmasti hylätä ja piilottaa tämän kuitin? (Sitä ei lasketa kuluihin)")) return;
         
         const success = await rejectReceipt(receiptId);
         if (success) {
@@ -74,62 +109,100 @@ const JourneyManager = () => {
         );
     }
 
+    // Apufunktio kuittirivien piirtämiseen (käytetään sekä odottavissa että hyväksytyissä)
+    const renderReceiptRow = (receipt) => {
+        const metadata = receipt.ai_metadata || {};
+        const confidence = metadata.confidenceScore || 0;
+        const anomaly = metadata.anomalyInfo;
+        const isVirtual = metadata.isVirtual;
+        
+        const isTrain = (receipt.keywords || []).some(kw => ['vr', 'juna'].includes(kw.toLowerCase()));
+        const isBus = (receipt.keywords || []).some(kw => ['korsisaari', 'onnibus', 'bussi'].includes(kw.toLowerCase()));
+        const Icon = isTrain ? Train : (isBus ? Bus : Inbox);
+        
+        return (
+            <div 
+                key={receipt.id}
+                onClick={() => setSelectedReceipt(receipt)}
+                style={{ 
+                    display: 'flex', flexDirection: 'column', gap: '0.5rem',
+                    padding: '1rem', backgroundColor: isVirtual ? '#f8fafc' : '#fff', 
+                    border: '1px solid var(--color-border)', 
+                    borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.borderColor = 'var(--color-primary)'}
+                onMouseOut={(e) => e.currentTarget.style.borderColor = 'var(--color-border)'}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: isTrain ? 'rgba(37, 99, 235, 0.1)' : 'rgba(234, 88, 12, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isTrain ? '#2563eb' : '#ea580c' }}>
+                            {receipt.status === 'approved' && !isVirtual ? <CheckCircle size={20} color="#16a34a" /> : <Icon size={20} />}
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: '600', fontSize: '1rem', color: isVirtual ? 'var(--color-text-secondary)' : 'var(--color-text)' }}>
+                                {receipt.route_info || 'Reitti tuntematon'}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.8rem', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                                {receipt.departure_time && (
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <Clock size={14} /> 
+                                        {new Date(receipt.departure_time).toLocaleString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                )}
+                                
+                                {!isVirtual && receipt.status !== 'approved' && (
+                                    <Badge variant={confidence >= 90 ? 'success' : (confidence >= 70 ? 'warning' : 'danger')}>
+                                        Luotettavuus {confidence}%
+                                    </Badge>
+                                )}
+                                {isVirtual && <Badge variant="default">Manuaalinen ohitus</Badge>}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <span style={{ fontSize: '1.25rem', fontWeight: '800', color: isVirtual ? 'var(--color-text-secondary)' : 'var(--color-text)' }}>
+                            {receipt.total_price ? `${Number(receipt.total_price).toFixed(2)} €` : '0.00 €'}
+                        </span>
+                    </div>
+                </div>
+                
+                {anomaly && receipt.status !== 'approved' && (
+                    <div style={{ marginTop: '0.5rem' }}>
+                        <AlertBox type="warning" icon={AlertTriangle} customStyle={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem' }}>
+                            {anomaly}
+                        </AlertBox>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             
-            {/* MANUAALINEN PÄIVITYS PAINIKE */}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button
+                <Button
                     onClick={handleFetchTickets}
                     disabled={isSyncing || loading}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '10px 16px',
-                        backgroundColor: isSyncing ? 'var(--color-border)' : 'var(--color-primary)',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '8px',
-                        fontSize: '0.9rem',
-                        fontWeight: 'bold',
-                        cursor: (isSyncing || loading) ? 'not-allowed' : 'pointer',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                        transition: 'background-color 0.2s ease'
-                    }}
-                    onMouseOver={(e) => { if(!isSyncing && !loading) e.currentTarget.style.backgroundColor = '#e65c00' }}
-                    onMouseOut={(e) => { if(!isSyncing && !loading) e.currentTarget.style.backgroundColor = 'var(--color-primary)' }}
+                    icon={isSyncing ? Loader2 : RefreshCw}
+                    variant={isSyncing ? 'secondary' : 'primary'}
                 >
-                    {isSyncing ? (
-                        <>
-                            <Loader2 size={16} className="animate-spin" />
-                            <span>Haetaan sähköposteja...</span>
-                        </>
-                    ) : (
-                        <>
-                            <RefreshCw size={16} />
-                            <span>Hae uudet kuitit sähköpostista</span>
-                        </>
-                    )}
-                </button>
+                    {isSyncing ? 'Haetaan sähköposteja...' : 'Hae uudet kuitit sähköpostista'}
+                </Button>
             </div>
 
-            {/* VIIKON MATKABUDJETTI (VERSIO 1.0 LASKURI) */}
-            <Card title="Viikon matkabudjetti ja toteumat" icon={Ticket}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
-                    <div>
-                        <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', display: 'block' }}>Reaaliaikainen kulutusarvio (Vk 27)</span>
-                        <span style={{ fontSize: '2rem', fontWeight: '800', color: 'var(--color-primary)' }}>40.30 €</span>
-                    </div>
-                    <div style={{ textAlign: 'right', fontSize: '0.85rem', color: '#64748b' }}>
-                        <div>Klaukkalan paikallislippu: <strong>5 kpl (40,30 €)</strong></div>
-                        <div>Tulomatka: <strong>Odottaa tositetta</strong></div>
-                        <div>Menomatka: <strong>Odottaa tositetta</strong></div>
-                    </div>
-                </div>
-            </Card>
+            <JourneyMatchmaker 
+                currentWeekStart={currentWeekStart}
+                expectedLocalTickets={forecast?.localTickets || 0}
+                expectedLocalCost={forecast?.localCost || 0.00}
+                hasOfficeDays={(forecast?.officeDaysCount || 0) > 0}
+                approvedReceipts={approvedReceipts}
+                pendingReceipts={pendingReceipts}
+                onAddVirtualReceipt={addVirtualReceipt}
+            />
 
-            {/* KUITTIJONO (VERSIO 2.0 TARKASTUSJONO) */}
             <Card title={`Vahvistusta odottavat kuitit (${pendingReceipts.length})`} icon={Inbox} variant={pendingReceipts.length > 0 ? "bordered" : "default"}>
                 {loading ? (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem', color: 'var(--color-text-secondary)' }}>
@@ -139,61 +212,25 @@ const JourneyManager = () => {
                 ) : pendingReceipts.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--color-text-secondary)' }}>
                         <Inbox size={48} style={{ opacity: 0.2, margin: '0 auto 1rem auto' }} />
-                        <p>Kaikki kuitit käsitelty! Tekoäly päivystää uusia sähköposteja.</p>
+                        <p style={{ marginTop: '1rem', fontSize: '1.1rem', fontWeight: '600' }}>Kaikki kuitit käsitelty!</p>
+                        <p style={{ margin: 0, fontSize: '0.9rem' }}>Tekoäly päivystää uusia sähköposteja taustalla.</p>
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {pendingReceipts.map(receipt => {
-                            const metadata = receipt.ai_metadata || {};
-                            const confidence = metadata.confidenceScore || 0;
-                            const isTrain = (receipt.keywords || []).some(kw => kw === 'vr' || kw === 'juna');
-                            const Icon = isTrain ? Train : Bus;
-                            
-                            return (
-                                <div 
-                                    key={receipt.id}
-                                    onClick={() => setSelectedReceipt(receipt)}
-                                    style={{ 
-                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-                                        padding: '1rem', backgroundColor: '#fff', border: '1px solid var(--color-border)', 
-                                        borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s ease',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                                    }}
-                                    onMouseOver={(e) => e.currentTarget.style.borderColor = 'var(--color-primary)'}
-                                    onMouseOut={(e) => e.currentTarget.style.borderColor = 'var(--color-border)'}
-                                >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                        <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: isTrain ? 'rgba(37, 99, 235, 0.1)' : 'rgba(234, 88, 12, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isTrain ? '#2563eb' : '#ea580c' }}>
-                                            <Icon size={20} />
-                                        </div>
-                                        <div>
-                                            <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>{receipt.route_info || 'Reitti tuntematon'}</div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                                                {receipt.departure_time && (
-                                                    <>
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                                            <Clock size={12} /> 
-                                                            {new Date(receipt.departure_time).toLocaleDateString()}
-                                                        </span>
-                                                        <span>•</span>
-                                                    </>
-                                                )}
-                                                <span>Luotettavuus: {confidence}%</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                        <span style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--color-text)' }}>
-                                            {receipt.total_price ? `${receipt.total_price} €` : '-'}
-                                        </span>
-                                        <ChevronRight size={20} color="var(--color-text-secondary)" />
-                                    </div>
-                                </div>
-                            );
-                        })}
+                        {pendingReceipts.map(renderReceiptRow)}
                     </div>
                 )}
             </Card>
+
+            {/* UUSI: Haitari käsitellyille kuiteille, jotta niitä voi klikata ja muokata */}
+            {approvedReceipts.length > 0 && (
+                <Accordion title={`Tämän viikon käsitellyt kuitit (${approvedReceipts.length})`} defaultOpen={false}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+                        {approvedReceipts.map(renderReceiptRow)}
+                    </div>
+                </Accordion>
+            )}
+
         </div>
     );
 };

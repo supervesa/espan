@@ -1,5 +1,5 @@
 // --- src/components/admin/LocalTransportPanel.jsx ---
-import React from 'react';
+import React, { useState } from 'react';
 import { Bus, CalendarCheck, Moon, Sun, History, CheckCircle, Info, RefreshCw, PiggyBank, Sparkles, TrendingDown } from 'lucide-react';
 import { useLocalTransportStats } from '../../hooks/useLocalTransportStats';
 
@@ -11,16 +11,17 @@ const LocalTransportPanel = ({
     settings 
 }) => {
     
-    // Noudetaan hookista laskurit (Viikko, 28pv ja Historia)
+    const [arriveDayBefore, setArriveDayBefore] = useState(false);
+
     const { forecast, optimization, historicalData } = useLocalTransportStats({
         currentWeekStart,
         dailyLocations,
         exceptions,
         nationalHolidays,
-        settings
+        settings,
+        arriveDayBefore
     });
 
-    // Varmistetaan oletusarvot kuluvalle viikolle jos lataus kesken
     const transportStats = forecast || {
         officeDaysCount: 0, localTickets: 0, localCost: 0, tulo: 0, vali: 0, lahto: 0, ticketPrice: 8.06
     };
@@ -48,21 +49,32 @@ const LocalTransportPanel = ({
                 
                 {/* TULEVAISUUS (KULUVA VIIKKO) */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '6px', border: '1px dashed #cbd5e1' }}>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--color-primary)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <CalendarCheck size={16} /> Kuluvan viikon tarve
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <CalendarCheck size={16} /> Kuluvan viikon tarve
+                        </div>
+                        
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--color-text-secondary)', cursor: 'pointer', fontWeight: '600' }}>
+                            <input 
+                                type="checkbox" 
+                                checked={arriveDayBefore} 
+                                onChange={(e) => setArriveDayBefore(e.target.checked)} 
+                                style={{ accentColor: 'var(--color-primary)', cursor: 'pointer', width: '14px', height: '14px' }}
+                            />
+                            Saavun jo edellisiltana
+                        </label>
                     </div>
                     
-                    {transportStats.officeDaysCount <= 1 ? (
+                    {transportStats.localTickets === 0 ? (
                         <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', fontStyle: 'italic', padding: '1rem 0' }}>
-                            {transportStats.officeDaysCount === 1 
-                                ? "Vain 1 lähityöpäivä. Ei majoittumistarvetta Klaukkalassa (0 lippua)." 
-                                : "Ei lähityöpäiviä tällä viikolla (0 lippua)."}
+                            Ei lähityöpäiviä tällä viikolla (0 lippua).
                         </div>
                     ) : (
                         <>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', fontWeight: '600' }}>
-                                    <Moon size={14} color="#6366f1" /> Tulo (ilta)
+                                    <Moon size={14} color="#6366f1" /> 
+                                    {arriveDayBefore ? (transportStats.officeDaysCount === 1 ? 'Tulo (vain aamu)' : 'Tulo (aamu + ilta)') : 'Tulo (ilta)'}
                                 </span>
                                 <span>{transportStats.tulo} kpl ({(transportStats.tulo * transportStats.ticketPrice).toFixed(2)} €)</span>
                             </div>
@@ -76,12 +88,14 @@ const LocalTransportPanel = ({
                                 </div>
                             )}
                             
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', borderTop: '1px dashed #e2e8f0', paddingTop: '0.5rem' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', fontWeight: '600' }}>
-                                    <Sun size={14} color="#eab308" /> Lähtö (aamu)
-                                </span>
-                                <span>{transportStats.lahto} kpl ({(transportStats.lahto * transportStats.ticketPrice).toFixed(2)} €)</span>
-                            </div>
+                            {transportStats.lahto > 0 && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', borderTop: '1px dashed #e2e8f0', paddingTop: '0.5rem' }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', fontWeight: '600' }}>
+                                        <Sun size={14} color="#eab308" /> Lähtö (aamu)
+                                    </span>
+                                    <span>{transportStats.lahto} kpl ({(transportStats.lahto * transportStats.ticketPrice).toFixed(2)} €)</span>
+                                </div>
+                            )}
                             
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9rem', borderTop: '2px solid #e2e8f0', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
                                 <span style={{ fontWeight: 'bold', color: 'var(--color-text)' }}>Yhteensä ({transportStats.officeDaysCount} tpv):</span>
