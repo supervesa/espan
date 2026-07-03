@@ -4,11 +4,10 @@ import Card from '../../common/Card';
 import Button from '../../common/Button';
 import Badge from '../../common/Badge';
 import AlertBox from '../../common/AlertBox';
-import Accordion from '../../common/Accordion'; // UUSI IMPORT!
+import Accordion from '../../common/Accordion'; 
 import TicketSplitScreen from './TicketSplitScreen';
 import JourneyMatchmaker from './JourneyMatchmaker';
 
-import { useJourneyManager } from '../../../hooks/useJourneyManager';
 import { useLocalTransportStats } from '../../../hooks/useLocalTransportStats';
 
 import { Bus, Train, Inbox, Clock, Loader2, RefreshCw, AlertTriangle, CheckCircle } from 'lucide-react';
@@ -19,22 +18,20 @@ const JourneyManager = ({
     exceptions = [], 
     nationalHolidays = [], 
     settings = {}, 
-    arriveDayBefore = false 
+    arriveDayBefore = false,
+    
+    pendingReceipts = [],
+    approvedReceipts = [],
+    loading = false,
+    approveReceipt,
+    rejectReceipt,
+    refreshReceipts,
+    fetchApprovedReceipts,
+    addVirtualReceipt
 }) => {
     const [selectedReceipt, setSelectedReceipt] = useState(null);
     const [isSyncing, setIsSyncing] = useState(false);
     
-    const { 
-        pendingReceipts, 
-        approvedReceipts,
-        loading, 
-        approveReceipt, 
-        rejectReceipt,
-        refreshReceipts,
-        fetchApprovedReceipts,
-        addVirtualReceipt
-    } = useJourneyManager();
-
     const { forecast } = useLocalTransportStats({
         currentWeekStart,
         dailyLocations,
@@ -78,8 +75,9 @@ const JourneyManager = ({
         }
     };
 
-    const handleApprove = async (updatedReceipt) => {
-        const success = await approveReceipt(updatedReceipt);
+    // KORJAUS ON TÄSSÄ: Otetaan newJourneys vastaan ja välitetään eteenpäin hookille!
+    const handleApprove = async (updatedReceipt, newJourneys) => {
+        const success = await approveReceipt(updatedReceipt, newJourneys);
         if (success) {
             setSelectedReceipt(null);
         } else {
@@ -109,7 +107,6 @@ const JourneyManager = ({
         );
     }
 
-    // Apufunktio kuittirivien piirtämiseen (käytetään sekä odottavissa että hyväksytyissä)
     const renderReceiptRow = (receipt) => {
         const metadata = receipt.ai_metadata || {};
         const confidence = metadata.confidenceScore || 0;
@@ -222,7 +219,6 @@ const JourneyManager = ({
                 )}
             </Card>
 
-            {/* UUSI: Haitari käsitellyille kuiteille, jotta niitä voi klikata ja muokata */}
             {approvedReceipts.length > 0 && (
                 <Accordion title={`Tämän viikon käsitellyt kuitit (${approvedReceipts.length})`} defaultOpen={false}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>

@@ -15,28 +15,44 @@ const JourneyMatchmaker = ({
 }) => {
     const [isProcessing, setIsProcessing] = useState(false);
 
-    // KORJAUS: Luodaan aikarajat kuluvalle viikolle (Matchmakerin näkymälle)
     const weekStart = currentWeekStart ? new Date(currentWeekStart) : new Date();
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
-    // Apufunktio, joka tarkistaa osuuko kuitin matka (departure_time) tälle viikolle.
-    // (Jos tekoäly ei ole löytänyt päivämäärää, oletetaan sen kuuluvan tälle viikolle, jotta se huomataan)
     const isThisWeek = (dateStr) => {
         if (!dateStr) return true; 
         const d = new Date(dateStr);
         return d >= weekStart && d < weekEnd;
     };
 
-    // 1. PAIKALLISLIIKENTEEN LOGIIKKA (Korsisaari / Klaukkala)
-    // TÄRKEÄÄ: Suodatetaan pending-kuitteihin mukaan vain tälle viikolle ajoittuvat!
+    // APUFUNKTIO KUSTANNUSTEN LASKENTAAN (Lukee hinnat yksittäisiltä matkoilta, ei koko kuitista!)
+    const calculateJourneyCost = (receipts) => {
+        let total = 0;
+        receipts.forEach(r => {
+            if (r.expert_journeys && r.expert_journeys.length > 0) {
+                // Jos kuitilla on uusia matkoja, summataan vain tälle viikolle osuvien matkojen hinnat
+                r.expert_journeys.forEach(j => {
+                    if (isThisWeek(j.departure_time)) {
+                        total += Number(j.price || 0);
+                    }
+                });
+            } else {
+                // Legacy-tuki: Jos kuitilla ei vielä ole lohkottuja matkoja, katsotaan kuitin päähintaa
+                if (isThisWeek(r.departure_time)) {
+                    total += Number(r.total_price || 0);
+                }
+            }
+        });
+        return total;
+    };
+
+    // 1. PAIKALLISLIIKENTEEN LOGIIKKA
     const localApproved = approvedReceipts.filter(r => (r.keywords || []).includes('korsisaari') || (r.keywords || []).includes('paikallisliikenne'));
     const localPending = pendingReceipts.filter(r => 
         ((r.keywords || []).includes('korsisaari') || (r.keywords || []).includes('paikallisliikenne')) && 
         isThisWeek(r.departure_time)
     );
 
-    // Älyominaisuus: Tarkistetaan, onko ostettu kausilippu (yli 100€ tai tägillä 'Kausilippu')
     const hasMonthlyPass = localApproved.some(r => 
         Number(r.total_price) > 100 || 
         (r.ai_metadata?.smartTags || []).some(tag => tag.toLowerCase().includes('kausilippu'))
@@ -44,13 +60,13 @@ const JourneyMatchmaker = ({
 
     const localApprovedCount = localApproved.length;
     const localPendingCount = localPending.length;
-    const localApprovedCost = localApproved.reduce((sum, r) => sum + Number(r.total_price), 0);
     
-    // Jos on kausilippu, ei puutu mitään. Muuten lasketaan erotus.
+    // UUSI HINNAN LASKENTA: Vain tälle viikolle osuvat matkat!
+    const localApprovedCost = calculateJourneyCost(localApproved);
+    
     const localMissingCount = hasMonthlyPass ? 0 : Math.max(0, expectedLocalTickets - localApprovedCount - localPendingCount);
 
-    // 2. KAUKOLIIKENTEEN LOGIIKKA (Tulomatka ja Menomatka)
-    // TÄRKEÄÄ: Suodatetaan pending-kuitteihin mukaan vain tälle viikolle ajoittuvat!
+    // 2. KAUKOLIIKENTEEN LOGIIKKA (Korjattu suuntalogiikka)
     const longDistApproved = approvedReceipts.filter(r => (r.keywords || []).some(k => ['onnibus', 'vr', 'juna', 'bussi'].includes(k)) && !(r.keywords || []).includes('korsisaari'));
     const longDistPending = pendingReceipts.filter(r => 
         (r.keywords || []).some(k => ['onnibus', 'vr', 'juna', 'bussi'].includes(k)) && 
@@ -58,38 +74,84 @@ const JourneyMatchmaker = ({
         isThisWeek(r.departure_time)
     );
 
-    // Analysoidaan pitkän matkan kuitit ja niiden laajuus (Meno-paluu kattaa molemmat)
-    let coveredLongDistTrips = 0;
+    let hasApprovedMeno = false;
+    let hasApprovedPaluu = false;
+
     longDistApproved.forEach(r => {
-        if ((r.route_info || '').toLowerCase().includes('meno-paluu') || (r.ai_metadata?.smartTags || []).some(t => t.toLowerCase().includes('meno-paluu'))) {
-            coveredLongDistTrips += 2; // Meno-paluu lasketaan kahdeksi
+        // Katsotaan ensin, onko kyseessä manuaalisesti kuitattu (virtuaalinen) ohitus
+        if (r.ai_metadata?.isVirtual) {
+            if ((r.route_info || '').includes('Menomatka')) hasApprovedMeno = true;
+            if ((r.route_info || '').includes('Tulomatka')) hasApprovedPaluu = true;
+            return; // Virtuaalisen lipun käsittely loppuu tähän
+        }
+
+        if (r.expert_journeys && r.expert_journeys.length > 0) {
+            r.expert_journeys.forEach(j => {
+                if (isThisWeek(j.departure_time)) {
+                    if (j.direction === 'meno') hasApprovedMeno = true;
+                    if (j.direction === 'paluu') hasApprovedPaluu = true;
+                }
+            });
         } else {
-            coveredLongDistTrips += 1; // Yksittäinen matka
+            // Legacy-tuki vanhoille kuitteille, joilla ei ole taulussa suuntaa
+            if (isThisWeek(r.departure_time)) {
+                const info = (r.route_info || '').toLowerCase();
+                if (info.includes('meno-paluu') || (r.ai_metadata?.smartTags || []).some(t => t.toLowerCase().includes('meno-paluu'))) {
+                    hasApprovedMeno = true;
+                    hasApprovedPaluu = true;
+                } else if (info.includes('paluu')) {
+                    hasApprovedPaluu = true;
+                } else {
+                    hasApprovedMeno = true;
+                }
+            }
         }
     });
-    const pendingLongDistCount = longDistPending.length;
 
-    // Päätellään tilat Tulomatkalle (1. matka) ja Menomatkalle (2. matka)
-    const tuloStatus = coveredLongDistTrips >= 1 ? 'approved' : (pendingLongDistCount >= 1 ? 'pending' : 'missing');
-    const menoStatus = coveredLongDistTrips >= 2 ? 'approved' : (pendingLongDistCount >= (tuloStatus === 'pending' ? 2 : 1) ? 'pending' : 'missing');
+    let hasPendingMeno = false;
+    let hasPendingPaluu = false;
 
-    // Etsitään ohitetut (virtuaaliset) matkat näyttöä varten
+    longDistPending.forEach(r => {
+        if (r.expert_journeys && r.expert_journeys.length > 0) {
+            r.expert_journeys.forEach(j => {
+                if (isThisWeek(j.departure_time)) {
+                    if (j.direction === 'meno') hasPendingMeno = true;
+                    if (j.direction === 'paluu') hasPendingPaluu = true;
+                }
+            });
+        } else {
+            // Legacy-tuki
+            if (isThisWeek(r.departure_time)) {
+                const info = (r.route_info || '').toLowerCase();
+                if (info.includes('meno-paluu') || (r.ai_metadata?.smartTags || []).some(t => t.toLowerCase().includes('meno-paluu'))) {
+                    hasPendingMeno = true;
+                    hasPendingPaluu = true;
+                } else if (info.includes('paluu')) {
+                    hasPendingPaluu = true;
+                } else {
+                    hasPendingMeno = true;
+                }
+            }
+        }
+    });
+
+    const menoStatus = hasApprovedMeno ? 'approved' : (hasPendingMeno ? 'pending' : 'missing');
+    const tuloStatus = hasApprovedPaluu ? 'approved' : (hasPendingPaluu ? 'pending' : 'missing');
+
     const isTuloVirtual = longDistApproved.some(r => r.ai_metadata?.isVirtual && r.route_info.includes('Tulomatka'));
     const isMenoVirtual = longDistApproved.some(r => r.ai_metadata?.isVirtual && r.route_info.includes('Menomatka'));
 
-    const longDistApprovedCost = longDistApproved.reduce((sum, r) => sum + Number(r.total_price), 0);
+    // UUSI HINNAN LASKENTA: Vain tälle viikolle osuvat kaukoliikenteen matkat!
+    const longDistApprovedCost = calculateJourneyCost(longDistApproved);
 
     // 3. BUDJETIN JA TOTEUMAN YHTEENVETO
-    // Arvioidaan kaukoliikenteen hinnaksi keskimäärin 25€ / suunta jos matkoja tarvitaan
     const estimatedLongDistCost = hasOfficeDays ? 50.00 : 0;
     const totalExpectedBudget = expectedLocalCost + estimatedLongDistCost;
     const totalActualCost = localApprovedCost + longDistApprovedCost;
 
-    // Tilan teksti (huomioita vaativat asiat)
     const totalMissing = localMissingCount + (tuloStatus === 'missing' && hasOfficeDays ? 1 : 0) + (menoStatus === 'missing' && hasOfficeDays ? 1 : 0);
-    const totalPending = localPendingCount + pendingLongDistCount;
+    const totalPending = localPendingCount + (hasPendingMeno ? 1 : 0) + (hasPendingPaluu ? 1 : 0);
 
-    // Apufunktio virtuaalikuitin lisäämiseen
     const handleVirtualReceipt = async (type) => {
         setIsProcessing(true);
         const date = currentWeekStart ? new Date(currentWeekStart).toISOString() : new Date().toISOString();
@@ -160,28 +222,24 @@ const JourneyMatchmaker = ({
                                 Odotettu tarve kalenterista: <strong>{expectedLocalTickets} lippua</strong>
                             </div>
 
-                            {/* Älyominaisuus: Kausilippu */}
                             {hasMonthlyPass && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontSize: '0.9rem', fontWeight: '600', backgroundColor: '#f0fdf4', padding: '6px 12px', borderRadius: '6px', border: '1px solid #bbf7d0', width: 'fit-content' }}>
                                     <CheckCircle size={16} /> Kuukauden kausilippu aktiivinen (Tarve täytetty automaattisesti!)
                                 </div>
                             )}
 
-                            {/* Hyväksytyt */}
                             {!hasMonthlyPass && localApprovedCount > 0 && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontSize: '0.9rem' }}>
                                     <CheckCircle size={16} /> {localApprovedCount} kpl viety kirjanpitoon ({localApprovedCost.toFixed(2)} €)
                                 </div>
                             )}
 
-                            {/* Jonossa */}
                             {!hasMonthlyPass && localPendingCount > 0 && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#d97706', fontSize: '0.9rem' }}>
                                     <Clock size={16} /> {localPendingCount} kpl odottaa vahvistustasi alhaalla jonossa
                                 </div>
                             )}
 
-                            {/* Puuttuvat */}
                             {!hasMonthlyPass && localMissingCount > 0 && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-danger)', fontSize: '0.9rem', fontWeight: '600' }}>
                                     <XCircle size={16} /> {localMissingCount} kpl puuttuu (Sähköpostia ei ole vielä saapunut)
@@ -206,11 +264,11 @@ const JourneyMatchmaker = ({
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingLeft: '1.5rem' }}>
                             
-                            {/* TULOMATKA */}
+                            {/* TULOMATKA (Helsinki - Mikkeli, 'paluu') */}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
                                     <ArrowRight size={16} color="var(--color-text-secondary)" />
-                                    <span style={{ fontWeight: '600' }}>Tulomatka:</span>
+                                    <span style={{ fontWeight: '600' }}>Tulomatka (HELSINKI - MIKKELI):</span>
                                     
                                     {tuloStatus === 'approved' && isTuloVirtual && <span style={{ color: '#64748b' }}><Check size={14}/> Matkustettu muulla kyydillä (Ohitettu)</span>}
                                     {tuloStatus === 'approved' && !isTuloVirtual && <span style={{ color: '#16a34a', fontWeight: 'bold' }}><CheckCircle size={14}/> Kuitti hyväksytty</span>}
@@ -225,11 +283,11 @@ const JourneyMatchmaker = ({
                                 )}
                             </div>
 
-                            {/* MENOMATKA */}
+                            {/* MENOMATKA (Mikkeli - Helsinki, 'meno') */}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
                                     <ArrowLeft size={16} color="var(--color-text-secondary)" />
-                                    <span style={{ fontWeight: '600' }}>Menomatka:</span>
+                                    <span style={{ fontWeight: '600' }}>Menomatka (MIKKELI - HELSINKI):</span>
                                     
                                     {menoStatus === 'approved' && isMenoVirtual && <span style={{ color: '#64748b' }}><Check size={14}/> Matkustettu muulla kyydillä (Ohitettu)</span>}
                                     {menoStatus === 'approved' && !isMenoVirtual && <span style={{ color: '#16a34a', fontWeight: 'bold' }}><CheckCircle size={14}/> Kuitti hyväksytty</span>}

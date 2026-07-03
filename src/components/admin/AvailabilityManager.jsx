@@ -12,6 +12,9 @@ import AvailabilityForms from './AvailabilityManager/AvailabilityForms';
 import JourneyManager from './journey/JourneyManager';
 import './AvailabilityManager/AvailabilityManager.css';
 
+// UUSI: Tuodaan kuittien hookki tänne ylätasolle!
+import { useJourneyManager } from '../../hooks/useJourneyManager';
+
 const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
 
 const getMonday = (d) => {
@@ -55,6 +58,18 @@ const AvailabilityManager = () => {
     });
 
     const webCalUrl = `webcal://espan-api.netlify.app/functions/webcal?expert_id=${EXPERT_ID}`;
+
+    // UUSI: Kutsutaan hookkia tässä pääkomponentissa!
+    const { 
+        pendingReceipts, 
+        approvedReceipts,
+        loading: journeyLoading, // Nimettiin uudelleen jottei mene sekaisin kalenterin 'loading' kanssa
+        approveReceipt, 
+        rejectReceipt,
+        refreshReceipts,
+        fetchApprovedReceipts,
+        addVirtualReceipt
+    } = useJourneyManager();
 
     // 2. DATAN HAKU
     useEffect(() => { fetchData(); }, [currentWeekStart]);
@@ -150,6 +165,7 @@ const AvailabilityManager = () => {
                 onPreviousWeek={() => changeWeek(-1)}
                 onNextWeek={() => changeWeek(1)}
                 onResetToCurrentWeek={jumpToCurrentWeek}
+                pendingReceiptsCount={pendingReceipts.length} // UUSI: Välitetään odottavien kuittien määrä yläpalkille
             />
 
             <div className="availability-manager__content">
@@ -207,6 +223,15 @@ const AvailabilityManager = () => {
                             nationalHolidays={nationalHolidays}
                             settings={settings}
                             arriveDayBefore={false}
+                            // UUSI: Syötetään kaikki Hookin arvot propseina alas!
+                            pendingReceipts={pendingReceipts}
+                            approvedReceipts={approvedReceipts}
+                            loading={journeyLoading}
+                            approveReceipt={approveReceipt}
+                            rejectReceipt={rejectReceipt}
+                            refreshReceipts={refreshReceipts}
+                            fetchApprovedReceipts={fetchApprovedReceipts}
+                            addVirtualReceipt={addVirtualReceipt}
                         />
                     </div>
                 )}

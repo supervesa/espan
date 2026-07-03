@@ -2,7 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import * as cheerio from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
-import { parseTicketData } from './utils/ticketParser.js'; // AI on täällä taas!
+import { parseTicketData } from './utils/ticketParser.js'; 
 
 const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -11,7 +11,6 @@ export const handler = async (event) => {
         return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
-    // Alustetaan Supabase vasta täällä sisällä (Korjaa 502 Bad Gateway -virheen)
     const supabase = createClient(
         process.env.VITE_SUPABASE_URL,
         process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -66,8 +65,7 @@ export const handler = async (event) => {
 
             console.log(`Gmail löysi yhteensä ${targetMessages.length} potentiaalista matkakohdetta.`);
 
-            // TIUKKA TURVARAJA: Prosessoidaan enintään 2-3 kuittia tekoälyllä per ajo, jotta 10s Netlify-raja ei ylity!
-            const MAX_NEW_TICKETS_PER_RUN = 4; 
+            const MAX_NEW_TICKETS_PER_RUN = 6; 
             let newlyProcessedCount = 0;
 
             for (const uid of targetMessages) {
@@ -91,7 +89,7 @@ export const handler = async (event) => {
                     continue; 
                 }
 
-                // Tuplien esto tietokannasta
+                // Tuplien esto tietokannasta kuitin tasolla
                 const { data: existingReceipt } = await supabase
                     .schema('espan')
                     .from('expert_ticket_receipts')
@@ -113,7 +111,6 @@ export const handler = async (event) => {
                 const cleanHtml = $.html();
                 const cleanText = $.text().replace(/\s+/g, ' ').trim();
 
-                // Suodatetaan OnniBus-muistutukset (joissa ei ole tilausyhteenvetoa) pois, jotta AI ei lue niitä turhaan
                 if (isOnni && !cleanText.includes('TILAUKSEN YHTEENVETO')) {
                     continue;
                 }
@@ -125,7 +122,6 @@ export const handler = async (event) => {
 
                 const fileName = `${emailReceivedAt.getTime()}_${providerPrefix}_kuitti.html`;
                 
-                // Tallennus Bucketiin käyttöliittymän split-screeniä varten
                 const { error: uploadError } = await supabase.storage
                     .from('ticket_receipts')
                     .upload(fileName, cleanHtml, {
@@ -143,17 +139,16 @@ export const handler = async (event) => {
                 const bucketFileUrl = urlData.publicUrl;
 
                 // ==========================================
-                // TEKOÄLYN KUTSU (Integroitu takaisin!)
+                // 1. TEKOÄLYN KUTSU
                 // ==========================================
                 console.log(`[AI] Kutsutaan tekoälyä kohteelle: ${providerPrefix}`);
                 
                 let aiResult;
                 try {
-                    // Tässä kutsutaan sitä täydellistä ticketParser.js -tiedostoa (giljotiini + Regex + Gemini)
                     aiResult = await parseTicketData(cleanText, emailReceivedAt.toISOString(), subject, fromAddress);
                 } catch (aiError) {
                     console.error("Tekoäly lakkasi vastaamasta tälle riville:", aiError.message);
-                    continue; // Ohitetaan tämä lippu tällä kertaa, yritetään ensi ajolla uudestaan
+                    continue; 
                 }
 
                 let keywords = [providerPrefix];
@@ -161,7 +156,6 @@ export const handler = async (event) => {
                 if (isOnni || isKorsisaari) keywords.push('bussi', 'linja-auto');
                 if (isKorsisaari) keywords.push('paikallisliikenne', 'klaukkala');
 
-                // Pakataan tekoälyn metadata UI-komponenttia varten
                 const aiMetadata = {
                     confidenceScore: aiResult.confidenceScore,
                     leadTimeHours: aiResult.leadTimeHours,
@@ -170,28 +164,94 @@ export const handler = async (event) => {
                     anomalyInfo: aiResult.anomalyInfo || null
                 };
 
-                // Tallennetaan täydellinen, tekoälyn valmiiksi pureskelema data Supabaseen
-                const { error: insertError } = await supabase
+                // ==========================================
+                // 2. TYHMYYSSUODATIN (Matkojen post-processing)
+                // Estetään tekoälyn keksimät identtiset tuplamatkat
+                // ==========================================
+                if (aiResult.journeys && aiResult.journeys.length > 0) {
+                    const uniqueJourneysMap = new Map();
+                    
+                    aiResult.journeys.forEach(j => {
+                        // Avain koostuu ajasta ja reitistä (esim. "2026-07-15T09:00:00-Helsinki - Mikkeli")
+                        const deduplicationKey = `${j.departure_time}-${j.route_info}`;
+                        
+                        if (!uniqueJourneysMap.has(deduplicationKey)) {
+                            uniqueJourneysMap.set(deduplicationKey, j);
+                        }
+                    });
+                    
+                    const filteredJourneys = Array.from(uniqueJourneysMap.values());
+                    
+                    // Jos suodatuksen jälkeen jäljelle jää vain yksi matka (tekoäly oli luonut tuplia),
+                    // korjataan tämän ainoan matkan hinta vastaamaan koko kuitin summaa.
+                    if (filteredJourneys.length === 1 && aiResult.journeys.length > 1) {
+                        console.log("[Sanity Check] Tekoäly loi haamumatkoja. Duplikaatit poistettu, hinta korjattu.");
+                        filteredJourneys[0].price = aiResult.total_price;
+                    }
+                    
+                    // Korvataan tekoälyn palauttama lista puhtaalla listalla
+                    aiResult.journeys = filteredJourneys;
+                }
+
+                const firstJourney = (aiResult.journeys && aiResult.journeys.length > 0) ? aiResult.journeys[0] : null;
+                
+                let mainRouteInfo = "Tuntematon";
+                if (isKorsisaari) {
+                    mainRouteInfo = "Nurmijärvi - lähialue (Paikallisliikenne)";
+                } else if (aiResult.journeys && aiResult.journeys.length > 1) {
+                    mainRouteInfo = "Meno-paluu: Kaukoliikenne";
+                } else if (firstJourney) {
+                    mainRouteInfo = "Yhdensuuntainen: Kaukoliikenne";
+                }
+
+                // ==========================================
+                // 3. TALLENNETAAN KUITTI
+                // ==========================================
+                const { data: insertedReceipt, error: insertError } = await supabase
                     .schema('espan')
                     .from('expert_ticket_receipts')
                     .insert([{
                         expert_id: EXPERT_ID,
                         status: 'pending',
                         email_received_at: emailReceivedAt.toISOString(),
-                        departure_time: aiResult.departure_time,
+                        departure_time: firstJourney ? firstJourney.departure_time : emailReceivedAt.toISOString(),
                         total_price: aiResult.total_price,
-                        route_info: aiResult.route_info,
+                        route_info: mainRouteInfo,
                         keywords: keywords,
                         bucket_file_url: bucketFileUrl,
                         ai_metadata: aiMetadata
-                    }]);
+                    }])
+                    .select()
+                    .single();
 
                 if (insertError) {
                     console.error("Virhe tietokantatallennuksessa:", insertError);
-                } else {
-                    console.log(`✅ AI-analysoitu kuitti tallennettu jonoon: ${aiResult.route_info} (${aiResult.total_price} €)`);
-                    results.push({ subject, from: fromAddress, status: 'processed' });
-                    newlyProcessedCount++; 
+                } else if (insertedReceipt && aiResult.journeys && aiResult.journeys.length > 0) {
+                    
+                    // ==========================================
+                    // 4. TALLENNETAAN MATKAT (Journeys) KUITIN ID:LLÄ!
+                    // ==========================================
+                    const journeyInserts = aiResult.journeys.map(j => ({
+                        expert_id: EXPERT_ID,
+                        receipt_id: insertedReceipt.id,
+                        departure_time: j.departure_time,
+                        route_info: j.route_info,
+                        direction: j.direction,
+                        price: j.price || 0.00
+                    }));
+
+                    const { error: journeyInsertError } = await supabase
+                        .schema('espan')
+                        .from('expert_journeys')
+                        .insert(journeyInserts);
+
+                    if (journeyInsertError) {
+                        console.error("Virhe matkojen tallennuksessa:", journeyInsertError);
+                    } else {
+                        console.log(`✅ AI-analysoitu kuitti ja matkat tallennettu: ${mainRouteInfo} (${aiResult.total_price} €)`);
+                        results.push({ subject, from: fromAddress, status: 'processed' });
+                        newlyProcessedCount++; 
+                    }
                 }
             }
 

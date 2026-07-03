@@ -10,7 +10,8 @@ const AvailabilityHeader = ({
     currentWeekStart, 
     onPreviousWeek, 
     onNextWeek,
-    onResetToCurrentWeek
+    onResetToCurrentWeek,
+    pendingReceiptsCount = 0 // UUSI PROPSI ILMAISINTA VARTEN
 }) => {
     
     // Apufunktiot päivämäärien ja viikkonumeron muotoiluun
@@ -52,7 +53,25 @@ const AvailabilityHeader = ({
                     onClick={() => onViewChange('journeys')}
                     style={{ border: 'none', boxShadow: activeView === 'journeys' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
                 >
-                    Matkat & Kuitit
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        Matkat & Kuitit
+                        {/* PUNAISEN PALLURAN (NOTIFICATION DOT) RENDERÖINTI */}
+                        {pendingReceiptsCount > 0 && (
+                            <span style={{
+                                backgroundColor: '#ef4444',
+                                color: '#ffffff',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold',
+                                padding: '2px 6px',
+                                borderRadius: '12px',
+                                lineHeight: 1,
+                                marginLeft: '2px',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                            }}>
+                                {pendingReceiptsCount}
+                            </span>
+                        )}
+                    </span>
                 </Button>
             </div>
 

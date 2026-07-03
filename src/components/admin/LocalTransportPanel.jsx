@@ -1,7 +1,17 @@
 // --- src/components/admin/LocalTransportPanel.jsx ---
 import React, { useState } from 'react';
-import { Bus, CalendarCheck, Moon, Sun, History, CheckCircle, Info, RefreshCw, PiggyBank, Sparkles, TrendingDown } from 'lucide-react';
+import { Bus, CalendarCheck, Moon, Sun, History, CheckCircle, RefreshCw, PiggyBank, Sparkles, TrendingDown } from 'lucide-react';
+
 import { useLocalTransportStats } from '../../hooks/useLocalTransportStats';
+import Card from '../common/Card';
+import Checkbox from '../common/Checkbox';
+import AlertBox from '../common/AlertBox';
+import MetricBox from '../common/MetricBox';
+import SummaryRow from '../common/SummaryRow';
+import TransportIcon from '../common/TransportIcon';
+
+// Kaukoliikenne
+import LongDistancePanel from './journey/LongDistancePanel';
 
 const LocalTransportPanel = ({ 
     currentWeekStart, 
@@ -26,172 +36,153 @@ const LocalTransportPanel = ({
         officeDaysCount: 0, localTickets: 0, localCost: 0, tulo: 0, vali: 0, lahto: 0, ticketPrice: 8.06
     };
 
+    const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
+
     return (
-        <div style={{ backgroundColor: 'var(--color-surface)', padding: '1.2rem', borderRadius: '8px', border: '1px solid var(--color-border)', marginTop: '-0.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}> {/* Suurennettu väli paneelien välillä */}
             
-            {/* OTSIKKORIVI */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{ backgroundColor: 'rgba(37, 99, 235, 0.1)', padding: '8px', borderRadius: '8px', color: '#2563eb' }}>
-                    <Bus size={24} />
-                </div>
-                <div>
-                    <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--color-text)' }}>
-                        Paikallisliikenne (Klaukkala)
-                    </h4>
-                    <p style={{ margin: '2px 0 0 0', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
-                        Kuluvan viikon ennuste ja 4 viikon säästöoptimointi
-                    </p>
-                </div>
-            </div>
+            <LongDistancePanel expertId={EXPERT_ID} />
 
-            {/* YLÄRIVI: ENNUSTE JA HISTORIA */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <Card title="Paikallisliikenne (Klaukkala)" icon={Bus}>
                 
-                {/* TULEVAISUUS (KULUVA VIIKKO) */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '6px', border: '1px dashed #cbd5e1' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <CalendarCheck size={16} /> Kuluvan viikon tarve
-                        </div>
-                        
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--color-text-secondary)', cursor: 'pointer', fontWeight: '600' }}>
-                            <input 
-                                type="checkbox" 
-                                checked={arriveDayBefore} 
-                                onChange={(e) => setArriveDayBefore(e.target.checked)} 
-                                style={{ accentColor: 'var(--color-primary)', cursor: 'pointer', width: '14px', height: '14px' }}
-                            />
-                            Saavun jo edellisiltana
-                        </label>
-                    </div>
+                {/* YLÄRIVI: ENNUSTE JA HISTORIA */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '0.5rem' }}> {/* Suurennettu gridin väli */}
                     
-                    {transportStats.localTickets === 0 ? (
-                        <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', fontStyle: 'italic', padding: '1rem 0' }}>
-                            Ei lähityöpäiviä tällä viikolla (0 lippua).
+                    {/* VASEN LAATIKKO */}
+                    <MetricBox 
+                        title="Kuluvan viikon tarve" 
+                        icon={CalendarCheck} 
+                        variant="dashed"
+                        headerAction={
+                            <div className="custom-checkbox-row" style={{ padding: '0', margin: '0' }}>
+                                <label style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={arriveDayBefore} 
+                                        onChange={(e) => setArriveDayBefore(e.target.checked)} 
+                                    />
+                                    Saavun edellisiltana
+                                </label>
+                            </div>
+                        }
+                    >
+                        {transportStats.localTickets === 0 ? (
+                            <AlertBox type="info">Ei lähityöpäiviä tällä viikolla (0 lippua).</AlertBox>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <SummaryRow 
+                                    icon={Moon} 
+                                    iconColor="var(--color-primary)" 
+                                    label={arriveDayBefore ? (transportStats.officeDaysCount === 1 ? 'Tulo (vain aamu)' : 'Tulo (aamu + ilta)') : 'Tulo (ilta)'}
+                                    value={`${transportStats.tulo} kpl (${(transportStats.tulo * transportStats.ticketPrice).toFixed(2)} €)`}
+                                    borderTop={false} 
+                                />
+                                
+                                {transportStats.vali > 0 && (
+                                    <SummaryRow 
+                                        icon={RefreshCw} 
+                                        iconColor="var(--color-info-text)" 
+                                        label="Välipäivät"
+                                        value={`${transportStats.vali} kpl (${(transportStats.vali * transportStats.ticketPrice).toFixed(2)} €)`}
+                                    />
+                                )}
+                                
+                                {transportStats.lahto > 0 && (
+                                    <SummaryRow 
+                                        icon={Sun} 
+                                        iconColor="var(--color-warning)" 
+                                        label="Lähtö (aamu)"
+                                        value={`${transportStats.lahto} kpl (${(transportStats.lahto * transportStats.ticketPrice).toFixed(2)} €)`}
+                                    />
+                                )}
+                                
+                                {/* Yhteensä -rivi */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem', borderTop: '2px solid var(--color-border)', paddingTop: '1rem', marginTop: '1rem' }}>
+                                    <span style={{ fontWeight: '600', color: 'var(--color-text-primary)' }}>Yhteensä ({transportStats.officeDaysCount} tpv):</span>
+                                    <span style={{ fontWeight: '800', color: 'var(--color-primary)' }}>{transportStats.localTickets} lippua ({(transportStats.localCost).toFixed(2)} €)</span>
+                                </div>
+                            </div>
+                        )}
+                    </MetricBox>
+
+                    {/* OIKEA LAATIKKO */}
+                    <MetricBox title="Edellisen viikon toteuma" icon={History} variant="solid">
+                        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem' }}>
+                                <TransportIcon type="bussi" containerSize={36} iconSize={18} />
+                                <span style={{ fontSize: '0.9rem', color: 'var(--color-text-primary)', fontWeight: '600' }}>Hyväksytyt kuitit (Korsisaari)</span>
+                                <CheckCircle size={18} color="var(--color-success)" style={{ marginLeft: 'auto' }} />
+                            </div>
+                            
+                            {historicalData?.loading ? (
+                                <AlertBox type="info">Ladataan kuitteja...</AlertBox>
+                            ) : (
+                                <div style={{ marginTop: 'auto' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1rem' }}>
+                                        <span style={{ fontSize: '1.75rem', fontWeight: '800', color: 'var(--color-text-primary)', lineHeight: 1 }}>
+                                            {historicalData?.totalCost?.toFixed(2) || '0.00'} €
+                                        </span>
+                                        <span style={{ fontSize: '1rem', color: 'var(--color-text-secondary)', fontWeight: '600' }}>
+                                            {historicalData?.ticketCount || 0} kpl
+                                        </span>
+                                    </div>
+                                    
+                                    {historicalData?.priceTrendInfo && (
+                                        <AlertBox type="info" customStyle={{ padding: '0.75rem' }}>
+                                            <span style={{ fontSize: '0.8rem' }}>{historicalData.priceTrendInfo}</span>
+                                        </AlertBox>
+                                    )}
+                                </div>
+                            )}
                         </div>
-                    ) : (
-                        <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', fontWeight: '600' }}>
-                                    <Moon size={14} color="#6366f1" /> 
-                                    {arriveDayBefore ? (transportStats.officeDaysCount === 1 ? 'Tulo (vain aamu)' : 'Tulo (aamu + ilta)') : 'Tulo (ilta)'}
-                                </span>
-                                <span>{transportStats.tulo} kpl ({(transportStats.tulo * transportStats.ticketPrice).toFixed(2)} €)</span>
-                            </div>
-                            
-                            {transportStats.vali > 0 && (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', borderTop: '1px dashed #e2e8f0', paddingTop: '0.5rem' }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', fontWeight: '600' }}>
-                                        <RefreshCw size={14} color="#0284c7" /> Välipäivät
-                                    </span>
-                                    <span>{transportStats.vali} kpl ({(transportStats.vali * transportStats.ticketPrice).toFixed(2)} €)</span>
-                                </div>
-                            )}
-                            
-                            {transportStats.lahto > 0 && (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', borderTop: '1px dashed #e2e8f0', paddingTop: '0.5rem' }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', fontWeight: '600' }}>
-                                        <Sun size={14} color="#eab308" /> Lähtö (aamu)
-                                    </span>
-                                    <span>{transportStats.lahto} kpl ({(transportStats.lahto * transportStats.ticketPrice).toFixed(2)} €)</span>
-                                </div>
-                            )}
-                            
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.9rem', borderTop: '2px solid #e2e8f0', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
-                                <span style={{ fontWeight: 'bold', color: 'var(--color-text)' }}>Yhteensä ({transportStats.officeDaysCount} tpv):</span>
-                                <span style={{ fontWeight: '800', color: 'var(--color-primary)' }}>{transportStats.localTickets} lippua ({(transportStats.localCost).toFixed(2)} €)</span>
-                            </div>
-                        </>
-                    )}
+                    </MetricBox>
                 </div>
 
-                {/* MENNEISYYS (EDELLINEN VIIKKO) */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: '#f1f5f9', padding: '1rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#475569', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <History size={16} /> Edellisen viikon toteuma
-                    </div>
-                    
-                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '1rem' }}>
-                            <CheckCircle size={16} color="var(--color-success)" />
-                            <span style={{ fontSize: '0.85rem', color: '#334155', fontWeight: '600' }}>Hyväksytyt kuitit (Korsisaari)</span>
-                        </div>
-                        
-                        {historicalData?.loading ? (
-                            <div style={{ margin: 'auto 0', fontSize: '0.85rem', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <RefreshCw size={14} className="animate-spin" /> Ladataan kuitteja...
-                            </div>
-                        ) : (
-                            <>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 'auto', marginBottom: '0.75rem' }}>
-                                    <span style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--color-text)', lineHeight: 1 }}>
-                                        {historicalData?.totalCost?.toFixed(2) || '0.00'} €
-                                    </span>
-                                    <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', fontWeight: '600' }}>
-                                        {historicalData?.ticketCount || 0} kpl
-                                    </span>
+                {/* ALARIVI: SÄÄSTÖSUOSITUS */}
+                {optimization && optimization.total28DayTrips > 0 && (
+                    <div style={{ marginTop: '1.5rem' }}>
+                        <MetricBox 
+                            title="Lippuoptimointi: Seuraavat 4 viikkoa" 
+                            icon={Sparkles} 
+                            variant={optimization.savings > 0 ? 'highlight' : 'solid'}
+                            headerAction={
+                                <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', fontWeight: '600' }}>
+                                    {optimization.total28DayTrips} tulevaa matkaa
+                                </span>
+                            }
+                        >
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                                
+                                <div style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+                                    <div>Kustannus yksittäin: <strong style={{ color: 'var(--color-text-primary)' }}>{optimization.singleTicketsCost.toFixed(2)} €</strong></div>
+                                    <div style={{ color: optimization.savings > 0 ? 'var(--color-success)' : 'var(--color-text-primary)', fontWeight: '700', marginTop: '4px' }}>
+                                        Suositus: Osta {optimization.recommended.name} ({optimization.recommended.price.toFixed(2)} €)
+                                    </div>
                                 </div>
                                 
-                                {historicalData?.priceTrendInfo && (
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b', backgroundColor: '#e2e8f0', padding: '6px 8px', borderRadius: '4px', display: 'flex', alignItems: 'flex-start', gap: '6px', lineHeight: 1.3 }}>
-                                        <Info size={14} style={{ flexShrink: 0 }} /> 
-                                        Järjestelmän havainto: {historicalData.priceTrendInfo}
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* ALARIVI: ÄLYKÄS SÄÄSTÖSUOSITUS (4 VIIKKOA) */}
-            {optimization && optimization.total28DayTrips > 0 && (
-                <div style={{ 
-                    backgroundColor: optimization.savings > 0 ? '#f0fdf4' : '#f8fafc', 
-                    border: `1px solid ${optimization.savings > 0 ? '#bbf7d0' : '#cbd5e1'}`, 
-                    borderRadius: '6px', padding: '1rem', marginTop: '0.5rem' 
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <h5 style={{ margin: 0, fontSize: '0.95rem', color: optimization.savings > 0 ? '#166534' : 'var(--color-text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Sparkles size={16} /> 
-                            Lippuoptimointi: Seuraavat 4 viikkoa
-                        </h5>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', fontWeight: '600' }}>
-                            {optimization.total28DayTrips} tulevaa matkaa
-                        </span>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'center' }}>
-                        
-                        <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                            <div>Kustannus yksittäin ostettuna: <strong>{optimization.singleTicketsCost.toFixed(2)} €</strong></div>
-                            <div style={{ color: optimization.savings > 0 ? '#15803d' : 'var(--color-text)', fontWeight: '700', marginTop: '4px' }}>
-                                Suositus: Osta {optimization.recommended.name} ({optimization.recommended.price.toFixed(2)} €)
-                            </div>
-                        </div>
-                        
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }}>
-                            {optimization.savings > 0 ? (
-                                <>
-                                    <span style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                        Potentiaalinen säästö
-                                    </span>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#22c55e', fontSize: '1.5rem', fontWeight: '800' }}>
-                                        <TrendingDown size={20} />
-                                        {optimization.savings.toFixed(2)} €
-                                    </div>
-                                </>
-                            ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text-secondary)', fontSize: '0.85rem' }}>
-                                    <PiggyBank size={18} /> Yksittäisliput ovat halvin vaihtoehto.
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }}>
+                                    {optimization.savings > 0 ? (
+                                        <>
+                                            <span style={{ fontSize: '0.75rem', color: 'var(--color-success)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                Potentiaalinen säästö
+                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-success)', fontSize: '1.75rem', fontWeight: '800' }}>
+                                                <TrendingDown size={24} />
+                                                {optimization.savings.toFixed(2)} €
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}>
+                                            <PiggyBank size={20} /> Yksittäisliput ovat halvin vaihtoehto.
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
-
+                            </div>
+                        </MetricBox>
                     </div>
-                </div>
-            )}
-
+                )}
+            </Card>
         </div>
     );
 };

@@ -10,7 +10,8 @@ const Badge = ({ children, variant = 'default', onDismiss, icon: Icon }) => {
         gap: '0.25rem',
         padding: '0.2rem 0.6rem',
         borderRadius: '9999px',
-        fontSize: 'var(--text-xs)',
+        // KORJAUS: Nyt hyödynnetään suoraan fontit.css:n muuttujia!
+        fontSize: 'var(--text-xs)', 
         fontWeight: 600,
         lineHeight: 1.2,
         whiteSpace: 'nowrap',
