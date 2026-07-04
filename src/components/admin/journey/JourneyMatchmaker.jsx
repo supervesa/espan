@@ -9,8 +9,8 @@ const JourneyMatchmaker = ({
     expectedLocalTickets = 0, 
     expectedLocalCost = 0.00, 
     hasOfficeDays = false,
-    firstTravelDate,
-    lastTravelDate,
+    firstTravelDate, // UUSI: Vastaanottaa ekan matkapäivän!
+    lastTravelDate,  // UUSI: Vastaanottaa vikan matkapäivän!
     approvedReceipts = [],
     pendingReceipts = [],
     onAddVirtualReceipt
@@ -148,6 +148,7 @@ const JourneyMatchmaker = ({
     const totalMissing = localMissingCount + (tuloStatus === 'missing' && hasOfficeDays ? 1 : 0) + (menoStatus === 'missing' && hasOfficeDays ? 1 : 0);
     const totalPending = localPendingCount + (hasPendingMeno ? 1 : 0) + (hasPendingPaluu ? 1 : 0);
 
+    // KORJAUS: Nyt tämä osaa ottaa vastaan napilta tulevan kalenteripäivämäärän!
     const handleVirtualReceipt = async (type, travelDateISO) => {
         setIsProcessing(true);
         const date = travelDateISO ? new Date(travelDateISO).toISOString() : new Date().toISOString();
