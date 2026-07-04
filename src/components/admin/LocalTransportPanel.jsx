@@ -1,4 +1,3 @@
-// --- src/components/admin/LocalTransportPanel.jsx ---
 import React, { useState } from 'react';
 import { Bus, CalendarCheck, Moon, Sun, History, CheckCircle, RefreshCw, PiggyBank, Sparkles, TrendingDown } from 'lucide-react';
 
@@ -10,7 +9,6 @@ import MetricBox from '../common/MetricBox';
 import SummaryRow from '../common/SummaryRow';
 import TransportIcon from '../common/TransportIcon';
 
-// Kaukoliikenne
 import LongDistancePanel from './journey/LongDistancePanel';
 
 const LocalTransportPanel = ({ 
@@ -18,7 +16,8 @@ const LocalTransportPanel = ({
     dailyLocations, 
     exceptions, 
     nationalHolidays, 
-    settings 
+    settings,
+    longDistanceJourneys
 }) => {
     
     const [arriveDayBefore, setArriveDayBefore] = useState(false);
@@ -39,16 +38,14 @@ const LocalTransportPanel = ({
     const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}> {/* Suurennettu väli paneelien välillä */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}> 
             
-            <LongDistancePanel expertId={EXPERT_ID} />
+            <LongDistancePanel journeys={longDistanceJourneys} expertId={EXPERT_ID} />
 
             <Card title="Paikallisliikenne (Klaukkala)" icon={Bus}>
                 
-                {/* YLÄRIVI: ENNUSTE JA HISTORIA */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '0.5rem' }}> {/* Suurennettu gridin väli */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '0.5rem' }}> 
                     
-                    {/* VASEN LAATIKKO */}
                     <MetricBox 
                         title="Kuluvan viikon tarve" 
                         icon={CalendarCheck} 
@@ -96,7 +93,6 @@ const LocalTransportPanel = ({
                                     />
                                 )}
                                 
-                                {/* Yhteensä -rivi */}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem', borderTop: '2px solid var(--color-border)', paddingTop: '1rem', marginTop: '1rem' }}>
                                     <span style={{ fontWeight: '600', color: 'var(--color-text-primary)' }}>Yhteensä ({transportStats.officeDaysCount} tpv):</span>
                                     <span style={{ fontWeight: '800', color: 'var(--color-primary)' }}>{transportStats.localTickets} lippua ({(transportStats.localCost).toFixed(2)} €)</span>
@@ -105,7 +101,6 @@ const LocalTransportPanel = ({
                         )}
                     </MetricBox>
 
-                    {/* OIKEA LAATIKKO */}
                     <MetricBox title="Edellisen viikon toteuma" icon={History} variant="solid">
                         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             
@@ -139,7 +134,6 @@ const LocalTransportPanel = ({
                     </MetricBox>
                 </div>
 
-                {/* ALARIVI: SÄÄSTÖSUOSITUS */}
                 {optimization && optimization.total28DayTrips > 0 && (
                     <div style={{ marginTop: '1.5rem' }}>
                         <MetricBox 

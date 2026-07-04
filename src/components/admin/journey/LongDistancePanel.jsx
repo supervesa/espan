@@ -1,127 +1,244 @@
 // --- src/components/admin/journey/LongDistancePanel.jsx ---
-import React from 'react';
-import { Train, CalendarClock, ArrowRight, Clock, AlertCircle, CheckCircle2, TrendingDown } from 'lucide-react';
+import React, { useState } from 'react';
 import Card from '../../common/Card';
+import Button from '../../common/Button';
 import AlertBox from '../../common/AlertBox';
-import Badge from '../../common/Badge';
-import TransportIcon from '../../common/TransportIcon';
-import Accordion from '../../common/Accordion'; // Tuodaan valmis haitari-komponentti
+import { 
+    Train, 
+    Clock, 
+    AlertCircle, 
+    AlertTriangle, 
+    CheckCircle2, 
+    Sunrise, 
+    Sun, 
+    Sunset, 
+    Moon, 
+    TrendingDown,
+    ArrowRight,
+    Info,
+    ChevronDown,
+    ChevronUp,
+    PiggyBank
+} from 'lucide-react';
 
-import { useLongDistancePredictions } from '../../../hooks/useLongDistancePredictions';
-
-const LongDistancePanel = ({ expertId }) => {
-    const { predictions, loading } = useLongDistancePredictions(expertId);
-
-    // Yhteinen renderöintifunktio yhdelle matkalle, jotta koodia ei tarvitse toistaa
-    const renderTripRow = (trip, index) => {
-        const isUrgent = trip.toimintasuositus.includes('OSTA NYT');
-        const isToday = trip.toimintasuositus.includes('OSTA TÄNÄÄN');
-        const isWait = trip.toimintasuositus.includes('ODOTA');
-
-        let badgeVariant = 'default';
-        let StatusIcon = Clock;
-        let statusText = 'ODOTA';
-        
-        if (isUrgent) {
-            badgeVariant = 'danger'; 
-            StatusIcon = AlertCircle;
-            statusText = 'OSTA NYT';
-        } else if (isToday) {
-            badgeVariant = 'success'; 
-            StatusIcon = CheckCircle2;
-            statusText = 'OSTA TÄNÄÄN';
-        }
-
-        const travelDate = new Date(trip.tuleva_matkapaeiva).toLocaleDateString('fi-FI');
-        const buyDate = new Date(trip.suositeltu_ostopaiva).toLocaleDateString('fi-FI');
-        
-        const transportType = trip.ennustettu_reitti.toLowerCase().includes('bussi') ? 'kaukobussi' : 'kaukojuna';
-
-        return (
-            <div key={index} style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'space-between', 
-                padding: '1rem', 
-                borderRadius: '6px', 
-                border: `1px solid ${isWait ? 'var(--color-border)' : (isUrgent ? '#fca5a5' : '#6ee7b7')}`, 
-                backgroundColor: isWait ? 'transparent' : (isUrgent ? '#fef2f2' : '#ecfdf5')
-            }}>
-                {/* VASEN: Ikoni ja Matkatiedot */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <TransportIcon type={transportType} containerSize={42} iconSize={20} />
-                    
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.95rem', fontWeight: '600', color: 'var(--color-text)' }}>
-                            <CalendarClock size={16} color="var(--color-primary, #6366f1)" />
-                            {travelDate}
-                            <span style={{ color: 'var(--color-text-secondary)', fontWeight: 'normal', fontSize: '0.85rem' }}>
-                                ({trip.kohde_sijainti})
-                            </span>
-                        </div>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <ArrowRight size={14} /> Reitti: {trip.ennustettu_reitti}
-                        </div>
-                    </div>
-                </div>
-
-                {/* OIKEA: Motivaatio, Osto-ohje ja Badge */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {/* Motivaatioteksti - Säästöprosentti näkyy vain jos on syytä toimia */}
-                        {!isWait && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', color: '#16a34a', fontWeight: 'bold' }}>
-                                <TrendingDown size={14} /> Jopa {trip.saasto_prosentti} % säästö
-                            </div>
-                        )}
-                        <Badge variant={badgeVariant} icon={StatusIcon}>
-                            {statusText}
-                        </Badge>
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', fontWeight: isWait ? 'normal' : '600' }}>
-                        {isWait ? `Optimaalinen ostopäivä: ${buyDate}` : `Hintataso nousee nopeasti`}
-                    </div>
-                </div>
-            </div>
-        );
+const LongDistancePanel = ({ journeys = [] }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [showBudget, setShowBudget] = useState(false);
+    
+    // 7 PÄIVÄN SIIVOUSSÄÄNTÖ OSTETUILLE
+    const isRecentlyBought = (boughtAt) => {
+        if (!boughtAt) return false;
+        const boughtDate = new Date(boughtAt);
+        const now = new Date();
+        const diffDays = (now - boughtDate) / (1000 * 60 * 60 * 24);
+        return diffDays <= 7;
     };
 
-    // Jaetaan lista näkyviin (max 3) ja piilotettuihin
-    const visibleTrips = predictions ? predictions.slice(0, 3) : [];
-    const hiddenTrips = predictions ? predictions.slice(3) : [];
+    // KEVEÄ PYHÄ- JA VIIKONLOPPUSTABILOITU PALKKAPÄIVÄLASKURI
+    const getNextPayday = () => {
+        const now = new Date();
+        let year = now.getFullYear();
+        let month = now.getMonth();
+        
+        let payday = new Date(year, month, 14);
+        if (payday.getDay() === 6) payday.setDate(13);      // Lauantai -> Perjantai
+        else if (payday.getDay() === 0) payday.setDate(12); // Sunnuntai -> Perjantai
+        
+        if (payday < now) {
+            month += 1;
+            payday = new Date(year, month, 14);
+            if (payday.getDay() === 6) payday.setDate(13);
+            else if (payday.getDay() === 0) payday.setDate(12);
+        }
+        return payday;
+    };
+
+    // Suodatetaan näytettävät matkat
+    const visibleJourneys = (journeys || []).filter(journey => {
+        if (journey.is_bought) {
+            return isRecentlyBought(journey.bought_at);
+        }
+        return true;
+    });
+
+    const getSlotIcon = (slot) => {
+        switch (slot) {
+            case 'aamu': return <Sunrise size={16} />;
+            case 'paiva': return <Sun size={16} />;
+            case 'iltapaiva': return <Sunset size={16} />;
+            case 'ilta': return <Moon size={16} />;
+            default: return <Clock size={16} />;
+        }
+    };
+
+    const getSlotName = (slot) => {
+        switch (slot) {
+            case 'aamu': return 'Aamu (06-10)';
+            case 'paiva': return 'Päivä (10-14)';
+            case 'iltapaiva': return 'Iltapäivä (14-18)';
+            case 'ilta': return 'Ilta (18+)';
+            default: return 'Tuntematon';
+        }
+    };
+
+    const getStatusConfig = (status) => {
+        switch (status) {
+            case 'ostettu':
+                return { icon: CheckCircle2, color: 'var(--color-success)', text: 'Lippu ostettu', bg: 'rgba(30,154,90,0.05)' };
+            case 'odota':
+                return { icon: Clock, color: 'var(--color-success)', text: 'Odota, ei kiirettä', bg: '#fff' };
+            case 'osta_tanaan':
+                return { icon: AlertCircle, color: 'var(--color-warning)', text: 'Osta tänään', bg: '#fff' };
+            case 'osta_heti':
+                return { icon: AlertTriangle, color: 'var(--color-danger)', text: 'Osta heti! (Porras ylitetty)', bg: 'rgba(227,74,74,0.05)' };
+            default:
+                return { icon: Info, color: 'var(--color-text-secondary)', text: 'Ei dataa', bg: '#fff' };
+        }
+    };
+
+    if (visibleJourneys.length === 0) {
+        return (
+            <Card title="Kaukoliikenteen ohjuri" icon={Train} variant="default">
+                <p className="text-sm text-secondary font-italic m-0">
+                    Ei tulevia toimintaa vaativia kaukoliikenteen matkoja.
+                </p>
+            </Card>
+        );
+    }
+
+    // Kassavirtasuunnittelun lennosta laskenta ostamattomille lipuille
+    const nextPayday = getNextPayday();
+    const unboughtJourneys = visibleJourneys.filter(j => !j.is_bought);
+    
+    let buyNowCount = 0;
+    let waitPaydayCount = 0;
+
+    unboughtJourneys.forEach(j => {
+        const matchDate = new Date(j.date);
+        const deadlineDate = new Date(matchDate);
+        deadlineDate.setDate(deadlineDate.getDate() - (j.days_to_price_jump || 7));
+        
+        if (deadlineDate < nextPayday) {
+            buyNowCount++;
+        } else {
+            waitPaydayCount++;
+        }
+    });
+
+    // Rajataan näytettävät rivit tilan mukaan (oletuksena 3)
+    const displayLimit = 3;
+    const journeysToRender = isExpanded ? visibleJourneys : visibleJourneys.slice(0, displayLimit);
 
     return (
-        <Card title="Kaukoliikenteen osto-ohjuri" icon={Train}>
-            {loading ? (
-                <AlertBox type="info">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Clock size={16} className="animate-spin" /> 
-                        <span>Ladataan hintaennusteita ja kalenteridataa...</span>
+        <Card 
+            title="Kaukoliikenteen ohjuri" 
+            icon={Train} 
+            variant="default"
+            headerAction={
+                <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    icon={PiggyBank}
+                    onClick={() => setShowBudget(!showBudget)}
+                >
+                    {showBudget ? 'Piilota kassa' : 'Suunnittele kassa'}
+                </Button>
+            }
+        >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                
+                {/* LAJITTELUNÄKYMÄ (KASSAVIRTASUUNNITTELIJA) */}
+                {showBudget && (
+                    <div className="view-fade-in">
+                        <AlertBox type="info">
+                            <div style={{ fontWeight: '700', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                Seuraava palkkapäivä: {nextPayday.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })}
+                            </div>
+                            <div style={{ fontSize: '0.85rem', lineHeight: '1.5', color: 'var(--color-text-primary)' }}>
+                                • <strong>{buyNowCount} matkaa</strong> kriittinen ostoikkuna sulkeutuu ennen palkkaa &rarr; <span style={{ color: 'var(--color-danger)', fontWeight: '600' }}>Rahoitettava nykyisestä kassasta.</span><br />
+                                • <strong>{waitPaydayCount} matkaa</strong> hinta pysyy stabiilina palkanmaksuun asti &rarr; <span style={{ color: 'var(--color-success)', fontWeight: '600' }}>Voi odottaa palkkapäivää.</span>
+                            </div>
+                        </AlertBox>
                     </div>
-                </AlertBox>
-            ) : predictions && predictions.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+                )}
+
+                {journeysToRender.map((journey, idx) => {
+                    const StatusIcon = getStatusConfig(journey.action_status).icon;
+                    const statusColor = getStatusConfig(journey.action_status).color;
                     
-                    {/* Näytetään 3 ensimmäistä matkaa suoraan */}
-                    {visibleTrips.map((trip, index) => renderTripRow(trip, index))}
-
-                    {/* Laitetaan loput haitariin, jos niitä on */}
-                    {hiddenTrips.length > 0 && (
-                        <div style={{ marginTop: '0.5rem' }}>
-                            <Accordion title={`Näytä myöhemmät matkat (${hiddenTrips.length})`} defaultOpen={false}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-                                    {hiddenTrips.map((trip, index) => renderTripRow(trip, index + 3))}
+                    return (
+                        <div key={idx} style={{ 
+                            border: `1px solid ${journey.is_bought ? 'var(--color-success)' : 'var(--color-border)'}`, 
+                            borderRadius: '8px', 
+                            padding: '1rem',
+                            backgroundColor: getStatusConfig(journey.action_status).bg
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '700', color: 'var(--color-text-primary)' }}>
+                                    <span style={{ fontSize: '1.1rem' }}>
+                                        {new Date(journey.date).toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })}
+                                    </span>
+                                    <span style={{ color: 'var(--color-border)' }}>|</span>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.9rem' }}>
+                                        {journey.direction === 'meno' ? 'Mikkeli' : 'Helsinki'}
+                                        <ArrowRight size={14} style={{ color: 'var(--color-text-secondary)' }} />
+                                        {journey.direction === 'meno' ? 'Helsinki' : 'Mikkeli'}
+                                    </span>
                                 </div>
-                            </Accordion>
-                        </div>
-                    )}
 
-                </div>
-            ) : (
-                <AlertBox type="info">
-                    Kaikki kunnossa! Lähiviikoille ei ole tiedossa kaukoliikennettä vaativia toimistopäiviä.
-                </AlertBox>
-            )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: statusColor, fontWeight: '700', fontSize: '0.85rem' }}>
+                                    <StatusIcon size={16} />
+                                    {getStatusConfig(journey.action_status).text}
+                                </div>
+                            </div>
+
+                            {!journey.is_bought && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem', borderTop: '1px dashed var(--color-border)', paddingTop: '0.75rem' }}>
+                                    
+                                    {journey.recommended_slot && (
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
+                                            <div style={{ marginTop: '2px', color: 'var(--color-primary)' }}>
+                                                {getSlotIcon(journey.recommended_slot)}
+                                            </div>
+                                            <div>
+                                                <strong>Suositeltu slotti:</strong> {getSlotName(journey.recommended_slot)} on tyypillisesti edullisin. 
+                                                {journey.slot_savings > 0 && (
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--color-success)', fontWeight: '600', marginLeft: '6px' }}>
+                                                        <TrendingDown size={14} /> Säästö ~{Number(journey.slot_savings).toFixed(2)} €
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
+                                        <div style={{ marginTop: '2px' }}><Clock size={16} /></div>
+                                        <div>
+                                            <strong>Milloin ostaa:</strong> Hinta nousee historiadatan mukaan {journey.days_to_price_jump} päivää ennen lähtöä. 
+                                            {journey.action_status === 'osta_tanaan' && <span style={{ color: 'var(--color-warning)', fontWeight: '600', marginLeft: '4px' }}>Lukitse hinta tänään!</span>}
+                                        </div>
+                                    </div>
+
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+
+                {/* PAINIKE: Näytä lisää / vähemmän */}
+                {visibleJourneys.length > displayLimit && (
+                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.5rem' }}>
+                        <Button 
+                            variant="secondary" 
+                            size="sm" 
+                            icon={isExpanded ? ChevronUp : ChevronDown}
+                            onClick={() => setIsExpanded(!isExpanded)}
+                        >
+                            {isExpanded ? 'Näytä vähemmän' : `Näytä lisää (${visibleJourneys.length - displayLimit})`}
+                        </Button>
+                    </div>
+                )}
+            </div>
         </Card>
     );
 };

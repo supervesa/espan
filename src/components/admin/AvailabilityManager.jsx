@@ -45,6 +45,10 @@ const AvailabilityManager = () => {
     const [rules, setRules] = useState([]);
     const [exceptions, setExceptions] = useState([]);
     const [dailyLocations, setDailyLocations] = useState([]);
+    
+    // TÄHÄN LISÄTTY: Kaukoliikenteen suositusten tila
+    const [longDistanceJourneys, setLongDistanceJourneys] = useState([]);
+    
     const [loading, setLoading] = useState(true);
     const [ledgerBalance, setLedgerBalance] = useState(0);
     const [nationalHolidays, setNationalHolidays] = useState([]);
@@ -78,16 +82,18 @@ const AvailabilityManager = () => {
         setLoading(true);
         try {
             const queryStart = formatDateLocal(addDays(currentWeekStart, -7)); 
-            const queryEnd = formatDateLocal(addDays(currentWeekStart, 21));
+            const queryEnd = formatDateLocal(addDays(currentWeekStart, 45));
             const todayStr = formatDateLocal(new Date());
 
-            const [rulesRes, excRes, locRes, setRes, ledgerRes, holidayRes] = await Promise.all([
+            // TÄHÄN LISÄTTY: v_kaukoliikenne_suositukset lisätty hakuun (longDistRes)
+            const [rulesRes, excRes, locRes, setRes, ledgerRes, holidayRes, longDistRes] = await Promise.all([
                 supabase.schema('espan').from('expert_availability_rules').select('*').eq('expert_id', EXPERT_ID).order('day_of_week').order('start_time'),
                 supabase.schema('espan').from('availability').select('*').eq('expert_id', EXPERT_ID).gte('start_time', `${queryStart} 00:00:00`).lte('start_time', `${queryEnd} 23:59:59`).order('start_time'),
                 supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', EXPERT_ID).gte('date', queryStart).lte('date', queryEnd),
                 supabase.schema('espan').from('expert_location_settings').select('*').eq('expert_id', EXPERT_ID).maybeSingle(),
                 supabase.schema('espan').from('expert_remote_bank_ledger').select('transaction_type').eq('expert_id', EXPERT_ID).gt('expiration_date', todayStr),
-                supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', queryStart).lte('date', queryEnd)
+                supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', queryStart).lte('date', queryEnd),
+                supabase.schema('espan').from('v_kaukoliikenne_suositukset').select('*').gte('date', queryStart).lte('date', queryEnd)
             ]);
 
             setRules(rulesRes.data || []);
@@ -95,6 +101,9 @@ const AvailabilityManager = () => {
             setDailyLocations(locRes.data || []);
             if (setRes.data) setSettings(setRes.data);
             setNationalHolidays(holidayRes.data || []);
+            
+            // TÄHÄN LISÄTTY: Datan tallennus tilaan
+            setLongDistanceJourneys(longDistRes.data || []);
 
             if (ledgerRes.data) {
                 const balance = ledgerRes.data.reduce((sum, row) => sum + row.transaction_type, 0);
@@ -192,6 +201,7 @@ const AvailabilityManager = () => {
                             onOptimize={handleOptimizeCalendar}
                             onLockWeek={handleLockCurrentWeek}
                             onResetSuggestions={handleResetSuggestions}
+                            longDistanceJourneys={longDistanceJourneys} // TÄHÄN LISÄTTY prop-välitys
                         />
 
                         <ExpertCalendar 

@@ -2,7 +2,7 @@
 import React from 'react';
 import Button from '../../common/Button';
 import { Calendar as CalendarIcon, Ticket, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
-import './AvailabilityManager.css';
+import './AvailabilityHeader.css'; // Varmista että import on oikein!
 
 const AvailabilityHeader = ({ 
     activeView, 
@@ -11,21 +11,19 @@ const AvailabilityHeader = ({
     onPreviousWeek, 
     onNextWeek,
     onResetToCurrentWeek,
-    pendingReceiptsCount = 0 // UUSI PROPSI ILMAISINTA VARTEN
+    pendingReceiptsCount = 0 
 }) => {
     
-    // Apufunktiot päivämäärien ja viikkonumeron muotoiluun
     const getWeekRangeText = () => {
         if (!currentWeekStart) return '';
         const start = new Date(currentWeekStart);
         const end = new Date(start);
-        end.setDate(end.getDate() + 4); // Näytetään kalenterin mukaisesti Ma-Pe
+        end.setDate(end.getDate() + 4); 
         
         const formatStr = (d) => `${d.getDate()}.${d.getMonth() + 1}.`;
         return `${formatStr(start)} – ${formatStr(end)}`;
     };
 
-    // ISO 8601 Viikkonumeron laskenta
     const getWeekNumber = () => {
         if (!currentWeekStart) return '';
         const d = new Date(currentWeekStart);
@@ -55,7 +53,6 @@ const AvailabilityHeader = ({
                 >
                     <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         Matkat & Kuitit
-                        {/* PUNAISEN PALLURAN (NOTIFICATION DOT) RENDERÖINTI */}
                         {pendingReceiptsCount > 0 && (
                             <span style={{
                                 backgroundColor: '#ef4444',
@@ -75,49 +72,51 @@ const AvailabilityHeader = ({
                 </Button>
             </div>
 
-            {/* OIKEA: VIIKKOVIERITIN (SYNKRONOITU) */}
-            <div className="availability-header__scroller">
-                <Button 
-                    variant="ghost" 
-                    icon={ChevronLeft} 
-                    onClick={onPreviousWeek} 
-                    style={{ padding: '6px' }}
-                    title="Edellinen viikko"
-                />
+            {/* OIKEA: OHJAIMET */}
+            <div className="availability-header__controls">
                 
-                <div 
-                    className="availability-header__week-info" 
-                    onClick={onResetToCurrentWeek}
-                    title="Palaa kuluvaan viikkoon"
-                >
-                    <span className="availability-header__week-number">
-                        Viikko {getWeekNumber()}
-                    </span>
-                    <span className="availability-header__week-dates">
-                        {getWeekRangeText()}
-                    </span>
-                </div>
-
-                <Button 
-                    variant="ghost" 
-                    icon={ChevronRight} 
-                    onClick={onNextWeek} 
-                    style={{ padding: '6px' }}
-                    title="Seuraava viikko"
-                />
-                
-                {/* Koti-ikoni: Paluu nykyhetkeen */}
-                <div style={{ borderLeft: '1px solid var(--color-border)', paddingLeft: '0.5rem', marginLeft: '0.25rem' }}>
+                {/* Viikkovieritin on nyt oma laatikonsa */}
+                <div className="availability-header__scroller">
                     <Button 
-                        variant="secondary" 
-                        size="sm"
-                        icon={CalendarDays} 
+                        variant="ghost" 
+                        icon={ChevronLeft} 
+                        onClick={onPreviousWeek} 
+                        style={{ padding: '6px' }}
+                        title="Edellinen viikko"
+                    />
+                    
+                    <div 
+                        className="availability-header__week-info" 
                         onClick={onResetToCurrentWeek}
-                        style={{ padding: '0.4rem 0.75rem', color: 'var(--color-primary)', borderColor: 'transparent', fontSize: '0.8rem' }}
+                        title="Palaa kuluvaan viikkoon"
                     >
-                        Tämä viikko
-                    </Button>
+                        <span className="availability-header__week-number">
+                            Viikko {getWeekNumber()}
+                        </span>
+                        <span className="availability-header__week-dates">
+                            {getWeekRangeText()}
+                        </span>
+                    </div>
+
+                    <Button 
+                        variant="ghost" 
+                        icon={ChevronRight} 
+                        onClick={onNextWeek} 
+                        style={{ padding: '6px' }}
+                        title="Seuraava viikko"
+                    />
                 </div>
+                
+                {/* "Tämä viikko" -nappi on nyt irrotettu omaksi elementikseen! */}
+                <Button 
+                    variant="secondary" 
+                    icon={CalendarDays} 
+                    onClick={onResetToCurrentWeek}
+                    style={{ backgroundColor: '#fff' }}
+                >
+                    Tämä viikko
+                </Button>
+
             </div>
 
         </div>

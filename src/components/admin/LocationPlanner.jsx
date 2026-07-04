@@ -16,7 +16,8 @@ const LocationPlanner = ({
     onSettingsChange, 
     onOptimize, 
     onLockWeek, 
-    onResetSuggestions 
+    onResetSuggestions,
+    longDistanceJourneys // TÄHÄN LISÄTTY: Otetaan vastaan äidiltä
 }) => {
 
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -264,13 +265,14 @@ const LocationPlanner = ({
                 )}
             </div>
 
-            {/* ================= LIPPULASKURI (ERIYTETTY KOMPONENTTI) ================= */}
+            {/* ================= LIPPULASKURI JA KAUKOLIIKENNE (ALAKOMPONENTTI) ================= */}
             <LocalTransportPanel 
                 currentWeekStart={currentWeekStart}
                 dailyLocations={dailyLocations}
                 exceptions={exceptions}
                 nationalHolidays={nationalHolidays}
                 settings={settings}
+                longDistanceJourneys={longDistanceJourneys} // TÄHÄN LISÄTTY: Välitetään data paikallisliikennepaneeliin
             />
 
             {/* ================= 1. 4 VIIKON KOKONAISSALDO (MASTER PANEL) ================= */}
