@@ -9,6 +9,8 @@ const JourneyMatchmaker = ({
     expectedLocalTickets = 0, 
     expectedLocalCost = 0.00, 
     hasOfficeDays = false,
+    firstTravelDate,
+    lastTravelDate,
     approvedReceipts = [],
     pendingReceipts = [],
     onAddVirtualReceipt
@@ -25,7 +27,12 @@ const JourneyMatchmaker = ({
         return d >= weekStart && d < weekEnd;
     };
 
-    // APUFUNKTIO KUSTANNUSTEN LASKENTAAN (Lukee hinnat yksittäisiltä matkoilta)
+    const formatTravelDate = (isoString) => {
+        if (!isoString) return '';
+        const d = new Date(isoString);
+        return d.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' });
+    };
+
     const calculateJourneyCost = (receipts) => {
         let total = 0;
         receipts.forEach(r => {
@@ -44,7 +51,6 @@ const JourneyMatchmaker = ({
         return total;
     };
 
-    // 1. PAIKALLISLIIKENTEEN LOGIIKKA
     const localApproved = approvedReceipts.filter(r => (r.keywords || []).some(k => k.toLowerCase() === 'korsisaari' || k.toLowerCase() === 'paikallisliikenne'));
     const localPending = pendingReceipts.filter(r => 
         (r.keywords || []).some(k => k.toLowerCase() === 'korsisaari' || k.toLowerCase() === 'paikallisliikenne') && 
@@ -58,13 +64,9 @@ const JourneyMatchmaker = ({
 
     const localApprovedCount = localApproved.length;
     const localPendingCount = localPending.length;
-    
     const localApprovedCost = calculateJourneyCost(localApproved);
-    
     const localMissingCount = hasMonthlyPass ? 0 : Math.max(0, expectedLocalTickets - localApprovedCount - localPendingCount);
 
-    // 2. KAUKOLIIKENTEEN LOGIIKKA (Korjattu ja suojattu virus-efektiltä)
-    // Lisätty 'kaukoliikenne' avainsanoihin, jotta ohitetut virtuaalikuitit löydetään
     const isKaukoliikenne = (r) => (r.keywords || []).some(k => ['onnibus', 'vr', 'juna', 'bussi', 'kaukoliikenne'].includes(k.toLowerCase())) && !(r.keywords || []).some(k => k.toLowerCase() === 'korsisaari');
 
     const longDistApproved = approvedReceipts.filter(isKaukoliikenne);
@@ -73,7 +75,6 @@ const JourneyMatchmaker = ({
     let hasApprovedMeno = false;
     let hasApprovedPaluu = false;
 
-    // POISTETTU VIRHEELLINEN OIKOTIE: Virtuaalikuitit lukevat nyt kiltisti matkataulun suuntia ja päivämääriä!
     longDistApproved.forEach(r => {
         if (r.expert_journeys && r.expert_journeys.length > 0) {
             r.expert_journeys.forEach(j => {
@@ -83,7 +84,6 @@ const JourneyMatchmaker = ({
                 }
             });
         } else {
-            // Legacy-tuki vanhoille kuitteille
             if (isThisWeek(r.departure_time)) {
                 const info = (r.route_info || '').toLowerCase();
                 if (info.includes('meno-paluu') || (r.ai_metadata?.smartTags || []).some(t => t.toLowerCase().includes('meno-paluu'))) {
@@ -127,7 +127,6 @@ const JourneyMatchmaker = ({
     const menoStatus = hasApprovedMeno ? 'approved' : (hasPendingMeno ? 'pending' : 'missing');
     const tuloStatus = hasApprovedPaluu ? 'approved' : (hasPendingPaluu ? 'pending' : 'missing');
 
-    // KORJAUS TEKSTINÄYTTÖÖN: Virtuaaliteksti näytetään vain, jos ohitus osuu oikeasti tälle kyseiselle viikolle!
     const isMenoVirtual = longDistApproved.some(r => 
         r.ai_metadata?.isVirtual && 
         ((r.expert_journeys && r.expert_journeys.some(j => isThisWeek(j.departure_time) && j.direction === 'meno')) || 
@@ -142,7 +141,6 @@ const JourneyMatchmaker = ({
 
     const longDistApprovedCost = calculateJourneyCost(longDistApproved);
 
-    // 3. BUDJETIN JA TOTEUMAN YHTEENVETO
     const estimatedLongDistCost = hasOfficeDays ? 50.00 : 0;
     const totalExpectedBudget = expectedLocalCost + estimatedLongDistCost;
     const totalActualCost = localApprovedCost + longDistApprovedCost;
@@ -150,9 +148,9 @@ const JourneyMatchmaker = ({
     const totalMissing = localMissingCount + (tuloStatus === 'missing' && hasOfficeDays ? 1 : 0) + (menoStatus === 'missing' && hasOfficeDays ? 1 : 0);
     const totalPending = localPendingCount + (hasPendingMeno ? 1 : 0) + (hasPendingPaluu ? 1 : 0);
 
-    const handleVirtualReceipt = async (type) => {
+    const handleVirtualReceipt = async (type, travelDateISO) => {
         setIsProcessing(true);
-        const date = currentWeekStart ? new Date(currentWeekStart).toISOString() : new Date().toISOString();
+        const date = travelDateISO ? new Date(travelDateISO).toISOString() : new Date().toISOString();
         const success = await onAddVirtualReceipt(date, `${type} (Ohitettu manuaalisesti)`, ['ohitettu', 'kaukoliikenne']);
         if (!success) alert("Ohituksen tallennus epäonnistui.");
         setIsProcessing(false);
@@ -162,7 +160,6 @@ const JourneyMatchmaker = ({
         <Card title="Viikon matkabudjetti ja tilanne" icon={CheckCircle} variant={totalMissing > 0 ? "warning" : "default"}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 
-                {/* 1. YLÄPANEELI: EUROT JA TILA */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', backgroundColor: totalMissing === 0 && totalPending === 0 ? '#f0fdf4' : '#f8fafc', borderRadius: '8px', border: `1px solid ${totalMissing === 0 && totalPending === 0 ? '#bbf7d0' : '#cbd5e1'}` }}>
                     <div style={{ display: 'flex', gap: '2rem' }}>
                         <div>
@@ -204,7 +201,6 @@ const JourneyMatchmaker = ({
                     </div>
                 </div>
 
-                {/* 2. PAIKALLISLIIKENNE */}
                 <div>
                     <h5 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text)' }}>
                         <Bus size={18} color="#2563eb" /> PAIKALLISLIIKENNE (Klaukkala)
@@ -249,7 +245,6 @@ const JourneyMatchmaker = ({
 
                 <hr style={{ border: 'none', borderTop: '1px dashed var(--color-border)', margin: '0' }} />
 
-                {/* 3. KAUKOLIIKENNE */}
                 <div>
                     <h5 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text)' }}>
                         <Train size={18} color="#ea580c" /> KAUKOLIIKENNE (Mikkeli - Helsinki)
@@ -262,30 +257,10 @@ const JourneyMatchmaker = ({
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', paddingLeft: '1.5rem' }}>
                             
-                            {/* TULOMATKA (Helsinki - Mikkeli, 'paluu') */}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
                                     <ArrowRight size={16} color="var(--color-text-secondary)" />
-                                    <span style={{ fontWeight: '600' }}>Tulomatka (HELSINKI - MIKKELI):</span>
-                                    
-                                    {tuloStatus === 'approved' && isTuloVirtual && <span style={{ color: '#64748b' }}><Check size={14}/> Matkustettu muulla kyydillä (Ohitettu)</span>}
-                                    {tuloStatus === 'approved' && !isTuloVirtual && <span style={{ color: '#16a34a', fontWeight: 'bold' }}><CheckCircle size={14}/> Kuitti hyväksytty</span>}
-                                    {tuloStatus === 'pending' && <span style={{ color: '#d97706' }}><Clock size={14}/> Odottaa vahvistustasi jonossa</span>}
-                                    {tuloStatus === 'missing' && <span style={{ color: 'var(--color-danger)', fontWeight: 'bold' }}><AlertTriangle size={14}/> Odottaa tositetta sähköpostiin</span>}
-                                </div>
-                                
-                                {tuloStatus === 'missing' && (
-                                    <Button variant="secondary" size="sm" onClick={() => handleVirtualReceipt('Tulomatka')} disabled={isProcessing}>
-                                        {isProcessing ? <Loader2 size={14} className="animate-spin" /> : "Ohita / Ei kulua"}
-                                    </Button>
-                                )}
-                            </div>
-
-                            {/* MENOMATKA (Mikkeli - Helsinki, 'meno') */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
-                                    <ArrowLeft size={16} color="var(--color-text-secondary)" />
-                                    <span style={{ fontWeight: '600' }}>Menomatka (MIKKELI - HELSINKI):</span>
+                                    <span style={{ fontWeight: '600' }}>Menomatka (MIKKELI - HELSINKI) {firstTravelDate ? `- ${formatTravelDate(firstTravelDate)}` : ''}:</span>
                                     
                                     {menoStatus === 'approved' && isMenoVirtual && <span style={{ color: '#64748b' }}><Check size={14}/> Matkustettu muulla kyydillä (Ohitettu)</span>}
                                     {menoStatus === 'approved' && !isMenoVirtual && <span style={{ color: '#16a34a', fontWeight: 'bold' }}><CheckCircle size={14}/> Kuitti hyväksytty</span>}
@@ -294,7 +269,25 @@ const JourneyMatchmaker = ({
                                 </div>
                                 
                                 {menoStatus === 'missing' && (
-                                    <Button variant="secondary" size="sm" onClick={() => handleVirtualReceipt('Menomatka')} disabled={isProcessing}>
+                                    <Button variant="secondary" size="sm" onClick={() => handleVirtualReceipt('Menomatka', firstTravelDate)} disabled={isProcessing}>
+                                        {isProcessing ? <Loader2 size={14} className="animate-spin" /> : "Ohita / Ei kulua"}
+                                    </Button>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: '0.5rem 1rem', borderRadius: '6px', border: '1px solid var(--color-border)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
+                                    <ArrowLeft size={16} color="var(--color-text-secondary)" />
+                                    <span style={{ fontWeight: '600' }}>Tulomatka (HELSINKI - MIKKELI) {lastTravelDate ? `- ${formatTravelDate(lastTravelDate)}` : ''}:</span>
+                                    
+                                    {tuloStatus === 'approved' && isTuloVirtual && <span style={{ color: '#64748b' }}><Check size={14}/> Matkustettu muulla kyydillä (Ohitettu)</span>}
+                                    {tuloStatus === 'approved' && !isTuloVirtual && <span style={{ color: '#16a34a', fontWeight: 'bold' }}><CheckCircle size={14}/> Kuitti hyväksytty</span>}
+                                    {tuloStatus === 'pending' && <span style={{ color: '#d97706' }}><Clock size={14}/> Odottaa vahvistustasi jonossa</span>}
+                                    {tuloStatus === 'missing' && <span style={{ color: 'var(--color-danger)', fontWeight: 'bold' }}><AlertTriangle size={14}/> Odottaa tositetta sähköpostiin</span>}
+                                </div>
+                                
+                                {tuloStatus === 'missing' && (
+                                    <Button variant="secondary" size="sm" onClick={() => handleVirtualReceipt('Tulomatka', lastTravelDate)} disabled={isProcessing}>
                                         {isProcessing ? <Loader2 size={14} className="animate-spin" /> : "Ohita / Ei kulua"}
                                     </Button>
                                 )}

@@ -19,7 +19,6 @@ const JourneyManager = ({
     nationalHolidays = [], 
     settings = {}, 
     arriveDayBefore = false,
-    
     pendingReceipts = [],
     approvedReceipts = [],
     loading = false,
@@ -75,7 +74,6 @@ const JourneyManager = ({
         }
     };
 
-    // KORJAUS ON TÄSSÄ: Otetaan newJourneys vastaan ja välitetään eteenpäin hookille!
     const handleApprove = async (updatedReceipt, newJourneys) => {
         const success = await approveReceipt(updatedReceipt, newJourneys);
         if (success) {
@@ -195,6 +193,8 @@ const JourneyManager = ({
                 expectedLocalTickets={forecast?.localTickets || 0}
                 expectedLocalCost={forecast?.localCost || 0.00}
                 hasOfficeDays={(forecast?.officeDaysCount || 0) > 0}
+                firstTravelDate={forecast?.firstTravelDate}
+                lastTravelDate={forecast?.lastTravelDate}
                 approvedReceipts={approvedReceipts}
                 pendingReceipts={pendingReceipts}
                 onAddVirtualReceipt={addVirtualReceipt}

@@ -18,17 +18,16 @@ export const useLocalTransportStats = ({
 }) => {
     
     const ticketPrice = settings?.bus_ticket_price_eur || 8.06;
-
-    // KORJAUS: Vakaa tekstiavain (esim. "2026-07-03")
     const weekStartKey = currentWeekStart 
         ? new Date(currentWeekStart).toISOString().split('T')[0] 
         : null;
 
-    // 1. KULUVAN VIIKON ENNUSTE
     const forecast = useMemo(() => {
         if (!currentWeekStart) return null;
 
         let officeDaysCount = 0;
+        let firstOfficeDate = null;
+        let lastOfficeDate = null;
         
         for (let d = 0; d < 5; d++) {
             const currentDay = new Date(currentWeekStart);
@@ -44,9 +43,17 @@ export const useLocalTransportStats = ({
                 const loc = dailyLocations?.find(l => l.date === dStr);
                 if (loc?.location_type === 'lahityo') {
                     officeDaysCount += 1;
+                    if (!firstOfficeDate) firstOfficeDate = new Date(currentDay);
+                    lastOfficeDate = new Date(currentDay);
                 }
             }
         }
+
+        let firstTravelDate = firstOfficeDate ? new Date(firstOfficeDate) : null;
+        if (arriveDayBefore && firstTravelDate) {
+            firstTravelDate.setDate(firstTravelDate.getDate() - 1);
+        }
+        let lastTravelDate = lastOfficeDate ? new Date(lastOfficeDate) : null;
 
         let tulo = 0, vali = 0, lahto = 0, localTickets = 0;
         
@@ -76,11 +83,12 @@ export const useLocalTransportStats = ({
             tulo,
             vali,
             lahto,
-            ticketPrice
+            ticketPrice,
+            firstTravelDate: firstTravelDate ? firstTravelDate.toISOString() : null,
+            lastTravelDate: lastTravelDate ? lastTravelDate.toISOString() : null
         };
     }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, settings, ticketPrice, arriveDayBefore]);
 
-    // 2. HINNASTON HAKU SUPABASESTA
     const [dbPrices, setDbPrices] = useState([]);
     
     useEffect(() => {
@@ -111,7 +119,6 @@ export const useLocalTransportStats = ({
         fetchPrices();
     }, []);
 
-    // 3. ÄLYKÄS SÄÄSTÖTUTKA
     const optimization = useMemo(() => {
         if (!currentWeekStart || dbPrices.length === 0) return null;
         
@@ -184,7 +191,6 @@ export const useLocalTransportStats = ({
         };
     }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, ticketPrice, dbPrices, arriveDayBefore]);
 
-    // 4. EDELLISEN VIIKON TOTEUMA
     const [historicalData, setHistoricalData] = useState({
         ticketCount: 0,
         totalCost: 0,
@@ -200,7 +206,6 @@ export const useLocalTransportStats = ({
         const fetchHistoricalData = async () => {
             setHistoricalData(prev => ({ ...prev, loading: true }));
             try {
-                // Rakennetaan päivämäärät vakaasta avaimesta
                 const prevWeekStart = new Date(weekStartKey);
                 prevWeekStart.setDate(prevWeekStart.getDate() - 7);
                 
