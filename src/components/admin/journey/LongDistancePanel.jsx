@@ -110,8 +110,8 @@ const LongDistancePanel = ({ journeys = [] }) => {
     const nextPayday = getNextPayday();
     const unboughtJourneys = visibleJourneys.filter(j => !j.is_bought);
     
-    let buyNowCount = 0;
-    let waitPaydayCount = 0;
+    const buyNowList = [];
+    const waitPaydayList = [];
 
     unboughtJourneys.forEach(j => {
         const matchDate = new Date(j.date);
@@ -119,9 +119,9 @@ const LongDistancePanel = ({ journeys = [] }) => {
         deadlineDate.setDate(deadlineDate.getDate() - (j.days_to_price_jump || 7));
         
         if (deadlineDate < nextPayday) {
-            buyNowCount++;
+            buyNowList.push(j);
         } else {
-            waitPaydayCount++;
+            waitPaydayList.push(j);
         }
     });
 
@@ -151,12 +151,34 @@ const LongDistancePanel = ({ journeys = [] }) => {
                 {showBudget && (
                     <div className="view-fade-in">
                         <AlertBox type="info">
-                            <div style={{ fontWeight: '700', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ fontWeight: '700', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 Seuraava palkkapäivä: {nextPayday.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })}
                             </div>
-                            <div style={{ fontSize: '0.85rem', lineHeight: '1.5', color: 'var(--color-text-primary)' }}>
-                                • <strong>{buyNowCount} matkaa</strong> kriittinen ostoikkuna sulkeutuu ennen palkkaa &rarr; <span style={{ color: 'var(--color-danger)', fontWeight: '600' }}>Rahoitettava nykyisestä kassasta.</span><br />
-                                • <strong>{waitPaydayCount} matkaa</strong> hinta pysyy stabiilina palkanmaksuun asti &rarr; <span style={{ color: 'var(--color-success)', fontWeight: '600' }}>Voi odottaa palkkapäivää.</span>
+                            <div style={{ fontSize: '0.85rem', lineHeight: '1.6', color: 'var(--color-text-primary)' }}>
+                                <div style={{ marginBottom: '0.5rem' }}>
+                                    • <strong>{buyNowList.length} matkaa</strong> kriittinen ostoikkuna sulkeutuu ennen palkkaa &rarr; <span style={{ color: 'var(--color-danger)', fontWeight: '600' }}>Rahoitettava nykyisestä kassasta:</span>
+                                    {buyNowList.length > 0 && (
+                                        <div style={{ paddingLeft: '1rem', marginTop: '0.2rem', color: 'var(--color-text-secondary)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                            {buyNowList.map((j, i) => (
+                                                <div key={i}>
+                                                    - {new Date(j.date).toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} | {j.direction === 'meno' ? 'Mikkeli → Helsinki' : 'Helsinki → Mikkeli'}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    • <strong>{waitPaydayList.length} matkaa</strong> hinta pysyy stabiilina palkanmaksuun asti &rarr; <span style={{ color: 'var(--color-success)', fontWeight: '600' }}>Voi odottaa palkkapäivää:</span>
+                                    {waitPaydayList.length > 0 && (
+                                        <div style={{ paddingLeft: '1rem', marginTop: '0.2rem', color: 'var(--color-text-secondary)', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                            {waitPaydayList.map((j, i) => (
+                                                <div key={i}>
+                                                    - {new Date(j.date).toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} | {j.direction === 'meno' ? 'Mikkeli → Helsinki' : 'Helsinki → Mikkeli'}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </AlertBox>
                     </div>
@@ -225,7 +247,7 @@ const LongDistancePanel = ({ journeys = [] }) => {
                     );
                 })}
 
-                {/* PAINIKE: Näytä lisää / vähemmän */}
+                {/* PAINIKE: Näita lisää / vähemmän */}
                 {visibleJourneys.length > displayLimit && (
                     <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.5rem' }}>
                         <Button 

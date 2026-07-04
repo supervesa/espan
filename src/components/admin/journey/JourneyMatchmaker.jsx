@@ -25,19 +25,17 @@ const JourneyMatchmaker = ({
         return d >= weekStart && d < weekEnd;
     };
 
-    // APUFUNKTIO KUSTANNUSTEN LASKENTAAN (Lukee hinnat yksittäisiltä matkoilta, ei koko kuitista!)
+    // APUFUNKTIO KUSTANNUSTEN LASKENTAAN (Lukee hinnat yksittäisiltä matkoilta)
     const calculateJourneyCost = (receipts) => {
         let total = 0;
         receipts.forEach(r => {
             if (r.expert_journeys && r.expert_journeys.length > 0) {
-                // Jos kuitilla on uusia matkoja, summataan vain tälle viikolle osuvien matkojen hinnat
                 r.expert_journeys.forEach(j => {
                     if (isThisWeek(j.departure_time)) {
                         total += Number(j.price || 0);
                     }
                 });
             } else {
-                // Legacy-tuki: Jos kuitilla ei vielä ole lohkottuja matkoja, katsotaan kuitin päähintaa
                 if (isThisWeek(r.departure_time)) {
                     total += Number(r.total_price || 0);
                 }
@@ -47,9 +45,9 @@ const JourneyMatchmaker = ({
     };
 
     // 1. PAIKALLISLIIKENTEEN LOGIIKKA
-    const localApproved = approvedReceipts.filter(r => (r.keywords || []).includes('korsisaari') || (r.keywords || []).includes('paikallisliikenne'));
+    const localApproved = approvedReceipts.filter(r => (r.keywords || []).some(k => k.toLowerCase() === 'korsisaari' || k.toLowerCase() === 'paikallisliikenne'));
     const localPending = pendingReceipts.filter(r => 
-        ((r.keywords || []).includes('korsisaari') || (r.keywords || []).includes('paikallisliikenne')) && 
+        (r.keywords || []).some(k => k.toLowerCase() === 'korsisaari' || k.toLowerCase() === 'paikallisliikenne') && 
         isThisWeek(r.departure_time)
     );
 
@@ -61,30 +59,22 @@ const JourneyMatchmaker = ({
     const localApprovedCount = localApproved.length;
     const localPendingCount = localPending.length;
     
-    // UUSI HINNAN LASKENTA: Vain tälle viikolle osuvat matkat!
     const localApprovedCost = calculateJourneyCost(localApproved);
     
     const localMissingCount = hasMonthlyPass ? 0 : Math.max(0, expectedLocalTickets - localApprovedCount - localPendingCount);
 
-    // 2. KAUKOLIIKENTEEN LOGIIKKA (Korjattu suuntalogiikka)
-    const longDistApproved = approvedReceipts.filter(r => (r.keywords || []).some(k => ['onnibus', 'vr', 'juna', 'bussi'].includes(k)) && !(r.keywords || []).includes('korsisaari'));
-    const longDistPending = pendingReceipts.filter(r => 
-        (r.keywords || []).some(k => ['onnibus', 'vr', 'juna', 'bussi'].includes(k)) && 
-        !(r.keywords || []).includes('korsisaari') &&
-        isThisWeek(r.departure_time)
-    );
+    // 2. KAUKOLIIKENTEEN LOGIIKKA (Korjattu ja suojattu virus-efektiltä)
+    // Lisätty 'kaukoliikenne' avainsanoihin, jotta ohitetut virtuaalikuitit löydetään
+    const isKaukoliikenne = (r) => (r.keywords || []).some(k => ['onnibus', 'vr', 'juna', 'bussi', 'kaukoliikenne'].includes(k.toLowerCase())) && !(r.keywords || []).some(k => k.toLowerCase() === 'korsisaari');
+
+    const longDistApproved = approvedReceipts.filter(isKaukoliikenne);
+    const longDistPending = pendingReceipts.filter(r => isKaukoliikenne(r) && isThisWeek(r.departure_time));
 
     let hasApprovedMeno = false;
     let hasApprovedPaluu = false;
 
+    // POISTETTU VIRHEELLINEN OIKOTIE: Virtuaalikuitit lukevat nyt kiltisti matkataulun suuntia ja päivämääriä!
     longDistApproved.forEach(r => {
-        // Katsotaan ensin, onko kyseessä manuaalisesti kuitattu (virtuaalinen) ohitus
-        if (r.ai_metadata?.isVirtual) {
-            if ((r.route_info || '').includes('Menomatka')) hasApprovedMeno = true;
-            if ((r.route_info || '').includes('Tulomatka')) hasApprovedPaluu = true;
-            return; // Virtuaalisen lipun käsittely loppuu tähän
-        }
-
         if (r.expert_journeys && r.expert_journeys.length > 0) {
             r.expert_journeys.forEach(j => {
                 if (isThisWeek(j.departure_time)) {
@@ -93,13 +83,13 @@ const JourneyMatchmaker = ({
                 }
             });
         } else {
-            // Legacy-tuki vanhoille kuitteille, joilla ei ole taulussa suuntaa
+            // Legacy-tuki vanhoille kuitteille
             if (isThisWeek(r.departure_time)) {
                 const info = (r.route_info || '').toLowerCase();
                 if (info.includes('meno-paluu') || (r.ai_metadata?.smartTags || []).some(t => t.toLowerCase().includes('meno-paluu'))) {
                     hasApprovedMeno = true;
                     hasApprovedPaluu = true;
-                } else if (info.includes('paluu')) {
+                } else if (info.includes('paluu') || info.includes('tulomatka')) {
                     hasApprovedPaluu = true;
                 } else {
                     hasApprovedMeno = true;
@@ -120,13 +110,12 @@ const JourneyMatchmaker = ({
                 }
             });
         } else {
-            // Legacy-tuki
             if (isThisWeek(r.departure_time)) {
                 const info = (r.route_info || '').toLowerCase();
                 if (info.includes('meno-paluu') || (r.ai_metadata?.smartTags || []).some(t => t.toLowerCase().includes('meno-paluu'))) {
                     hasPendingMeno = true;
                     hasPendingPaluu = true;
-                } else if (info.includes('paluu')) {
+                } else if (info.includes('paluu') || info.includes('tulomatka')) {
                     hasPendingPaluu = true;
                 } else {
                     hasPendingMeno = true;
@@ -138,10 +127,19 @@ const JourneyMatchmaker = ({
     const menoStatus = hasApprovedMeno ? 'approved' : (hasPendingMeno ? 'pending' : 'missing');
     const tuloStatus = hasApprovedPaluu ? 'approved' : (hasPendingPaluu ? 'pending' : 'missing');
 
-    const isTuloVirtual = longDistApproved.some(r => r.ai_metadata?.isVirtual && r.route_info.includes('Tulomatka'));
-    const isMenoVirtual = longDistApproved.some(r => r.ai_metadata?.isVirtual && r.route_info.includes('Menomatka'));
+    // KORJAUS TEKSTINÄYTTÖÖN: Virtuaaliteksti näytetään vain, jos ohitus osuu oikeasti tälle kyseiselle viikolle!
+    const isMenoVirtual = longDistApproved.some(r => 
+        r.ai_metadata?.isVirtual && 
+        ((r.expert_journeys && r.expert_journeys.some(j => isThisWeek(j.departure_time) && j.direction === 'meno')) || 
+        (!r.expert_journeys?.length && isThisWeek(r.departure_time) && (r.route_info || '').includes('Menomatka')))
+    );
 
-    // UUSI HINNAN LASKENTA: Vain tälle viikolle osuvat kaukoliikenteen matkat!
+    const isTuloVirtual = longDistApproved.some(r => 
+        r.ai_metadata?.isVirtual && 
+        ((r.expert_journeys && r.expert_journeys.some(j => isThisWeek(j.departure_time) && j.direction === 'paluu')) || 
+        (!r.expert_journeys?.length && isThisWeek(r.departure_time) && (r.route_info || '').includes('Tulomatka')))
+    );
+
     const longDistApprovedCost = calculateJourneyCost(longDistApproved);
 
     // 3. BUDJETIN JA TOTEUMAN YHTEENVETO
