@@ -1,13 +1,15 @@
+// --- src/components/admin/LocalTransportPanel.jsx ---
 import React, { useState } from 'react';
-import { Bus, CalendarCheck, Moon, Sun, History, CheckCircle, RefreshCw, PiggyBank, Sparkles, TrendingDown } from 'lucide-react';
+import { Bus, CalendarCheck, Moon, Sun, History, CheckCircle, RefreshCw, PiggyBank, Sparkles, TrendingDown, XCircle } from 'lucide-react';
 
 import { useLocalTransportStats } from '../../hooks/useLocalTransportStats';
 import Card from '../common/Card';
-import Checkbox from '../common/Checkbox';
 import AlertBox from '../common/AlertBox';
 import MetricBox from '../common/MetricBox';
 import SummaryRow from '../common/SummaryRow';
 import TransportIcon from '../common/TransportIcon';
+import Accordion from '../common/Accordion';
+import Checkbox from '../common/Checkbox';
 
 import LongDistancePanel from './journey/LongDistancePanel';
 
@@ -21,6 +23,7 @@ const LocalTransportPanel = ({
 }) => {
     
     const [arriveDayBefore, setArriveDayBefore] = useState(false);
+    const [useSalaryPeriod, setUseSalaryPeriod] = useState(false);
 
     const { forecast, optimization, historicalData } = useLocalTransportStats({
         currentWeekStart,
@@ -28,7 +31,8 @@ const LocalTransportPanel = ({
         exceptions,
         nationalHolidays,
         settings,
-        arriveDayBefore
+        arriveDayBefore,
+        useSalaryPeriod
     });
 
     const transportStats = forecast || {
@@ -40,26 +44,25 @@ const LocalTransportPanel = ({
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}> 
             
+            {/* Kaukoliikenteen erillinen paneeli (Hyödyntää samaa dataa) */}
             <LongDistancePanel journeys={longDistanceJourneys} expertId={EXPERT_ID} />
 
             <Card title="Paikallisliikenne (Klaukkala)" icon={Bus}>
                 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '0.5rem' }}> 
                     
+                    {/* TULEVAISUUS: KULUVA VIIKKO */}
                     <MetricBox 
                         title="Kuluvan viikon tarve" 
                         icon={CalendarCheck} 
                         variant="dashed"
                         headerAction={
-                            <div className="custom-checkbox-row" style={{ padding: '0', margin: '0' }}>
-                                <label style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={arriveDayBefore} 
-                                        onChange={(e) => setArriveDayBefore(e.target.checked)} 
-                                    />
-                                    Saavun edellisiltana
-                                </label>
+                            <div style={{ padding: '0', margin: '0' }}>
+                                <Checkbox 
+                                    label="Saavun edellisiltana"
+                                    checked={arriveDayBefore} 
+                                    onChange={setArriveDayBefore} 
+                                />
                             </div>
                         }
                     >
@@ -93,21 +96,22 @@ const LocalTransportPanel = ({
                                     />
                                 )}
                                 
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem', borderTop: '2px solid var(--color-border)', paddingTop: '1rem', marginTop: '1rem' }}>
-                                    <span style={{ fontWeight: '600', color: 'var(--color-text-primary)' }}>Yhteensä ({transportStats.officeDaysCount} tpv):</span>
-                                    <span style={{ fontWeight: '800', color: 'var(--color-primary)' }}>{transportStats.localTickets} lippua ({(transportStats.localCost).toFixed(2)} €)</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid var(--color-border)', paddingTop: '1rem', marginTop: '1rem' }}>
+                                    <span className="text-md fw-semibold text-slate-700">Yhteensä ({transportStats.officeDaysCount} tpv):</span>
+                                    <span className="text-md fw-bold text-primary">{transportStats.localTickets} lippua ({(transportStats.localCost).toFixed(2)} €)</span>
                                 </div>
                             </div>
                         )}
                     </MetricBox>
 
+                    {/* MENNEISYYS: EDELLISEN VIIKON TOTEUMA */}
                     <MetricBox title="Edellisen viikon toteuma" icon={History} variant="solid">
                         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem' }}>
                                 <TransportIcon type="bussi" containerSize={36} iconSize={18} />
-                                <span style={{ fontSize: '0.9rem', color: 'var(--color-text-primary)', fontWeight: '600' }}>Hyväksytyt kuitit (Korsisaari)</span>
-                                <CheckCircle size={18} color="var(--color-success)" style={{ marginLeft: 'auto' }} />
+                                <span className="text-md fw-semibold text-slate-700">Hyväksytyt kuitit (Korsisaari)</span>
+                                <CheckCircle size={18} className="text-success" style={{ marginLeft: 'auto' }} />
                             </div>
                             
                             {historicalData?.loading ? (
@@ -115,17 +119,17 @@ const LocalTransportPanel = ({
                             ) : (
                                 <div style={{ marginTop: 'auto' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1rem' }}>
-                                        <span style={{ fontSize: '1.75rem', fontWeight: '800', color: 'var(--color-text-primary)', lineHeight: 1 }}>
+                                        <span className="fw-bold lh-tight" style={{ fontSize: '1.75rem', color: 'var(--color-text-primary)' }}>
                                             {historicalData?.totalCost?.toFixed(2) || '0.00'} €
                                         </span>
-                                        <span style={{ fontSize: '1rem', color: 'var(--color-text-secondary)', fontWeight: '600' }}>
+                                        <span className="text-base text-secondary fw-semibold">
                                             {historicalData?.ticketCount || 0} kpl
                                         </span>
                                     </div>
                                     
                                     {historicalData?.priceTrendInfo && (
                                         <AlertBox type="info" customStyle={{ padding: '0.75rem' }}>
-                                            <span style={{ fontSize: '0.8rem' }}>{historicalData.priceTrendInfo}</span>
+                                            <span className="text-sm-dense">{historicalData.priceTrendInfo}</span>
                                         </AlertBox>
                                     )}
                                 </div>
@@ -134,45 +138,79 @@ const LocalTransportPanel = ({
                     </MetricBox>
                 </div>
 
+                {/* SÄÄSTÖTUTKA JA KNAPSACK-OPTIMOINTI */}
                 {optimization && optimization.total28DayTrips > 0 && (
                     <div style={{ marginTop: '1.5rem' }}>
                         <MetricBox 
-                            title="Lippuoptimointi: Seuraavat 4 viikkoa" 
+                            title={`Lippuoptimointi: ${optimization.periodLabel} (${optimization.periodStartStr} - ${optimization.periodEndStr})`}
                             icon={Sparkles} 
                             variant={optimization.savings > 0 ? 'highlight' : 'solid'}
                             headerAction={
-                                <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', fontWeight: '600' }}>
-                                    {optimization.total28DayTrips} tulevaa matkaa
-                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                    <span className="text-sm fw-semibold text-secondary text-truncate">
+                                        {optimization.total28DayTrips} matkaa
+                                    </span>
+                                    <div style={{ borderLeft: '1px solid var(--color-border)', paddingLeft: '1rem', display: 'flex', alignItems: 'center' }}>
+                                        <Checkbox 
+                                            label="Palkkakausi (14. pv)"
+                                            checked={useSalaryPeriod} 
+                                            onChange={setUseSalaryPeriod} 
+                                        />
+                                    </div>
+                                </div>
                             }
                         >
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', alignItems: 'center', marginTop: '0.5rem', marginBottom: '1rem' }}>
                                 
-                                <div style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-                                    <div>Kustannus yksittäin: <strong style={{ color: 'var(--color-text-primary)' }}>{optimization.singleTicketsCost.toFixed(2)} €</strong></div>
-                                    <div style={{ color: optimization.savings > 0 ? 'var(--color-success)' : 'var(--color-text-primary)', fontWeight: '700', marginTop: '4px' }}>
-                                        Suositus: Osta {optimization.recommended.name} ({optimization.recommended.price.toFixed(2)} €)
+                                <div className="text-md text-secondary lh-tight">
+                                    <div style={{ marginBottom: '4px' }}>Kustannus yksittäin: <strong className="text-slate-700">{optimization.singleTicketsCost.toFixed(2)} €</strong></div>
+                                    <div className={`fw-bold ${optimization.savings > 0 ? 'text-success' : 'text-slate-700'}`}>
+                                        Suositus: Osta {optimization.recommended.description} ({optimization.recommended.cost.toFixed(2)} €)
                                     </div>
                                 </div>
                                 
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }}>
                                     {optimization.savings > 0 ? (
                                         <>
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--color-success)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                            <span className="text-xs fw-bold text-success text-uppercase">
                                                 Potentiaalinen säästö
                                             </span>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-success)', fontSize: '1.75rem', fontWeight: '800' }}>
+                                            <div className="text-success fw-bold" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '1.75rem' }}>
                                                 <TrendingDown size={24} />
                                                 {optimization.savings.toFixed(2)} €
                                             </div>
                                         </>
                                     ) : (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}>
-                                            <PiggyBank size={20} /> Yksittäisliput ovat halvin vaihtoehto.
+                                        <div className="text-md text-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <PiggyBank size={20} /> Yksittäisliput ovat halvin.
                                         </div>
                                     )}
                                 </div>
                             </div>
+
+                            {/* HAITARI VERTAILULASKELMILLE */}
+                            {optimization.allBaskets && optimization.allBaskets.length > 1 && (
+                                <Accordion title="Näytä vertailulaskelmat" defaultOpen={false}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        {optimization.allBaskets.slice(0, 5).map((basket, idx) => {
+                                            const isWinner = idx === 0;
+                                            return (
+                                                <div key={basket.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', backgroundColor: isWinner ? '#f0fdf4' : 'var(--color-surface)', border: `1px solid ${isWinner ? '#bbf7d0' : 'var(--color-border)'}`, borderRadius: '6px' }}>
+                                                    <div className={isWinner ? 'text-success' : 'text-secondary'} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        {isWinner ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                                                        <span className={`text-sm ${isWinner ? 'fw-bold' : 'fw-medium'}`}>
+                                                            {basket.description}
+                                                        </span>
+                                                    </div>
+                                                    <span className={`text-md fw-bold ${isWinner ? 'text-success' : 'text-slate-700'}`}>
+                                                        {basket.cost.toFixed(2)} €
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </Accordion>
+                            )}
                         </MetricBox>
                     </div>
                 )}

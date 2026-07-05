@@ -8,13 +8,45 @@ const formatDateStr = (date) => {
     return d.toISOString().split('T')[0];
 };
 
+// Palkkapäivä-algoritmi (14. pv tai edeltävä perjantai)
+const getAdjustedSalaryDay = (year, month) => {
+    const d = new Date(year, month, 14);
+    const day = d.getDay(); // 0 = Sunnuntai, 6 = Lauantai
+    if (day === 6) d.setDate(13); // Perjantai
+    if (day === 0) d.setDate(12); // Perjantai
+    return d;
+};
+
+// Jakson rajojen laskenta (Kuukausi tai Palkkakausi)
+const getPeriod = (baseDate, useSalary) => {
+    if (!useSalary) {
+        const start = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+        const end = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
+        return { start, end };
+    } else {
+        const currentMonthSalaryDay = getAdjustedSalaryDay(baseDate.getFullYear(), baseDate.getMonth());
+        if (baseDate < currentMonthSalaryDay) {
+            const prevMonthSalaryDay = getAdjustedSalaryDay(baseDate.getFullYear(), baseDate.getMonth() - 1);
+            const end = new Date(currentMonthSalaryDay);
+            end.setDate(end.getDate() - 1);
+            return { start: prevMonthSalaryDay, end };
+        } else {
+            const nextMonthSalaryDay = getAdjustedSalaryDay(baseDate.getFullYear(), baseDate.getMonth() + 1);
+            const end = new Date(nextMonthSalaryDay);
+            end.setDate(end.getDate() - 1);
+            return { start: currentMonthSalaryDay, end };
+        }
+    }
+};
+
 export const useLocalTransportStats = ({ 
     currentWeekStart, 
     dailyLocations, 
     exceptions, 
     nationalHolidays, 
     settings,
-    arriveDayBefore
+    arriveDayBefore,
+    useSalaryPeriod // UUSI: Tieto käytetäänkö palkkakautta
 }) => {
     
     const ticketPrice = settings?.bus_ticket_price_eur || 8.06;
@@ -22,6 +54,7 @@ export const useLocalTransportStats = ({
         ? new Date(currentWeekStart).toISOString().split('T')[0] 
         : null;
 
+    // 1. KULUVAN VIIKON ENNUSTE
     const forecast = useMemo(() => {
         if (!currentWeekStart) return null;
 
@@ -119,77 +152,162 @@ export const useLocalTransportStats = ({
         fetchPrices();
     }, []);
 
+    // 2. ÄLYKÄS SÄÄSTÖTUTKA (Reppuongelma / Knapsack & Palkkakausi)
     const optimization = useMemo(() => {
         if (!currentWeekStart || dbPrices.length === 0) return null;
+
+        const { start: periodStart, end: periodEnd } = getPeriod(new Date(currentWeekStart), useSalaryPeriod);
         
-        let total28DayTrips = 0;
-        let firstTicketDay = null;
-        let lastTicketDay = null;
+        let totalPeriodTrips = 0;
+        let firstTicketDate = null;
+        let lastTicketDate = null;
 
-        for (let w = 0; w < 4; w++) {
-            let weeklyOfficeDays = 0;
-            let weekFirstOfficeDay = null;
-            let weekLastOfficeDay = null;
+        // Apumuuttujat viikkojen sisäiseen laskentaan
+        let currentWeekOfficeDays = 0;
+        let currentWeekFirstOffice = null;
+        let currentWeekLastOffice = null;
 
-            for (let d = 0; d < 5; d++) {
-                const dayIndex = w * 7 + d;
-                const date = new Date(currentWeekStart);
-                date.setDate(date.getDate() + dayIndex);
-                const dStr = formatDateStr(date);
-
-                const isBlockedDay = exceptions?.some(e => 
-                    e.is_blocked && e.meeting_type === 'estetty' && e.start_time.substring(0, 10) === dStr
-                );
-                const isHolidayDay = nationalHolidays?.some(h => h.date === dStr);
-
-                if (!isBlockedDay && !isHolidayDay) {
-                    const loc = dailyLocations?.find(l => l.date === dStr);
-                    if (loc?.location_type === 'lahityo') {
-                        weeklyOfficeDays += 1;
-                        if (weekFirstOfficeDay === null) weekFirstOfficeDay = dayIndex;
-                        weekLastOfficeDay = dayIndex;
-                    }
-                }
-            }
-            
-            if (weeklyOfficeDays > 0) {
+        const processWeek = (isFirstWeekOfPeriod) => {
+            if (currentWeekOfficeDays > 0) {
                 let tripsThisWeek = 0;
+                let actualFirstDay = currentWeekFirstOffice;
 
-                if (w === 0 && arriveDayBefore) {
-                    tripsThisWeek = weeklyOfficeDays === 1 ? 1 : ((weeklyOfficeDays - 1) * 2) + 1;
-                } else if (weeklyOfficeDays >= 2) {
-                    tripsThisWeek = (weeklyOfficeDays - 1) * 2;
+                if (isFirstWeekOfPeriod && arriveDayBefore) {
+                    tripsThisWeek = currentWeekOfficeDays === 1 ? 1 : ((currentWeekOfficeDays - 1) * 2) + 1;
+                    actualFirstDay = new Date(currentWeekFirstOffice);
+                    actualFirstDay.setDate(actualFirstDay.getDate() - 1);
+                } else if (currentWeekOfficeDays >= 2) {
+                    tripsThisWeek = (currentWeekOfficeDays - 1) * 2;
                 }
 
                 if (tripsThisWeek > 0) {
-                    total28DayTrips += tripsThisWeek;
-                    if (firstTicketDay === null) firstTicketDay = weekFirstOfficeDay;
-                    lastTicketDay = weekLastOfficeDay;
+                    totalPeriodTrips += tripsThisWeek;
+                    if (!firstTicketDate) firstTicketDate = actualFirstDay;
+                    lastTicketDate = currentWeekLastOffice;
                 }
             }
+            currentWeekOfficeDays = 0;
+            currentWeekFirstOffice = null;
+            currentWeekLastOffice = null;
+        };
+
+        const iterDate = new Date(periodStart);
+        let isFirstWeek = true;
+
+        while (iterDate <= periodEnd) {
+            const dStr = formatDateStr(iterDate);
+            const dayOfWeek = iterDate.getDay(); 
+
+            const isBlockedDay = exceptions?.some(e =>
+                e.is_blocked && e.meeting_type === 'estetty' && e.start_time.substring(0, 10) === dStr
+            );
+            const isHolidayDay = nationalHolidays?.some(h => h.date === dStr);
+
+            if (!isBlockedDay && !isHolidayDay && dayOfWeek !== 0 && dayOfWeek !== 6) {
+                const loc = dailyLocations?.find(l => l.date === dStr);
+                if (loc?.location_type === 'lahityo') {
+                    currentWeekOfficeDays += 1;
+                    if (!currentWeekFirstOffice) currentWeekFirstOffice = new Date(iterDate);
+                    currentWeekLastOffice = new Date(iterDate);
+                }
+            }
+
+            // Päätetään viikko aina sunnuntaihin tai jakson loppuun
+            if (dayOfWeek === 0 || iterDate.getTime() === periodEnd.getTime()) {
+                processWeek(isFirstWeek);
+                isFirstWeek = false;
+            }
+
+            iterDate.setDate(iterDate.getDate() + 1);
         }
 
-        const singleTicketsCost = total28DayTrips * ticketPrice;
-        const spanDays = firstTicketDay !== null ? (lastTicketDay - firstTicketDay + 1) : 0;
-        let recommended = { name: 'Yksittäisliput kuitilla', price: singleTicketsCost };
+        const singleTicketsCost = totalPeriodTrips * ticketPrice;
+        let spanDays = 0;
+        if (firstTicketDate && lastTicketDate) {
+            spanDays = Math.ceil((lastTicketDate - firstTicketDate) / (1000 * 60 * 60 * 24)) + 1;
+        }
 
-        if (total28DayTrips > 0) {
-            const validOptions = dbPrices.filter(p => p.days >= spanDays && p.trips >= total28DayTrips);
+        // --- KNAPSACK-ALGORITMI (Reppuongelma) ---
+        let baskets = [];
+        
+        // 1. Vaihtoehto: Vain yksittäislippuja
+        baskets.push({
+            id: 'single',
+            description: `${totalPeriodTrips}x Yksittäislippu`,
+            cost: singleTicketsCost
+        });
+
+        if (totalPeriodTrips > 0) {
+            const validOptions = dbPrices.filter(p => p.days >= spanDays);
             
             validOptions.forEach(opt => {
-                if (opt.price < recommended.price) {
-                    recommended = opt;
+                if (opt.type === 'kausi') {
+                    // 2. Vaihtoehto: Kausilippu (kattaa kaiken)
+                    baskets.push({
+                        id: `kausi_${opt.name}`,
+                        description: `1x ${opt.name}`,
+                        cost: opt.price
+                    });
+                } else if (opt.type === 'sarja') {
+                    // 3. Vaihtoehto: Sarjalippu + Yksittäiset lisäliput (Combo)
+                    if (opt.trips < totalPeriodTrips) {
+                        const singlesNeeded = totalPeriodTrips - opt.trips;
+                        baskets.push({
+                            id: `sarja_singles_${opt.name}`,
+                            description: `1x ${opt.name} + ${singlesNeeded}x Yksittäislippu`,
+                            cost: opt.price + (singlesNeeded * ticketPrice)
+                        });
+                    }
+                    // 4. Vaihtoehto: Useampi sama sarjalippu (esim. 2x 10-matkan)
+                    const neededCount = Math.ceil(totalPeriodTrips / opt.trips);
+                    if (neededCount * opt.trips >= totalPeriodTrips) {
+                        const desc = neededCount === 1 ? `1x ${opt.name}` : `${neededCount}x ${opt.name}`;
+                        baskets.push({
+                            id: `sarja_mult_${opt.name}`,
+                            description: desc,
+                            cost: neededCount * opt.price
+                        });
+                    }
                 }
             });
         }
 
+        // Järjestetään korit hinnan mukaan halvimmasta kalleimpaan
+        baskets.sort((a, b) => a.cost - b.cost);
+
+        // Poistetaan tuplat nimikkeistä (esim. jos 1x sarja riittää, se ei tulosta comboa)
+        const uniqueBaskets = [];
+        const seenDesc = new Set();
+        baskets.forEach(b => {
+            if (!seenDesc.has(b.description)) {
+                seenDesc.add(b.description);
+                uniqueBaskets.push(b);
+            }
+        });
+
+        const recommended = uniqueBaskets[0] || baskets[0];
+
+        // Jakson nimikkeet UI:ta varten
+        const pStartStr = `${periodStart.getDate()}.${periodStart.getMonth() + 1}.`;
+        const pEndStr = `${periodEnd.getDate()}.${periodEnd.getMonth() + 1}.`;
+        
+        // Luodaan "Heinäkuu" tai "Palkkakausi" otsikko
+        const monthName = periodStart.toLocaleString('fi-FI', { month: 'long' });
+        const periodLabel = useSalaryPeriod 
+            ? 'Palkkakausi' 
+            : monthName.charAt(0).toUpperCase() + monthName.slice(1);
+
         return {
-            total28DayTrips,
+            total28DayTrips: totalPeriodTrips,
             singleTicketsCost,
             recommended,
-            savings: singleTicketsCost - recommended.price
+            savings: singleTicketsCost - recommended.cost,
+            periodLabel,
+            periodStartStr: pStartStr,
+            periodEndStr: pEndStr,
+            allBaskets: uniqueBaskets
         };
-    }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, ticketPrice, dbPrices, arriveDayBefore]);
+    }, [currentWeekStart, dailyLocations, exceptions, nationalHolidays, ticketPrice, dbPrices, arriveDayBefore, useSalaryPeriod]);
 
     const [historicalData, setHistoricalData] = useState({
         ticketCount: 0,
