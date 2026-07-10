@@ -3,16 +3,41 @@ import { generateSectionContent, generateFullSummary, generateHybridSummary, gen
 import { planData } from '../data/planData.js';
 import AikatauluEhdotus from './AikatauluEhdotus';
 import CopyButton from './common/CopyButton';
+import Button from './common/Button';
 import ServiceManager from './ServiceManager'; 
 import { Database } from 'lucide-react';
+import { useSentinelAnalytics } from '../context/useSentinelAnalytics';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
-const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions }) => {
+const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asiantuntijaId }) => {
     const [feedback, setFeedback] = useState('');
     const [activeSectionId, setActiveSectionId] = useState(null);
     const [isManagerOpen, setIsManagerOpen] = useState(false); 
+    const [isSaved, setIsSaved] = useState(false); // UUSI: Varoituskytkin
     const observerRef = useRef(null); 
+    
+    const { logPlanCopied } = useSentinelAnalytics();
+
+    const isStateEmpty = !state || Object.keys(state).length === 0;
+
+    // --- UUSI: Nollataan kytkin aina kun state muuttuu (työtä on tehty) ---
+    useEffect(() => {
+        setIsSaved(false);
+    }, [state]);
+
+    // --- UUSI: Selaimen varoitusikkuna jos työtä ei ole tallennettu/kopioitu ---
+    useEffect(() => {
+        const handleBeforeUnload = (e) => {
+            if (!isStateEmpty && !isSaved) {
+                e.preventDefault();
+                e.returnValue = ''; // Herättää selaimen varoitusikkunan
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [isStateEmpty, isSaved]);
 
     // --- VANHA TURVALLINEN KOPIOINTI ---
     const handleCopy = () => {
@@ -23,9 +48,25 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions }) => 
             const blobHtml = new Blob([htmlText], { type: 'text/html' });
             const blobText = new Blob([plainText], { type: 'text/plain' });
             const clipboardItem = new ClipboardItem({'text/html': blobHtml,'text/plain': blobText,}); 
-            navigator.clipboard.write([clipboardItem]).then(() => { setFeedback('Kopioitu muotoiltuna!'); setTimeout(() => setFeedback(''), 2000); }, () => { setFeedback('Kopiointi epäonnistui.'); setTimeout(() => setFeedback(''), 3000); }); 
+            navigator.clipboard.write([clipboardItem]).then(() => { 
+                setFeedback('Kopioitu muotoiltuna!'); 
+                logPlanCopied(state, asiantuntijaId); // ANALYTIIKKA
+                setIsSaved(true); // UUSI: Merkitään tallennetuksi
+                setTimeout(() => setFeedback(''), 2000); 
+            }, () => { 
+                setFeedback('Kopiointi epäonnistui.'); 
+                setTimeout(() => setFeedback(''), 3000); 
+            }); 
         } catch (err) {
-            navigator.clipboard.writeText(summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '')).then(() => { setFeedback('Kopioitu (ei-muotoiltuna)!'); setTimeout(() => setFeedback(''), 2000); }, () => { setFeedback('Kopiointi epäonnistui.'); setTimeout(() => setFeedback(''), 2000); }); 
+            navigator.clipboard.writeText(summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '')).then(() => { 
+                setFeedback('Kopioitu (ei-muotoiltuna)!'); 
+                logPlanCopied(state, asiantuntijaId); // ANALYTIIKKA
+                setIsSaved(true); // UUSI: Merkitään tallennetuksi
+                setTimeout(() => setFeedback(''), 2000); 
+            }, () => { 
+                setFeedback('Kopiointi epäonnistui.'); 
+                setTimeout(() => setFeedback(''), 2000); 
+            }); 
         }
     };
 
@@ -38,9 +79,25 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions }) => 
             const blobHtml = new Blob([htmlText], { type: 'text/html' });
             const blobText = new Blob([plainText], { type: 'text/plain' });
             const clipboardItem = new ClipboardItem({'text/html': blobHtml,'text/plain': blobText,}); 
-            navigator.clipboard.write([clipboardItem]).then(() => { setFeedback('Hybridi kopioitu!'); setTimeout(() => setFeedback(''), 2000); }, () => { setFeedback('Kopiointi epäonnistui.'); setTimeout(() => setFeedback(''), 3000); }); 
+            navigator.clipboard.write([clipboardItem]).then(() => { 
+                setFeedback('Hybridi kopioitu!'); 
+                logPlanCopied(state, asiantuntijaId); // ANALYTIIKKA
+                setIsSaved(true); // UUSI: Merkitään tallennetuksi
+                setTimeout(() => setFeedback(''), 2000); 
+            }, () => { 
+                setFeedback('Kopiointi epäonnistui.'); 
+                setTimeout(() => setFeedback(''), 3000); 
+            }); 
         } catch (err) {
-            navigator.clipboard.writeText(summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '')).then(() => { setFeedback('Hybridi kopioitu!'); setTimeout(() => setFeedback(''), 2000); }, () => { setFeedback('Kopiointi epäonnistui.'); setTimeout(() => setFeedback(''), 2000); }); 
+            navigator.clipboard.writeText(summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '')).then(() => { 
+                setFeedback('Hybridi kopioitu!'); 
+                logPlanCopied(state, asiantuntijaId); // ANALYTIIKKA
+                setIsSaved(true); // UUSI: Merkitään tallennetuksi
+                setTimeout(() => setFeedback(''), 2000); 
+            }, () => { 
+                setFeedback('Kopiointi epäonnistui.'); 
+                setTimeout(() => setFeedback(''), 2000); 
+            }); 
         }
     };
 
@@ -99,7 +156,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions }) => 
     };
 
     const areAllSectionsComplete = sections.every(section => getSectionStatus(section.id).text === 'Valmis');
-    const isStateEmpty = !state || Object.keys(state).length === 0;
 
     useEffect(() => {
         const observerOptions = { root: null, rootMargin: '0px', threshold: 0.4 };
@@ -123,14 +179,15 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions }) => 
             {/* OTSIKKO JA HALLINTA-NAPPI */}
             <div style={{ padding: '0 0 1rem 0', borderBottom: '1px solid var(--color-border)', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                    <h2 style={{ margin: 0 }}>Yhteenveto</h2>
-                    <button 
-                        className="btn--secondary" 
-                        style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    <h2 className="text-xl fw-bold" style={{ margin: 0 }}>Yhteenveto</h2>
+                    <Button 
+                        variant="secondary" 
+                        className="text-xs fw-medium"
+                        style={{ padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '6px' }}
                         onClick={() => setIsManagerOpen(true)}
                     >
                         <Database size={14} /> Hallitse palveluita
-                    </button>
+                    </Button>
                 </div>
 
                 <div className="summary-progress-tracker">
@@ -205,13 +262,13 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions }) => 
                                 const targetElement = document.getElementById(panelSection.id);
                                 if (targetElement) { targetElement.scrollIntoView({ behavior: 'smooth' }); }
                             }}>
-                                <span className="summary-item__title">{panelSection.name}</span>
-                                <span id={statusId} className={`tag ${status.tagClass}`}>{status.text}</span>
+                                <span className="summary-item__title text-sm fw-semibold">{panelSection.name}</span>
+                                <span id={statusId} className={`tag ${status.tagClass} text-xs-dense fw-medium`}>{status.text}</span>
                             </div>
 
                             {sectionText && (
                                 <div className="summary-item-content-wrapper" style={{ marginTop: '0.5rem' }}>
-                                    <div className="summary-item-generated-text">
+                                    <div className="summary-item-generated-text text-sm lh-tight text-slate-700">
                                         {sectionText.split('\n').map((line, index, arr) => (
                                             <React.Fragment key={index}>
                                                 {line}
@@ -233,17 +290,32 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions }) => 
             </ul>
 
             <div className="summary-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <button id="save-button" className="btn" disabled={!areAllSectionsComplete}> Tallenna analyysi </button>
-                <button className="btn btn--secondary" onClick={handleCopy} disabled={isStateEmpty}> Kopioi yhteenveto (Vanha) </button>
-                <button 
-                    className="btn" 
-                    style={{ backgroundColor: 'var(--color-background)', color: 'var(--color-primary)', border: '2px dashed var(--color-primary)' }} 
+                <Button 
+                    id="save-button" 
+                    disabled={!areAllSectionsComplete}
+                > 
+                    Tallenna analyysi 
+                </Button>
+                
+                <Button 
+                    variant="secondary" 
+                    onClick={handleCopy} 
+                    disabled={isStateEmpty}
+                > 
+                    Kopioi yhteenveto (Vanha) 
+                </Button>
+                
+                <Button 
+                    variant="secondary" 
+                    className="text-primary fw-bold" 
+                    style={{ backgroundColor: 'var(--color-background)', border: '2px dashed var(--color-primary)' }} 
                     onClick={handleHybridCopy} 
                     disabled={isStateEmpty}
                 > 
                     🚀 Kopioi kokeilu (Supabase) 
-                </button>
-                {feedback && <p className="feedback-text" style={{ textAlign: 'center', marginTop: '0.25rem' }}>{feedback}</p>}
+                </Button>
+                
+                {feedback && <p className="feedback-text text-sm-dense fw-medium text-success" style={{ textAlign: 'center', marginTop: '0.25rem' }}>{feedback}</p>}
             </div>
 
             <AikatauluEhdotus state={state} actions={actions} />

@@ -42,6 +42,7 @@ const ExpertCalendar = ({
     nationalHolidays,
     settings,
     ledgerBalance,
+    availableBankDays = [], // UUSI: Otetaan vastaan vapaat päivät linkitystä varten
     fetchData
 }) => {
     const [saving, setSaving] = useState(false); 
@@ -137,7 +138,22 @@ const ExpertCalendar = ({
 
         try {
             if (type === 'eta_pankki') {
-                await supabase.schema('espan').from('expert_remote_bank_ledger').insert([{ expert_id: expertId, transaction_type: -1, used_date: dateStr, expiration_date: '2099-12-31', description: 'Käytetty pankkipäivä' }]);
+                // FIFO-LOGIIKKA: Haetaan vanhin vapaa ansaintarivi taulukosta
+                const oldestAvailable = availableBankDays[0];
+                if (!oldestAvailable) {
+                    alert("Virhe: Ei vapaita ansaittuja päiviä pankissa!");
+                    return;
+                }
+
+                // Tallennetaan uusi miinusrivi ja linkitetään se suoraan plussarivin ID:hen
+                await supabase.schema('espan').from('expert_remote_bank_ledger').insert([{ 
+                    expert_id: expertId, 
+                    transaction_type: -1, 
+                    used_date: dateStr, 
+                    expiration_date: '2099-12-31', 
+                    description: `Käytetty pankkipäivä (Korvaa ansion: ${oldestAvailable.earned_date})`,
+                    linked_earned_id: oldestAvailable.id // SUORA KYTKENTÄ (VAIHTOEHTO A)
+                }]);
                 type = 'eta_pankki'; 
             } else if (type.includes('lahityo') && isCurrentlyRemote) {
                 const wantToBank = window.confirm("Muutit sääntömääräisen etäpäivän lähityöksi. Haluatko tallettaa tämän uhratun etäpäivän pankkiin myöhempää käyttöä varten?");
@@ -155,7 +171,16 @@ const ExpertCalendar = ({
     };
 
     const handleRemoveLocation = async (dateStr) => {
-        try { await supabase.schema('espan').from('expert_daily_locations').delete().eq('expert_id', expertId).eq('date', dateStr); setActiveLocationPopover(null); fetchData(); } catch (e) { console.error(e); }
+        const existingLoc = dailyLocations.find(l => l.date === dateStr);
+        try { 
+            // Jos asiantuntija vapauttaa pankkipäivän, tuhotaan vastaava miinusrivi ledgeristä, jolloin sidottu plusrivi vapautuu
+            if (existingLoc?.location_type === 'eta_pankki') {
+                await supabase.schema('espan').from('expert_remote_bank_ledger').delete().eq('expert_id', expertId).eq('used_date', dateStr);
+            }
+            await supabase.schema('espan').from('expert_daily_locations').delete().eq('expert_id', expertId).eq('date', dateStr); 
+            setActiveLocationPopover(null); 
+            fetchData(); 
+        } catch (e) { console.error(e); }
     };
 
     const executeBlockSave = async (startDate, endDate) => {

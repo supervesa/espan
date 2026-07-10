@@ -9,17 +9,23 @@ const JourneyMatchmaker = ({
     expectedLocalTickets = 0, 
     expectedLocalCost = 0.00, 
     hasOfficeDays = false,
-    firstTravelDate, // UUSI: Vastaanottaa ekan matkapäivän!
-    lastTravelDate,  // UUSI: Vastaanottaa vikan matkapäivän!
+    firstTravelDate, 
+    lastTravelDate,  
     approvedReceipts = [],
     pendingReceipts = [],
     onAddVirtualReceipt
 }) => {
     const [isProcessing, setIsProcessing] = useState(false);
 
-    const weekStart = currentWeekStart ? new Date(currentWeekStart) : new Date();
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
+    // KORJAUS: Otetaan edeltävä sunnuntai mukaan ja nollataan kellonajat
+    const baseDate = currentWeekStart ? new Date(currentWeekStart) : new Date();
+    baseDate.setHours(0, 0, 0, 0); // Nollataan klo 00:00:00, jottei aamun matkat karsiudu
+
+    const weekStart = new Date(baseDate);
+    weekStart.setDate(weekStart.getDate() - 1); // Asetetaan viikon alku sunnuntaille
+
+    const weekEnd = new Date(baseDate);
+    weekEnd.setDate(weekEnd.getDate() + 7); // Viikon loppu pysyy alkuperäisestä maanantaista + 7 päivää
 
     const isThisWeek = (dateStr) => {
         if (!dateStr) return true; 

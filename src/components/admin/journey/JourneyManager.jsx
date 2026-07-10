@@ -45,9 +45,18 @@ const JourneyManager = ({
         : new Date().toISOString().split('T')[0];
 
     useEffect(() => {
-        const start = currentWeekStart ? new Date(currentWeekStart) : new Date();
-        const end = new Date(start);
+        // Nollataan kellonaika keskiyöhön, jottei aamun kuitit (esim. klo 08:00) rajaudu pois
+        const baseDate = currentWeekStart ? new Date(currentWeekStart) : new Date();
+        baseDate.setHours(0, 0, 0, 0);
+
+        // Siirretään haun aloitusaika edelliseen päivään (sunnuntaihin), jotta
+        // "saavun edellisiltana" -ohitukset tulevat mukaan API-kyselystä.
+        const start = new Date(baseDate);
+        start.setDate(start.getDate() - 1);
+
+        const end = new Date(baseDate);
         end.setDate(end.getDate() + 7);
+        
         fetchApprovedReceipts(start.toISOString(), end.toISOString());
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weekStartKey]);

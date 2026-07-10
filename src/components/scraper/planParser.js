@@ -6,6 +6,7 @@ import { extractEdellytykset } from '../../utils/regex/edellytyksetExtractor';
 
 import { extractGMServices } from '../../utils/regex/gmServiceExtractor'; 
 import { extractKoulutus } from '../../utils/regex/extractKoulutus'; 
+import { extractTyottomyysturva } from '../../utils/regex/tyottomyysturvaExtractor'; // UUSI: Tuodaan erillinen työttömyysturva-uuttaja
 
 const dateRegex = /ajalla\s*(\d{1,2}\.\d{1,2}\.\d{4})\s*[-–]\s*(\d{1,2}\.\d{1,2}\.\d{4})/gi;
 const escoRegex = /tavoiteammatti(?:na on|:)?\s+([a-zäöåA-ZÄÖÅ\s-]+)(?:\.|$|\n)/gi;
@@ -21,7 +22,8 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         variables: {}, 
         customTexts: {}, 
         tyokykyData: {}, 
-        edellytyksetData: {} 
+        edellytyksetData: {},
+        tyottomyysturvaData: { answers: {} }
     };
 
     if (!rawText) return result;
@@ -117,6 +119,21 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         result.signals.push({ id: 'on_pankkitunnukset', label: 'Vahva tunnistautuminen' });
         remainingText = remainingText.replace(onPankkiaRegex, '').trim();
     }
+
+    // =========================================================================
+    // X. KÄYTETÄÄN ERILLISTÄ TYÖTTÖMYYSTURVAN UUTTAJAA
+    // =========================================================================
+    const ttResult = extractTyottomyysturva(rawText, dbPhrases);
+    
+    // Siirretään löydetyt vastaukset imurin tilaan
+    Object.assign(result.tyottomyysturvaData.answers, ttResult.answers);
+    
+    // Viedään löydetyt fraasit myös imurin näkyvälle listalle, jos niitä ei siellä vielä ole
+    ttResult.foundPhrases.forEach(phrase => {
+        if (!result.phrases.some(p => p.id === phrase.id)) {
+            result.phrases.push(phrase);
+        }
+    });
 
     // =========================================================================
     // 4. JAA TEKSTI LOHKOIHIN OTSIKOIDEN PERUSTEELLA

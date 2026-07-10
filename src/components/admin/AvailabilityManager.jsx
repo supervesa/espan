@@ -51,6 +51,7 @@ const AvailabilityManager = () => {
     
     const [loading, setLoading] = useState(true);
     const [ledgerBalance, setLedgerBalance] = useState(0);
+    const [availableBankDays, setAvailableBankDays] = useState([]); // UUSI: Vapaiden pankkipäivien taulukko FIFO-logiikkaa varten
     const [nationalHolidays, setNationalHolidays] = useState([]);
     const [settings, setSettings] = useState({
         target_office_percent: 50,
@@ -86,12 +87,13 @@ const AvailabilityManager = () => {
             const todayStr = formatDateLocal(new Date());
 
             // TÄHÄN LISÄTTY: v_kaukoliikenne_suositukset lisätty hakuun (longDistRes)
+            // MUUTETTU: ledgerRes hakee nyt kaikki kentät (*), jotta linked_earned_id saadaan käsittelyyn
             const [rulesRes, excRes, locRes, setRes, ledgerRes, holidayRes, longDistRes] = await Promise.all([
                 supabase.schema('espan').from('expert_availability_rules').select('*').eq('expert_id', EXPERT_ID).order('day_of_week').order('start_time'),
                 supabase.schema('espan').from('availability').select('*').eq('expert_id', EXPERT_ID).gte('start_time', `${queryStart} 00:00:00`).lte('start_time', `${queryEnd} 23:59:59`).order('start_time'),
                 supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', EXPERT_ID).gte('date', queryStart).lte('date', queryEnd),
                 supabase.schema('espan').from('expert_location_settings').select('*').eq('expert_id', EXPERT_ID).maybeSingle(),
-                supabase.schema('espan').from('expert_remote_bank_ledger').select('transaction_type').eq('expert_id', EXPERT_ID).gt('expiration_date', todayStr),
+                supabase.schema('espan').from('expert_remote_bank_ledger').select('*').eq('expert_id', EXPERT_ID).gt('expiration_date', todayStr),
                 supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', queryStart).lte('date', queryEnd),
                 supabase.schema('espan').from('v_kaukoliikenne_suositukset').select('*').gte('date', queryStart).lte('date', queryEnd)
             ]);
@@ -108,6 +110,18 @@ const AvailabilityManager = () => {
             if (ledgerRes.data) {
                 const balance = ledgerRes.data.reduce((sum, row) => sum + row.transaction_type, 0);
                 setLedgerBalance(balance);
+
+                // FIFO-LOGIIKKA: Suodatetaan jo käytetyt ansaittujen päivien ID:t
+                const usedLinkedIds = ledgerRes.data
+                    .filter(row => row.transaction_type === -1 && row.linked_earned_id)
+                    .map(row => row.linked_earned_id);
+
+                // Eristetään vapaat ansaitsupäivät ja järjestetään ne kronologisesti (vanhin ensin)
+                const availableDays = ledgerRes.data
+                    .filter(row => row.transaction_type === 1 && !usedLinkedIds.includes(row.id))
+                    .sort((a, b) => new Date(a.earned_date || a.created_at) - new Date(b.earned_date || b.created_at));
+
+                setAvailableBankDays(availableDays);
             }
         } catch (error) { 
             console.error("Virhe tiedonhaussa:", error); 
@@ -213,6 +227,7 @@ const AvailabilityManager = () => {
                             nationalHolidays={nationalHolidays}
                             settings={settings}
                             ledgerBalance={ledgerBalance}
+                            availableBankDays={availableBankDays} // UUSI: Välitetään taulukko kalenterille linkitystä varten
                             fetchData={fetchData}
                         />
 

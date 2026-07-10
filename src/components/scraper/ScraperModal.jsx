@@ -33,7 +33,8 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
         variables: {}, 
         customTexts: {},
         tyokykyData: {},
-        edellytyksetData: {} 
+        edellytyksetData: {},
+        tyottomyysturvaData: { answers: {} }
     });
 
     const handleAnalyze = async () => {
@@ -63,6 +64,7 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
             );
             
             if (!extractedData.tyokykyData) extractedData.tyokykyData = {};
+            if (!extractedData.tyottomyysturvaData) extractedData.tyottomyysturvaData = { answers: {} };
             if (!extractedData.edellytyksetData) {
                 extractedData.edellytyksetData = {
                     escoNimi: null, finescoAla: null, vaihtoehtoisetAlat: [],
@@ -237,7 +239,7 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                                 {parsedData.phrases.map(phrase => (
                                     <Checkbox 
                                         key={phrase.id}
-                                        label={phrase.label}
+                                        label={phrase.short_title || phrase.base_text || phrase.phrase_key || 'Tuntematon valinta'}
                                         checked={true} 
                                         onChange={() => removeItem('phrases', phrase.id)} 
                                     />

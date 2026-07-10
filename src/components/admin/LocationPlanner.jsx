@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import Card from '../common/Card';
 import Button from '../common/Button';
 import { Info, Sliders, CalendarCheck, RotateCcw, Landmark, Printer, Flag, Lightbulb, Zap } from 'lucide-react';
-import ReportModal from './ReportModal'; 
+import ReportModal from './ReportModal/index.jsx';
 import LocalTransportPanel from './LocalTransportPanel';
 
 const LocationPlanner = ({ 

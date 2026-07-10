@@ -1,4 +1,3 @@
-// --- src/hooks/useScraperAdapter.js ---
 import { useCallback } from 'react';
 
 export const useScraperAdapter = (actions) => {
@@ -12,23 +11,40 @@ export const useScraperAdapter = (actions) => {
         // 1. KÄSITELLÄÄN VAKIOLAUSEET
         if (parsedData.phrases && Array.isArray(parsedData.phrases)) {
             parsedData.phrases.forEach(phrase => {
-                if (phrase.sectionKey) {
-                    
-                    if (actions.onSelect && !processedPhrases.has(phrase.id)) {
-                        actions.onSelect(phrase.sectionKey, phrase.id, true);
-                        processedPhrases.add(phrase.id);
+                // KORJAUS: Käytetään aina avainsanaa (phrase_key) ruman ID:n sijaan
+                const pKey = phrase.phrase_key || phrase.id;
+                const sec = phrase.sectionKey || phrase.section_id;
+
+                // ERITYISKÄSITTELY: Työttömyysturva (Napit on jo hoidettu kohdassa 9)
+                if (['tt_ehdottomat', 'tt_yleiset', 'muut_tuet'].includes(phrase.grouping_key)) {
+                    // Varmistetaan metadatan muoto ja sytytetään oikea signaali (esim. ETUUS_OPINTOTUKI)
+                    let meta = phrase.metadata || {};
+                    if (typeof meta === 'string') {
+                        try { meta = JSON.parse(meta); } catch (e) {}
+                    }
+                    if (meta.signal_key && actions.onAddSignal) {
+                        actions.onAddSignal(meta.signal_key);
+                    }
+                    return; // Lopetetaan käsittely tähän
+                }
+
+                // NORMAALI KÄSITTELY (Kaikki muut lomakevalinnat)
+                if (sec) { 
+                    if (actions.onSelect && !processedPhrases.has(pKey)) {
+                        actions.onSelect(sec, pKey, true);
+                        processedPhrases.add(pKey);
                     }
                     
-                    if (actions.onAddSignal) actions.onAddSignal(phrase.id);
+                    if (actions.onAddSignal) actions.onAddSignal(pKey);
                     
                     // Viedään muuttujat (esim. päivämäärät) sisään
                     if (phrase.variables) {
                         Object.entries(phrase.variables).forEach(([vKey, vVal]) => {
-                            actions.onUpdateVariable(phrase.sectionKey, phrase.id, vKey, vVal);
+                            actions.onUpdateVariable(sec, pKey, vKey, vVal);
                         });
                     }
                 } else {
-                    if (actions.onAddSignal) actions.onAddSignal(phrase.id);
+                    if (actions.onAddSignal) actions.onAddSignal(pKey);
                 }
             });
         }
@@ -80,22 +96,18 @@ export const useScraperAdapter = (actions) => {
                         }
                         // 2. Täytetään päivämäärä muuttujiin
                         if (actions.onUpdateVariable) {
-                            // TÄMÄ ON SE KRIITTINEN KORJAUS (SQL-kannan mukainen avain):
                             actions.onUpdateVariable('suunnitelman_perustiedot', 'tyonhaku_alkanut', 'TH_ALKU_PVM', value);
-                            
-                            // Jätetään nämä varmuuden vuoksi (taaksepäin yhteensopivuus)
                             actions.onUpdateVariable('suunnitelman_perustiedot', 'tyonhaku_alkanut', 'PÄIVÄMÄÄRÄ', value);
                             actions.onUpdateVariable('suunnitelman_perustiedot', 'tyonhaku_alkanut', '[PÄIVÄMÄÄRÄ]', value);
                             actions.onUpdateVariable('suunnitelman_perustiedot', 'tyonhaku_alkanut', 'PVM', value);
                         }
                         processedPhrases.add('tyonhaku_alkanut');
                     }
-                    // 3. Viedään silti varmuuden vuoksi myös asiakas-objektiin, jotta mikään vanha viittaus ei hajoa
+                    // 3. Viedään silti varmuuden vuoksi myös asiakas-objektiin
                     if (actions.onUpdateAsiakas) {
                         actions.onUpdateAsiakas(key, value);
                     }
                 }
-                // --------------------------------------------------------------
                 else if (actions.onUpdateAsiakas) {
                     actions.onUpdateAsiakas(key, value);
                 }
@@ -164,7 +176,6 @@ export const useScraperAdapter = (actions) => {
         if (parsedData.edellytyksetData) {
             const { escoNimi, finescoAla, vaihtoehtoisetAlat, activeTags, selections } = parsedData.edellytyksetData;
 
-            // Ensisijainen ammatti ja toimiala asiakastietoihin (kytkeytyy TavoiteAmmattiValitsimeen)
             if (escoNimi && actions.onUpdateAsiakas) {
                 actions.onUpdateAsiakas('tavoiteammatti_esco_nimi', escoNimi);
             }
@@ -172,14 +183,12 @@ export const useScraperAdapter = (actions) => {
                 actions.onUpdateAsiakas('tavoiteammatti_finesco_ala', finescoAla);
             }
 
-            // Vaihtoehtoiset tavoitteet talteen stringifioituna
             if (vaihtoehtoisetAlat && Array.isArray(vaihtoehtoisetAlat) && vaihtoehtoisetAlat.length > 0) {
                 if (actions.onUpdateCustomText) {
                     actions.onUpdateCustomText('vaihtoehtoiset_ammatit', JSON.stringify(vaihtoehtoisetAlat));
                 }
             }
 
-            // Aktivoidaan paneelien ruksitut tägit (Tavoitteet, Markkinaesteet, Elämäntilanne)
             if (activeTags) {
                 Object.keys(activeTags).forEach(category => {
                     const tags = activeTags[category] || [];
@@ -194,7 +203,6 @@ export const useScraperAdapter = (actions) => {
                 });
             }
 
-            // Aktivoidaan vireillä olevat ja hylätyt etuusvalinnat
             if (selections) {
                 if (selections.vireilla && actions.onSelect && !processedPhrases.has(selections.vireilla.id)) {
                     actions.onSelect('edellytykset', selections.vireilla.id, true);
@@ -209,7 +217,17 @@ export const useScraperAdapter = (actions) => {
             }
         }
 
-        console.log("✅ URA-imurin adapteri: Ruksit, Signaalit, Muuttujat, Palvelut, Pätevyydet, Työkyky ja Edellytykset injektoitu onnistuneesti!");
+        // 9. KÄSITELLÄÄN TYÖTTÖMYYSTURVA (UUSI)
+        if (parsedData.tyottomyysturvaData && parsedData.tyottomyysturvaData.answers) {
+            Object.entries(parsedData.tyottomyysturvaData.answers).forEach(([qId, value]) => {
+                if (actions.onUpdateTyottomyysturva) {
+                    // Tämä komento vastaa 1:1 sitä, kun käyttäjä painaisi Kyllä-nappia ruudulla!
+                    actions.onUpdateTyottomyysturva('updateKysymys', { id: qId, value });
+                }
+            });
+        }
+
+        console.log("✅ URA-imurin adapteri: Ruksit, Signaalit, Muuttujat, Palvelut, Pätevyydet, Työkyky, Edellytykset ja Työttömyysturva injektoitu onnistuneesti!");
 
     }, [actions]);
 

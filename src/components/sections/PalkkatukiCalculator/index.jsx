@@ -1,10 +1,10 @@
-// --- src/components/sections/PalkkatukiCalculator/index.jsx ---
 import React, { useState } from 'react';
 import { 
     BrainCircuit, Calculator, Zap, Building, AlertCircle, Coins, 
-    FileText, RotateCcw, MinusCircle, Briefcase, Copy, AlertTriangle
+    FileText, RotateCcw, MinusCircle, Briefcase, Copy, AlertTriangle, Info 
 } from 'lucide-react';
-import Modal from '../../Modal';
+import Modal from '../../common/Modal';
+import NeutralAlert from '../../common/NeutralAlert'; // UUSI KOMPONENTTI TUOTU
 import { OHJEET, PALKKATUKI_LISAHUOMIOT } from '../../../data/constants';
 
 import { usePalkkatukiMath } from './hooks/usePalkkatukiMath';
@@ -31,7 +31,20 @@ const PalkkatukiCalculator = ({ state, actions }) => {
         if(onUpdatePalkkatuki) onUpdatePalkkatuki('lisahuomiot', { ...current, [id]: !current[id] });
     };
 
-    const { ika, alkuperainenAlkuPvm, perusKestoPv, perusKestoTxt, hyvaksytytPaivat, ehto24_28_tayttyy, ehto3kk_tayttyy } = usePalkkatukiMath(state, ptState, actions);
+    // Vastaanotetaan uudet tiedot Hookista
+    const { 
+        ika, 
+        alkuperainenAlkuPvm, 
+        perusKestoPv, 
+        perusKestoTxt, 
+        hyvaksytytPaivat, 
+        ehto24_28_tayttyy, 
+        ehto3kk_tayttyy,
+        activeStartTxt,
+        resetReason,
+        isAutoReset
+    } = usePalkkatukiMath(state, ptState, actions);
+
     const { tkCalc, isUnder25 } = useTyokokeiluMath(state, ika, ptState, actions);
     
     // HUOM: hyvaksytytPaivat lisätty tähän argumentiksi Smart Analysis 3.1:tä varten!
@@ -57,6 +70,13 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                         <Calculator size={20} /> Palkkatuen 24 / 28 kk Säännön Laskuri
                     </h3>
                     
+                    {/* KORJATTU: Käytetään uutta, siistiä yhteiskomponenttia */}
+                    {isAutoReset && (
+                        <NeutralAlert title="Huomio!" className="mb-6">
+                            Työttömyyden kesto on nollattu automaattisesti ({activeStartTxt}), koska asiakas on: <strong>{resetReason}</strong>. Alkupäivä oli alunperin {alkuperainenAlkuPvm}.
+                        </NeutralAlert>
+                    )}
+
                     <div className="grid-cols-2 mb-6">
                         <div>
                             <span className="stat-label">Laskettu ikä</span>
@@ -64,7 +84,7 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                         </div>
                         <div>
                             <span className="stat-label">
-                                Työnhaku alkanut ({alkuperainenAlkuPvm || '-'})
+                                Laskennan alkupiste ({activeStartTxt || '-'})
                             </span>
                             <strong className="stat-value">{perusKestoTxt}</strong>
                         </div>
@@ -73,8 +93,8 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                     <div className="card-inner">
                         <div className="grid-cols-2">
                             <div>
-                                <label className="icon-label">
-                                    <RotateCcw size={16} color="var(--color-primary)" /> Estävä katko (Yli 4 kk)
+                                <label className="icon-label" title="Ohittaa automaattisen laskennan">
+                                    <RotateCcw size={16} color="var(--color-primary)" /> Manuaalinen nollaus (esim. sairaus)
                                 </label>
                                 <input type="text" placeholder="pp.kk.vvvv" className="form-input" value={ptState.nollausPvm || ''} onChange={(e) => onUpdatePalkkatuki('nollausPvm', e.target.value)} />
                             </div>

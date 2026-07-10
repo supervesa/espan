@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAppData } from './hooks/useAppData';
 import { usePlanState } from './hooks/usePlanState';
 
 // Adapteri joka ymmärtää URA-imurin puhetta!
 import { useScraperAdapter } from './hooks/useScraperAdapter';
+
+// --- LISÄTTY: Tuodaan sekä hook ETTÄ Provider ---
+import { useLightSentinel, LightSentinelProvider } from './context/LightSentinelContext';
+import { supabase } from './utils/supabaseClient';
 
 // Kirjautumiskomponentti
 import LoginScreen from './components/LoginScreen';
@@ -35,51 +39,15 @@ import './styles/tyylit.css';
 import './styles/espan2.css';
 import './styles/fontit.css';
 
-function App() {
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+// --- UUSI RAKENNE: Tämä on varsinainen ohjelma, joka on suojattu ---
+function EspanCore() {
+    const { session, profile, isLoading, isManager, logout } = useLightSentinel();
+    const [isLoggingIn, setIsLoggingIn] = useState(false);
     
-    // --- KORJATTU: Käytetään näitä nimiä johdonmukaisesti ---
     const [isScraperOpen, setIsScraperOpen] = useState(false);
     const [isScraperV2Open, setIsScraperV2Open] = useState(false);
-
-    useEffect(() => {
-        const checkAuth = () => {
-            const authDataStr = localStorage.getItem('auth_expiry');
-            if (authDataStr) {
-                try {
-                    const authData = JSON.parse(authDataStr);
-                    if (authData.expiry > Date.now()) {
-                        setIsAuthenticated(true);
-                    } else {
-                        localStorage.removeItem('auth_expiry');
-                    }
-                } catch (e) {
-                    localStorage.removeItem('auth_expiry');
-                }
-            }
-            setIsCheckingAuth(false);
-        };
-        checkAuth();
-    }, []);
-
-    const handleLogin = (password, duration) => {
-        let correctPassword = import.meta.env.VITE_ACCESS_PASSWORD;
-        if (!correctPassword) {
-            correctPassword = "admin";
-        }
-        if (password === correctPassword) {
-            if (duration > 0) {
-                const expiry = Date.now() + duration;
-                localStorage.setItem('auth_expiry', JSON.stringify({ expiry }));
-            }
-            setIsAuthenticated(true);
-            return true;
-        }
-        return false;
-    };
-
     const [activeTab, setActiveTab] = useState('suunnitelma');
+    
     const { dbPlanData, dbMessages, dbKnowledge, isLoadingData } = useAppData();
     const { state, setState, actions } = usePlanState(dbPlanData);
     const { injectScrapedData } = useScraperAdapter(actions, dbPlanData);
@@ -99,8 +67,45 @@ function App() {
         { id: 'osio-tyonhaku', name: 'Työnhakuvelv.' },
     ];
 
-    if (isCheckingAuth) return null;
-    if (!isAuthenticated) return <LoginScreen onLogin={handleLogin} />;
+    const handleSupabaseLogin = async (email, password, duration) => {
+        setIsLoggingIn(true);
+        try {
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+            });
+
+            if (error) throw error;
+
+            if (duration > 0) {
+                localStorage.setItem('espan_auth_expiry', Date.now() + duration);
+            } else {
+                localStorage.removeItem('espan_auth_expiry');
+            }
+
+            return true;
+        } catch (error) {
+            console.error("Kirjautumisvirhe:", error.message);
+            return false;
+        } finally {
+            setIsLoggingIn(false);
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <div className="app-container">
+                <header className="app-header"><h1>Työllisyyssuunnitelman rakennustyökalu</h1></header>
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                    <h2>Ladataan Sentinel-turvayhteyttä...</h2>
+                </div>
+            </div>
+        );
+    }
+
+    if (!session) {
+        return <LoginScreen onLogin={handleSupabaseLogin} isLoggingIn={isLoggingIn} />;
+    }
 
     if (isLoadingData) {
         return (
@@ -116,13 +121,18 @@ function App() {
     return (
         <SignalProvider activeSignals={state.signals || {}} actions={actions}>
             <div className="app-container">
-                <header className="app-header">
+                <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
+                    <button className="btn btn--secondary" onClick={logout} style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>
+                        Kirjaudu ulos
+                    </button>
                 </header>
                 <div className="tab-navigation">
                     <button className={`tab-button ${activeTab === 'suunnitelma' ? 'active' : ''}`} onClick={() => setActiveTab('suunnitelma')}>Suunnitelman rakennus</button>
                     <button className={`tab-button ${activeTab === 'viestit' ? 'active' : ''}`} onClick={() => setActiveTab('viestit')}>Viestigeneraattori</button>
-                    <button className={`tab-button ${activeTab === 'hallinta' ? 'active' : ''}`} onClick={() => setActiveTab('hallinta')}>Hallinta</button>
+                    {isManager && (
+                        <button className={`tab-button ${activeTab === 'hallinta' ? 'active' : ''}`} onClick={() => setActiveTab('hallinta')}>Hallinta</button>
+                    )}
                 </div>
                 
                 {activeTab === 'suunnitelma' && (
@@ -135,19 +145,20 @@ function App() {
                                 🚀 Kokeile V2
                             </button>
 
-                            {/* KORJATTU: Muuttujanimet täsmäämään määrittelyyn */}
-                          <ScraperModal 
-    isOpen={isScraperOpen} 
-    onClose={() => setIsScraperOpen(false)} 
-    onApply={injectScrapedData}  // <--- KORJATTU: Käytä adapteria!
-    state={state}      
-    actions={actions}  
-/>
+                            <ScraperModal 
+                                isOpen={isScraperOpen} 
+                                onClose={() => setIsScraperOpen(false)} 
+                                onApply={injectScrapedData}  
+                                state={state}      
+                                actions={actions}
+                                asiantuntijaId={profile?.id}
+                            />
 
                             <ScraperModalV2 
                                 isOpen={isScraperV2Open} 
                                 onClose={() => setIsScraperV2Open(false)} 
                                 onApply={injectScrapedDataV2} 
+                                asiantuntijaId={profile?.id}
                             />
 
                             <section id="osio-suunnitelman-tyyppi"><SuunnitelmanTyyppi state={state} actions={actions} /></section>
@@ -174,7 +185,8 @@ function App() {
                                 actions={actions}  
                                 sections={sectionsForPanel} 
                                 dbPlanData={dbPlanData} 
-                                dbKnowledge={dbKnowledge} 
+                                dbKnowledge={dbKnowledge}
+                                asiantuntijaId={profile?.id} 
                             />
                         </div>
                     </div>
@@ -195,7 +207,7 @@ function App() {
                     </div>
                 )}
 
-                {activeTab === 'hallinta' && (
+                {activeTab === 'hallinta' && isManager && (
                      <div className="main-grid-single">
                         <main className="sections-container"><AdminStudio /></main>
                     </div>
@@ -205,4 +217,11 @@ function App() {
     );
 }
 
-export default App;
+// --- UUSI RAKENNE: Viedään ulos kääre, joka asettaa Providerin EspanCoren ympärille ---
+export default function App() {
+    return (
+        <LightSentinelProvider>
+            <EspanCore />
+        </LightSentinelProvider>
+    );
+}
