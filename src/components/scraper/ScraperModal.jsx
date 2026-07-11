@@ -10,30 +10,27 @@ import Checkbox from '../common/Checkbox';
 
 // Imurin omat paneelit
 import ScraperGMServicePanel from './ScraperGMServicePanel'; 
-import ScraperGMEducationPanel from './ScraperGMEducationPanel'; // UUSI PANEELI TUOTU
+import ScraperGMEducationPanel from './ScraperGMEducationPanel'; 
 import ScraperPatevyydetPanel from './ScraperPatevyydetPanel';
 import ScraperVariablesPanel from './ScraperVariablesPanel';
 import ScraperCustomTextsPanel from './ScraperCustomTextsPanel';
 import ScraperTyokykyPanel from './ScraperTyokykyPanel';
 import ScraperEdellytyksetPanel from './ScraperEdellytyksetPanel'; 
+import ScraperSentinelPanel from './ScraperSentinelPanel'; 
 
 const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
     const [step, setStep] = useState('input');
     const [rawText, setRawText] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [activeSections, setActiveSections] = useState({});
+    
+    // UUSI: Tila arkistosta haetuille tiedoille
+    const [sentinelMeta, setSentinelMeta] = useState({ isKnown: false, sources: {} });
 
     const [parsedData, setParsedData] = useState({
-        phrases: [], 
-        signals: [], 
-        services: [], 
-        sessionServices: [],
-        sessionEducations: [], // UUSI: Golden Master koulutukset
-        patevyydet: [], 
-        variables: {}, 
-        customTexts: {},
-        tyokykyData: {},
-        edellytyksetData: {},
+        phrases: [], signals: [], services: [], sessionServices: [],
+        sessionEducations: [], patevyydet: [], variables: {}, 
+        customTexts: {}, tyokykyData: {}, edellytyksetData: {},
         tyottomyysturvaData: { answers: {} }
     });
 
@@ -54,13 +51,8 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
             if (secRes.error) throw secRes.error;
 
             const extractedData = parsePlanText(
-                rawText, 
-                secRes.data || [], 
-                phraseRes.data || [], 
-                sigRes.data || [], 
-                varRes.data || [],
-                serviceRes.data || [],
-                patevyysRes.data || []
+                rawText, secRes.data || [], phraseRes.data || [], 
+                sigRes.data || [], varRes.data || [], serviceRes.data || [], patevyysRes.data || []
             );
             
             if (!extractedData.tyokykyData) extractedData.tyokykyData = {};
@@ -72,7 +64,99 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                     selections: { vireilla: null, hylatty: null }
                 };
             }
+
+            // =========================================================
+            // 🕵️ OVIMIEHEN TAUSTAHAKU (Imurin sisäinen)
+            // =========================================================
+            let isKnown = false;
+            const sources = {};
+
+            const normalize = (str) => {
+                if (!str || str === 'X' || str === 'XX' || str === 'XXXX' || str === 'XXX') return str; 
+                return String(str).toUpperCase().replace(/[^A-Z0-9ÄÖÅ]/g, '');
+            };
+
+            // Rakennetaan väliaikainen avain
+            let paiva = 'X', vuosiPari = 'X';
+            if (extractedData.variables.tyonhaku_alkanut) {
+                const parts = String(extractedData.variables.tyonhaku_alkanut).split('.');
+                if (parts[0]) paiva = parts[0].padStart(2, '0');
+                if (parts.length >= 3) {
+                    const v = parts[2].trim().substring(0, 4); 
+                    if (v.length === 4) vuosiPari = v.charAt(1) + v.charAt(3);
+                }
+            }
+            const kieli = extractedData.variables.aidinkieli || 'X';
+            const kunta = extractedData.variables.kotikunta || 'X';
             
+            const idPart = `${normalize(paiva)}${normalize(kieli)}${normalize(kunta)}${normalize(vuosiPari)}`;
+            const realDataLength = idPart.replace(/X/g, '').length;
+
+            if (realDataLength >= 4) {
+                // KORJAUS 1: 11 merkin tyhjä reppu tarkistukseen
+                const checkKey = `${idPart}XXXXXXXXXXX`; 
+                try {
+                    const { data, error } = await supabase.functions.invoke('sentinel-identity', {
+                        body: { action: 'check', keys: [checkKey] }
+                    });
+                    
+                    if (!error && data?.isReturningCustomer && data?.matchedKey) {
+                        isKnown = true;
+                        const fullKey = data.matchedKey;
+                        
+                        // KORJAUS 2: 11 merkin purku neljään osaan
+                        const extractedSV = fullKey.slice(-4);
+                        const extractedViimeKayntiKk = fullKey.slice(-6, -4);
+                        const extractedKk = fullKey.slice(-8, -6);
+                        const extractedTapa = fullKey.slice(-11, -8);
+                        
+                        // Yhdistetään tietokannan löydökset
+                        if (!extractedData.variables.syntymavuosi && extractedSV !== 'XXXX') {
+                            extractedData.variables.syntymavuosi = extractedSV;
+                            sources.syntymavuosi = 'db'; // Lippu UI:ta varten
+                        }
+
+                        // Tallennetaan viime käynti kuukausi ja lasketaan 6 kk sääntö
+                        if (extractedViimeKayntiKk !== 'XX') {
+                            extractedData.variables.viime_kaynti_kk = extractedViimeKayntiKk;
+                            sources.viime_kaynti_kk = 'db';
+
+                            const currentMonth = new Date().getMonth() + 1; // 1-12
+                            const lastVisit = parseInt(extractedViimeKayntiKk, 10);
+                            const diff = (currentMonth - lastVisit + 12) % 12;
+                            
+                            // Jos 6 kk (tai enemmän) on kulunut
+                            if (diff >= 6) {
+                                extractedData.signals.push({ 
+                                    id: 'kaynti_suositus', 
+                                    label: '🚨 Yli 6 kk lähikäynnistä!' 
+                                });
+                            }
+                        }
+                        
+                        if (!extractedData.variables.yhteydenottotapa && extractedTapa !== 'XXX') {
+                            extractedData.variables.yhteydenottotapa = extractedTapa === 'PUH' ? 'PUHELIN' : 'KÄYNTI';
+                            sources.yhteydenottotapa = 'db';
+                            
+                            // Lisätään signaali, joka kertoo tavan lisäksi myös tarkan kuukauden
+                            const tapaSig = extractedTapa === 'PUH' ? 'puhelin_tapaaminen' : 'kayntitapaaminen';
+                            const tapaLabel = extractedTapa === 'PUH' 
+                                ? `Viimeksi: Puhelin (${extractedKk})` 
+                                : `Viimeksi: Käynti (${extractedKk})`;
+                                
+                            if (!extractedData.signals.some(s => s.id === tapaSig)) {
+                                extractedData.signals.push({ id: tapaSig, label: tapaLabel });
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("Sentinel Modal Check Error:", err);
+                }
+            }
+            // =========================================================
+            
+            setSentinelMeta({ isKnown, sources });
+
             const initialActive = {};
             Object.keys(extractedData.customTexts).forEach(key => { initialActive[key] = true; });
             
@@ -90,25 +174,18 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
 
     const handleApply = () => {
         if (typeof onApply === 'function') {
-            
-            // --- 1. TALLENNETAAN GM PALVELUT ---
             const servicesToApply = parsedData.sessionServices || [];
             if (servicesToApply.length > 0 && actions?.onUpdateVariable) {
                 const currentServices = Array.isArray(state?.sessionServices) ? state.sessionServices : [];
-                const mergedServices = [...currentServices, ...servicesToApply];
-                actions.onUpdateVariable('global', 'sessionServices', null, mergedServices);
+                actions.onUpdateVariable('global', 'sessionServices', null, [...currentServices, ...servicesToApply]);
             }
 
-            // --- 2. TALLENNETAAN GM KOULUTUKSET ---
             const edusToApply = parsedData.sessionEducations || [];
             if (edusToApply.length > 0 && actions?.onUpdateVariable) {
                 const currentEdus = Array.isArray(state?.sessionEducations) ? state.sessionEducations : [];
-                const mergedEdus = [...currentEdus, ...edusToApply];
-                actions.onUpdateVariable('global', 'sessionEducations', null, mergedEdus);
-                console.log("GM Sync: Koulutukset tallennettu", mergedEdus);
+                actions.onUpdateVariable('global', 'sessionEducations', null, [...currentEdus, ...edusToApply]);
             }
 
-            // --- 3. MUUT TIEDOT JA TEKSTIT ---
             const filteredCustomTexts = {};
             Object.entries(parsedData.customTexts).forEach(([key, text]) => {
                 if (activeSections[key]) filteredCustomTexts[key] = text;
@@ -126,6 +203,7 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
         setStep('input');
         setRawText(''); 
         setActiveSections({});
+        setSentinelMeta({ isKnown: false, sources: {} });
         onClose();
     };
 
@@ -165,7 +243,7 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
             onClose={resetAndClose} 
             title={step === 'input' ? 'URA-imuri: Pura vanha suunnitelma' : 'Tarkista tuodut tiedot'}
             icon={BrainCircuit}
-            maxWidth="1000px"
+            maxWidth="1100px" 
             footer={modalFooter}
         >
             {step === 'input' ? (
@@ -180,9 +258,16 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                 </div>
             ) : (
                 <div className="flex-col-gap" style={{ paddingTop: '1rem' }}>
+                    
+                    {/* UUSI: Älykäs paneeli propseilla */}
+                    <ScraperSentinelPanel 
+                        variables={parsedData.variables} 
+                        isKnownCustomer={sentinelMeta.isKnown}
+                        sourceFlags={sentinelMeta.sources}
+                    />
+
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                         
-                        {/* VASEN SARAKE: Koulutukset ja Palvelut */}
                         <div className="flex-col-gap">
                             <ScraperGMServicePanel 
                                 services={parsedData.sessionServices} 
@@ -190,7 +275,6 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                                 onRemove={(id) => removeItem('sessionServices', id)}
                             />
                             
-                            {/* UUSI KOULUTUSPANEELI */}
                             <ScraperGMEducationPanel 
                                 educations={parsedData.sessionEducations} 
                                 onUpdate={(newData) => setParsedData(prev => ({ ...prev, sessionEducations: newData }))}
@@ -198,13 +282,11 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                             />
                         </div>
 
-                        {/* KESKISARAKE: Pätevyydet */}
                         <ScraperPatevyydetPanel 
                             patevyydet={parsedData.patevyydet} 
                             onRemove={(id) => removeItem('patevyydet', id)} 
                         />
 
-                        {/* OIKEA SARAKE: Signaalit */}
                         <div className="card-inner" style={{ padding: '1rem', borderLeft: '4px solid var(--color-warning)' }}>
                             <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Signaalit</h4>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -236,14 +318,16 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                             />
                             <div className="card-inner" style={{ padding: '1rem' }}>
                                 <h4 style={{ margin: 0, fontSize: '1rem' }}>Lomakevalinnat ({parsedData.phrases.length})</h4>
-                                {parsedData.phrases.map(phrase => (
-                                    <Checkbox 
-                                        key={phrase.id}
-                                        label={phrase.short_title || phrase.base_text || phrase.phrase_key || 'Tuntematon valinta'}
-                                        checked={true} 
-                                        onChange={() => removeItem('phrases', phrase.id)} 
-                                    />
-                                ))}
+                                <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                    {parsedData.phrases.map(phrase => (
+                                        <Checkbox 
+                                            key={phrase.id}
+                                            label={phrase.label || phrase.short_title || phrase.base_text || phrase.phrase_key || 'Tuntematon valinta'}
+                                            checked={true} 
+                                            onChange={() => removeItem('phrases', phrase.id)} 
+                                        />
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>

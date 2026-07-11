@@ -7,6 +7,8 @@ import Button from './common/Button';
 import ServiceManager from './ServiceManager'; 
 import { Database } from 'lucide-react';
 import { useSentinelAnalytics } from '../context/useSentinelAnalytics';
+import { useSentinelFingerprint } from '../hooks/useSentinelFingerprint';
+import { useSentinelIdentity } from '../hooks/useSentinelIdentity';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
@@ -14,148 +16,140 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
     const [feedback, setFeedback] = useState('');
     const [activeSectionId, setActiveSectionId] = useState(null);
     const [isManagerOpen, setIsManagerOpen] = useState(false); 
-    const [isSaved, setIsSaved] = useState(false); // UUSI: Varoituskytkin
+    const [isSaved, setIsSaved] = useState(false); 
+    const [isTestMode, setIsTestMode] = useState(false); // UUSI: Testitilan kytkin
+    const [currentFingerprint, setCurrentFingerprint] = useState(''); // UUSI: Avaimen visualisointi
     const observerRef = useRef(null); 
+    const identityCheckedRef = useRef(false); 
     
     const { logPlanCopied } = useSentinelAnalytics();
+    
+    const { generateFingerprints } = useSentinelFingerprint(state);
+    const { checkIdentity, registerIdentity, isReturning } = useSentinelIdentity();
 
     const isStateEmpty = !state || Object.keys(state).length === 0;
 
-    // --- UUSI: Nollataan kytkin aina kun state muuttuu (työtä on tehty) ---
+    // --- 🕵️ OVIMIEHEN TAUSTATARKISTUS (HILJAINEN) ---
+    useEffect(() => {
+        const checkKeys = generateFingerprints('check');
+        
+        if (checkKeys && checkKeys.length > 0) {
+            // Päivitetään avain aina ruudulle näkyviin
+            setCurrentFingerprint(checkKeys[0]);
+
+            if (!isStateEmpty && !identityCheckedRef.current) {
+                const idPart = checkKeys[0].slice(0, -9);
+                
+                // Katsotaan onko siellä OIKEAA dataa (Pyyhitään X:t pois ja katsotaan jääkö vähintään 4 merkkiä)
+                const realDataLength = idPart.replace(/X/g, '').length;
+
+                if (realDataLength >= 4) {
+                    // Haetaan hiljaisuudessa
+                    checkIdentity(checkKeys);
+                    identityCheckedRef.current = true; 
+                }
+            }
+        }
+    }, [state, isStateEmpty, generateFingerprints, checkIdentity]);
+
     useEffect(() => {
         setIsSaved(false);
     }, [state]);
 
-    // --- UUSI: Selaimen varoitusikkuna jos työtä ei ole tallennettu/kopioitu ---
     useEffect(() => {
         const handleBeforeUnload = (e) => {
             if (!isStateEmpty && !isSaved) {
                 e.preventDefault();
-                e.returnValue = ''; // Herättää selaimen varoitusikkunan
+                e.returnValue = ''; 
             }
         };
-
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [isStateEmpty, isSaved]);
 
-    // --- VANHA TURVALLINEN KOPIOINTI ---
-    const handleCopy = () => {
-        const summaryToCopy = generateFullSummary(state); 
+    const handleCopyLogic = (isHybrid = false) => {
+        const summaryToCopy = isHybrid 
+            ? generateHybridSummary(state, dbPlanData, dbKnowledge) 
+            : generateFullSummary(state); 
+            
         try {
             const plainText = summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '');
-            const htmlText = summaryToCopy.replace(FINGERPRINT,'').split('\n\n').map(paragraph => {const lines = paragraph.split('\n'); const header = lines[0] ? `<strong>${lines[0].replace(/\*\*/g, '')}</strong>` : ''; const body = lines.slice(1).filter(line => line.trim() !== '').join('<br>'); return `<p>${header}${body ? (header ? '<br>' : '') + body : ''}</p>`;}).join(''); // prettier-ignore
-            const blobHtml = new Blob([htmlText], { type: 'text/html' });
-            const blobText = new Blob([plainText], { type: 'text/plain' });
-            const clipboardItem = new ClipboardItem({'text/html': blobHtml,'text/plain': blobText,}); 
-            navigator.clipboard.write([clipboardItem]).then(() => { 
-                setFeedback('Kopioitu muotoiltuna!'); 
-                logPlanCopied(state, asiantuntijaId); // ANALYTIIKKA
-                setIsSaved(true); // UUSI: Merkitään tallennetuksi
-                setTimeout(() => setFeedback(''), 2000); 
-            }, () => { 
-                setFeedback('Kopiointi epäonnistui.'); 
-                setTimeout(() => setFeedback(''), 3000); 
-            }); 
-        } catch (err) {
-            navigator.clipboard.writeText(summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '')).then(() => { 
-                setFeedback('Kopioitu (ei-muotoiltuna)!'); 
-                logPlanCopied(state, asiantuntijaId); // ANALYTIIKKA
-                setIsSaved(true); // UUSI: Merkitään tallennetuksi
-                setTimeout(() => setFeedback(''), 2000); 
-            }, () => { 
-                setFeedback('Kopiointi epäonnistui.'); 
-                setTimeout(() => setFeedback(''), 2000); 
-            }); 
-        }
-    };
+            const htmlText = summaryToCopy.replace(FINGERPRINT,'').split('\n\n').map(paragraph => {
+                const lines = paragraph.split('\n'); 
+                const header = lines[0] ? `<strong>${lines[0].replace(/\*\*/g, '')}</strong>` : ''; 
+                const body = lines.slice(1).filter(line => line.trim() !== '').join('<br>'); 
+                return `<p>${header}${body ? (header ? '<br>' : '') + body : ''}</p>`;
+            }).join('');
 
-    // --- UUSI HYBRIDI KOPIOINTI ---
-    const handleHybridCopy = () => {
-        const summaryToCopy = generateHybridSummary(state, dbPlanData, dbKnowledge); 
-        try {
-            const plainText = summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '');
-            const htmlText = summaryToCopy.replace(FINGERPRINT,'').split('\n\n').map(paragraph => {const lines = paragraph.split('\n'); const header = lines[0] ? `<strong>${lines[0].replace(/\*\*/g, '')}</strong>` : ''; const body = lines.slice(1).filter(line => line.trim() !== '').join('<br>'); return `<p>${header}${body ? (header ? '<br>' : '') + body : ''}</p>`;}).join(''); // prettier-ignore
             const blobHtml = new Blob([htmlText], { type: 'text/html' });
             const blobText = new Blob([plainText], { type: 'text/plain' });
-            const clipboardItem = new ClipboardItem({'text/html': blobHtml,'text/plain': blobText,}); 
+            const clipboardItem = new ClipboardItem({'text/html': blobHtml, 'text/plain': blobText}); 
+            
             navigator.clipboard.write([clipboardItem]).then(() => { 
-                setFeedback('Hybridi kopioitu!'); 
-                logPlanCopied(state, asiantuntijaId); // ANALYTIIKKA
-                setIsSaved(true); // UUSI: Merkitään tallennetuksi
+                setFeedback(isHybrid ? 'Hybridi kopioitu!' : 'Kopioitu muotoiltuna!'); 
+                setIsSaved(true); 
+                
+                // Analytiikka tallennetaan vain jos testitila ei ole päällä
+                if (!isTestMode && logPlanCopied) {
+                    logPlanCopied(state, asiantuntijaId);
+                }
+
+                const saveKeys = generateFingerprints('save');
+                // Estetään tyhjien (XXXX) reppujen tallentaminen vanhan hyvän datan päälle
+                if (!saveKeys[0].endsWith('XXXXXXXXX')) {
+                    registerIdentity(saveKeys);
+                }
+
                 setTimeout(() => setFeedback(''), 2000); 
             }, () => { 
-                setFeedback('Kopiointi epäonnistui.'); 
-                setTimeout(() => setFeedback(''), 3000); 
+                navigator.clipboard.writeText(plainText).then(() => {
+                    setFeedback('Kopioitu (ei-muotoiltuna)!');
+                    setIsSaved(true);
+                    
+                    if (!isTestMode && logPlanCopied) {
+                        logPlanCopied(state, asiantuntijaId);
+                    }
+                    
+                    const saveKeys = generateFingerprints('save');
+                    if (!saveKeys[0].endsWith('XXXXXXXXX')) {
+                        registerIdentity(saveKeys);
+                    }
+                    
+                    setTimeout(() => setFeedback(''), 2000);
+                });
             }); 
         } catch (err) {
-            navigator.clipboard.writeText(summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '')).then(() => { 
-                setFeedback('Hybridi kopioitu!'); 
-                logPlanCopied(state, asiantuntijaId); // ANALYTIIKKA
-                setIsSaved(true); // UUSI: Merkitään tallennetuksi
-                setTimeout(() => setFeedback(''), 2000); 
-            }, () => { 
-                setFeedback('Kopiointi epäonnistui.'); 
-                setTimeout(() => setFeedback(''), 2000); 
-            }); 
+            console.error("Kopiointi epäonnistui", err);
         }
     };
 
     const getSectionStatus = (sectionId) => {
         const simpleId = sectionId.replace('osio-', '').replace(/-/g, '_');
         
-        const existsInDb = dbPlanData?.aihealueet?.some(s => s.id === simpleId);
-        const existsInStatic = planData.aihealueet.some(s => s.id === simpleId);
-        
-        if (!existsInDb && !existsInStatic && !['kielitaso', 'edellytykset'].includes(simpleId) && simpleId !== 'koulutus') { 
-             return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
+        if (simpleId === 'koulutus') {
+            const hasContent = state.koulutus?.avainsana || state.ammattikortit || state.yrittajyys || state['custom-koulutus'] || state['custom-kielitaso'];
+            return hasContent ? { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' } : { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
         }
-        
-         if (simpleId === 'koulutus') {
-             const koulutusState = state.koulutus;
-             const kortitState = state.ammattikortit;
-             const yrittajyysState = state.yrittajyys;
-             const customKoulutus = state['custom-koulutus'];
-             const customKielitaso = state['custom-kielitaso'];
 
-             if ((koulutusState?.avainsana) || (kortitState && Object.keys(kortitState).length > 0) || (yrittajyysState?.avainsana) || customKoulutus || customKielitaso) {
-                 return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
-             }
-             if (customKoulutus || customKielitaso) {
-                 return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' };
-             }
-             return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
-         }
-
-        // --- KORJAUS 1: Tarkistetaan uutta lopullinen_33_arvio -avainta ---
-        if (simpleId === 'edellytykset' && (state['custom-lopullinen_33_arvio'] || state['custom-edellytykset'])) {
-            return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
+        if (simpleId === 'edellytykset') {
+            const hasContent = state['custom-lopullinen_33_arvio'] || state['custom-edellytykset'];
+            return hasContent ? { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' } : { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
         }
 
         const sectionState = state[simpleId];
-        if (!sectionState && !state[`custom-${simpleId}`]) {
-            return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
-        }
-
         if (sectionState && Object.keys(sectionState).length > 0) {
-             if (simpleId === 'palkkatuki' && state.palkkatuki?.palkkatuki_puolletaan !== undefined) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-             if (simpleId === 'tyokyky' && state.tyokyky?.paavalinta) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-             if (simpleId === 'tyonhakuvelvollisuus' && state.tyonhakuvelvollisuus?.avainsana) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-             if (simpleId === 'suunnitelma' && Object.keys(state.suunnitelma || {}).length > 0) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-             if (simpleId === 'suunnitelman_perustiedot' && Object.keys(sectionState || {}).length >= 2) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-             if (simpleId === 'tyotilanne' && Object.keys(sectionState || {}).length >= 1) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-             if (simpleId === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
-             if (sectionState && Object.keys(sectionState).length > 0) { return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' }; }
+            return { text: 'Valmis', tagClass: 'tag--success', chipClass: 'chip--active' };
         }
-        
-        if (state[`custom-${simpleId}`]) { 
-            return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' }; 
+        if (state[`custom-${simpleId}`]) {
+            return { text: 'Muokattu', tagClass: 'tag--warning', chipClass: 'chip--warning' };
         }
-
         return { text: 'Odottaa', tagClass: 'tag--pending', chipClass: '' };
     };
 
-    const areAllSectionsComplete = sections.every(section => getSectionStatus(section.id).text === 'Valmis');
+    const areAllSectionsComplete = sections.every(section => {
+        const status = getSectionStatus(section.id);
+        return status.text === 'Valmis' || status.text === 'Muokattu';
+    });
 
     useEffect(() => {
         const observerOptions = { root: null, rootMargin: '0px', threshold: 0.4 };
@@ -167,7 +161,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
         const targets = sections.map(section => document.getElementById(section.id)).filter(target => target !== null); 
         targets.forEach(target => observer.observe(target));
         return () => {
-            targets.forEach(target => { if (observerRef.current) { observerRef.current.unobserve(target); } });
             if (observerRef.current) { observerRef.current.disconnect(); }
         };
     }, [sections]); 
@@ -176,10 +169,16 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
         <>
             <div className="summary-drag-handle"></div>
             
-            {/* OTSIKKO JA HALLINTA-NAPPI */}
             <div style={{ padding: '0 0 1rem 0', borderBottom: '1px solid var(--color-border)', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                    <h2 className="text-xl fw-bold" style={{ margin: 0 }}>Yhteenveto</h2>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <h2 className="text-xl fw-bold" style={{ margin: 0 }}>Yhteenveto</h2>
+                        {isReturning && (
+                            <span className="tag tag--warning text-xs-dense fw-bold" style={{ backgroundColor: '#fef08a', color: '#854d0e', border: '1px solid #fde047' }}>
+                                🔄 Tunnettu asiakas
+                            </span>
+                        )}
+                    </div>
                     <Button 
                         variant="secondary" 
                         className="text-xs fw-medium"
@@ -193,8 +192,7 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                 <div className="summary-progress-tracker">
                     {sections.map(section => {
                         const status = getSectionStatus(section.id);
-                        const chipId = `${section.id.replace('osio-','').replace(/_/g, '-')}-chip`;
-                        return <div key={section.id} id={chipId} className={`chip ${status.chipClass}`}>{section.name}</div>;
+                        return <div key={section.id} className={`chip ${status.chipClass}`}>{section.name}</div>;
                     })}
                 </div>
             </div>
@@ -203,6 +201,7 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                 {sections.map(panelSection => {
                      const status = getSectionStatus(panelSection.id);
                      let sectionId = panelSection.id.replace('osio-', '').replace(/-/g, '_');
+                     
                      if (sectionId === 'tyonhaku') sectionId = 'tyonhakuvelvollisuus';
                      if (sectionId === 'palveluohjaus') sectionId = 'palveluunohjaus';
 
@@ -226,7 +225,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                      else if (sectionId === 'suunnitelma') {
                          sectionText = state['custom-suunnitelma']?.trim() || '';
                      }
-                     // --- KORJAUS 2: Haetaan oikea avain tekstin tulostukseen ---
                      else if (sectionId === 'edellytykset') {
                          sectionText = state['custom-lopullinen_33_arvio']?.trim() || state['custom-edellytykset']?.trim() || '';
                      }
@@ -236,9 +234,7 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                          
                          if (sectionId === 'tyokyky') {
                              const tyokykyLopullinen = state['custom-tyokyky_lopullinen']?.trim();
-                             if (tyokykyLopullinen) {
-                                 customText = customText ? `${customText}\n\n${tyokykyLopullinen}` : tyokykyLopullinen;
-                             }
+                             if (tyokykyLopullinen) customText = customText ? `${customText}\n\n${tyokykyLopullinen}` : tyokykyLopullinen;
                          }
 
                          if (customText && !sectionText.includes(customText)) { 
@@ -246,41 +242,30 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                          }
                      }
                      
-                     const statusId = `${sectionId.replace(/_/g, '-')}-status`;
                      if (!sectionDataFromPlan && !['koulutus', 'edellytykset'].includes(sectionId)) return null;
 
                      const isActive = panelSection.id === activeSectionId;
-                     const liClassName = `summary-item ${isActive ? 'summary-item--active' : ''}`;
-
                      return (
-                        <li
-                            key={panelSection.id}
-                            className={liClassName} 
-                            data-target={panelSection.id}
-                        >
+                        <li key={panelSection.id} className={`summary-item ${isActive ? 'summary-item--active' : ''}`} data-target={panelSection.id}>
                             <div className="summary-item-header" onClick={() => {
-                                const targetElement = document.getElementById(panelSection.id);
-                                if (targetElement) { targetElement.scrollIntoView({ behavior: 'smooth' }); }
+                                document.getElementById(panelSection.id)?.scrollIntoView({ behavior: 'smooth' });
                             }}>
                                 <span className="summary-item__title text-sm fw-semibold">{panelSection.name}</span>
-                                <span id={statusId} className={`tag ${status.tagClass} text-xs-dense fw-medium`}>{status.text}</span>
+                                <span className={`tag ${status.tagClass} text-xs-dense fw-medium`}>{status.text}</span>
                             </div>
 
                             {sectionText && (
                                 <div className="summary-item-content-wrapper" style={{ marginTop: '0.5rem' }}>
                                     <div className="summary-item-generated-text text-sm lh-tight text-slate-700">
-                                        {sectionText.split('\n').map((line, index, arr) => (
-                                            <React.Fragment key={index}>
+                                        {sectionText.split('\n').map((line, idx) => (
+                                            <React.Fragment key={idx}>
                                                 {line}
-                                                {index < arr.length - 1 && <br />}
+                                                <br />
                                             </React.Fragment>
                                         ))}
                                     </div>
-                                    
                                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                                        <CopyButton 
-                                            textToCopy={sectionText.replace(FINGERPRINT, '').replace(/\*\*/g, '').trim()} 
-                                        />
+                                        <CopyButton textToCopy={sectionText.replace(FINGERPRINT, '').replace(/\*\*/g, '').trim()} />
                                     </div>
                                 </div>
                             )}
@@ -289,37 +274,57 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                 })}
             </ul>
 
-            <div className="summary-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div className="summary-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem' }}>
+                
+                {/* UUSI: Testitilan valintaruutu */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                    <input 
+                        type="checkbox" 
+                        checked={isTestMode} 
+                        onChange={(e) => setIsTestMode(e.target.checked)} 
+                        style={{ accentColor: 'var(--color-primary)', width: '14px', height: '14px' }}
+                    />
+                    Testitila (älä tallenna tilastoihin)
+                </label>
+
                 <Button 
                     id="save-button" 
                     disabled={!areAllSectionsComplete}
+                    className={areAllSectionsComplete ? 'button--primary' : 'button--disabled'}
                 > 
                     Tallenna analyysi 
                 </Button>
                 
                 <Button 
                     variant="secondary" 
-                    onClick={handleCopy} 
+                    onClick={() => handleCopyLogic(false)} 
                     disabled={isStateEmpty}
                 > 
-                    Kopioi yhteenveto (Vanha) 
+                    Kopioi yhteenveto 
                 </Button>
                 
                 <Button 
                     variant="secondary" 
                     className="text-primary fw-bold" 
                     style={{ backgroundColor: 'var(--color-background)', border: '2px dashed var(--color-primary)' }} 
-                    onClick={handleHybridCopy} 
+                    onClick={() => handleCopyLogic(true)} 
                     disabled={isStateEmpty}
                 > 
                     🚀 Kopioi kokeilu (Supabase) 
                 </Button>
-                
+
+                {/* UUSI: Tunnisteavaimen visualisointi ruudulla */}
+                {currentFingerprint && (
+                    <div className="text-xs-dense text-muted font-mono" style={{ textAlign: 'center', marginTop: '0.25rem', wordBreak: 'break-all' }}>
+                        [Tunniste: {currentFingerprint}]
+                    </div>
+                )}
+
                 {feedback && <p className="feedback-text text-sm-dense fw-medium text-success" style={{ textAlign: 'center', marginTop: '0.25rem' }}>{feedback}</p>}
             </div>
 
             <AikatauluEhdotus state={state} actions={actions} />
-
+            
             <ServiceManager 
                 state={state} 
                 actions={actions} 

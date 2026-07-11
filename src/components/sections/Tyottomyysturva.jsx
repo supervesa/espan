@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../utils/supabaseClient';
-import { AlertCircle, CheckCircle, FileText, Sparkles, ArrowRight, AlertTriangle } from 'lucide-react';
+import { AlertCircle, FileText, Sparkles, ArrowRight } from 'lucide-react';
 import PhraseQuestionList from '../common/PhraseQuestionList';
 
 const Tyottomyysturva = ({ state, actions }) => {
@@ -23,8 +23,12 @@ const Tyottomyysturva = ({ state, actions }) => {
                 const grouped = { tt_ehdottomat: [], tt_yleiset: [], muut_tuet: [] };
                 const temps = {};
                 data.forEach(q => {
-                    if (q.grouping_key === 'tt_lausuntopohjat') temps[q.phrase_key] = q.base_text;
-                    else grouped[q.grouping_key]?.push(q);
+                    if (q.grouping_key === 'tt_lausuntopohjat') {
+                        const key = q.phrase_key || q.id;
+                        temps[key] = q.base_text;
+                    } else {
+                        grouped[q.grouping_key]?.push(q);
+                    }
                 });
                 setKysymykset(grouped);
                 setTemplates(temps);
@@ -43,12 +47,20 @@ const Tyottomyysturva = ({ state, actions }) => {
     const shouldShow = (q) => {
         const meta = q.metadata || {};
         if (meta.condition === 'alle25' && !asiakasAlle25) return false;
-        if (meta.logic && answers[meta.logic.show_if] !== meta.logic.equals) return false;
+        if (meta.logic) {
+            // Varmistetaan, että riippuvuus hakee vastausta oikealla avaimella
+            const dependentAnswer = answers[meta.logic.show_if];
+            if (dependentAnswer !== meta.logic.equals) return false;
+        }
         return true;
     };
 
     const handleAnswerChange = (q, value) => {
-        onUpdateTyottomyysturva('updateKysymys', { id: q.phrase_key, value });
+        // TÄSSÄ OLI VIKA: Varmistetaan että käytetään phrase_keytä tai jos sitä ei ole, id:tä!
+        const questionKey = q.phrase_key || q.id;
+        
+        onUpdateTyottomyysturva('updateKysymys', { id: questionKey, value });
+        
         if (q.metadata?.signal_key) {
             if (value === true) onAddSignal(q.metadata.signal_key);
             else onRemoveSignal(q.metadata.signal_key);
@@ -59,12 +71,17 @@ const Tyottomyysturva = ({ state, actions }) => {
         const res = { criticalFail: false, investigate: [], answered: 0, required: 0, isReady: false };
         const relevant = [...kysymykset.tt_ehdottomat, ...kysymykset.tt_yleiset].filter(shouldShow);
         res.required = relevant.length;
+        
         relevant.forEach(q => {
-            const ans = answers[q.phrase_key];
+            // TÄSSÄ OLI VIKA: Analyysi kaatui jos phrase_key puuttui
+            const questionKey = q.phrase_key || q.id;
+            const ans = answers[questionKey];
+            
             if (ans !== undefined) res.answered++;
             if (ans === false && q.metadata?.impact === 'critical') res.criticalFail = true;
             if (ans === true && q.metadata?.impact === 'investigate') res.investigate.push(q.metadata.syy_teksti || q.short_title);
         });
+        
         res.isReady = res.criticalFail || (res.required > 0 && res.answered === res.required);
         return res;
     }, [kysymykset, answers, asiakasAlle25]);
