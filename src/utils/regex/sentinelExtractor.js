@@ -65,5 +65,12 @@ export const extractSentinelData = (text) => {
         }
     }
 
+    // 6. POSTINUMERO (Esim: "00100 Helsinki" tai "00100")
+    const postinroRegex = /\b(\d{5})\b/i;
+    const postinroMatch = text.match(postinroRegex);
+    if (postinroMatch && postinroMatch[1]) {
+        results.variables['postinumero'] = postinroMatch[1];
+    }
+
     return results;
 };

@@ -3,6 +3,9 @@ import { BrainCircuit, CheckCircle, Zap, Loader2 } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
 import { parsePlanText } from './planParser';
 
+// Tuodaan uusi älykäs hook, joka hoitaa kaiken salauksen!
+import { useSentinelIdentity } from '../../hooks/useSentinelIdentity';
+
 // Yhteiset komponentit
 import Modal from '../common/Modal';
 import Tag from '../common/Tag';
@@ -24,8 +27,11 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [activeSections, setActiveSections] = useState({});
     
-    // UUSI: Tila arkistosta haetuille tiedoille
+    // Tila arkistosta haetuille tiedoille
     const [sentinelMeta, setSentinelMeta] = useState({ isKnown: false, sources: {} });
+
+    // Tuodaan Ovimies-hook suoraan käyttöön
+    const { checkIdentity } = useSentinelIdentity();
 
     const [parsedData, setParsedData] = useState({
         phrases: [], signals: [], services: [], sessionServices: [],
@@ -66,7 +72,7 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
             }
 
             // =========================================================
-            // 🕵️ OVIMIEHEN TAUSTAHAKU (Imurin sisäinen)
+            // 🕵️ OVIMIEHEN TAUSTAHAKU (Tyhmä ja nopea modal-reititys)
             // =========================================================
             let isKnown = false;
             const sources = {};
@@ -87,67 +93,60 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                 }
             }
             const kieli = extractedData.variables.aidinkieli || 'X';
-            const kunta = extractedData.variables.kotikunta || 'X';
+            const kunta = extractedData.variables.postinumero || extractedData.variables.kotikunta || 'X';
             
             const idPart = `${normalize(paiva)}${normalize(kieli)}${normalize(kunta)}${normalize(vuosiPari)}`;
             const realDataLength = idPart.replace(/X/g, '').length;
 
             if (realDataLength >= 4) {
-                // KORJAUS 1: 11 merkin tyhjä reppu tarkistukseen
-                const checkKey = `${idPart}XXXXXXXXXXX`; 
                 try {
-                    const { data, error } = await supabase.functions.invoke('sentinel-identity', {
-                        body: { action: 'check', keys: [checkKey] }
-                    });
+                    // Hook hoitaa nyt kaiken salauksen ja purkamisen!
+                    const result = await checkIdentity(idPart);
                     
-                    if (!error && data?.isReturningCustomer && data?.matchedKey) {
+                    if (result?.found && result?.processed) {
                         isKnown = true;
-                        const fullKey = data.matchedKey;
+                        const { sv, postinro, historia, viimeKayntiKk, latestTapa, signals } = result.processed;
                         
-                        // KORJAUS 2: 11 merkin purku neljään osaan
-                        const extractedSV = fullKey.slice(-4);
-                        const extractedViimeKayntiKk = fullKey.slice(-6, -4);
-                        const extractedKk = fullKey.slice(-8, -6);
-                        const extractedTapa = fullKey.slice(-11, -8);
-                        
-                        // Yhdistetään tietokannan löydökset
-                        if (!extractedData.variables.syntymavuosi && extractedSV !== 'XXXX') {
-                            extractedData.variables.syntymavuosi = extractedSV;
-                            sources.syntymavuosi = 'db'; // Lippu UI:ta varten
+                        // Yhdistetään tietokannan löydökset (Syntymävuosi)
+                        if (!extractedData.variables.syntymavuosi && sv) {
+                            extractedData.variables.syntymavuosi = sv;
+                            sources.syntymavuosi = 'db'; 
                         }
 
-                        // Tallennetaan viime käynti kuukausi ja lasketaan 6 kk sääntö
-                        if (extractedViimeKayntiKk !== 'XX') {
-                            extractedData.variables.viime_kaynti_kk = extractedViimeKayntiKk;
-                            sources.viime_kaynti_kk = 'db';
-
-                            const currentMonth = new Date().getMonth() + 1; // 1-12
-                            const lastVisit = parseInt(extractedViimeKayntiKk, 10);
-                            const diff = (currentMonth - lastVisit + 12) % 12;
+                        // Yhdistetään tietokannan löydökset (Postinumero)
+                        if (!extractedData.variables.postinumero && postinro) {
+                            extractedData.variables.postinumero = postinro;
+                            sources.postinumero = 'db'; 
                             
-                            // Jos 6 kk (tai enemmän) on kulunut
-                            if (diff >= 6) {
+                            if (!extractedData.signals.some(s => s.id === `postinumero_${postinro}`)) {
                                 extractedData.signals.push({ 
-                                    id: 'kaynti_suositus', 
-                                    label: '🚨 Yli 6 kk lähikäynnistä!' 
+                                    id: `postinumero_${postinro}`, 
+                                    label: `Postinumero: ${postinro}` 
                                 });
                             }
                         }
-                        
-                        if (!extractedData.variables.yhteydenottotapa && extractedTapa !== 'XXX') {
-                            extractedData.variables.yhteydenottotapa = extractedTapa === 'PUH' ? 'PUHELIN' : 'KÄYNTI';
-                            sources.yhteydenottotapa = 'db';
-                            
-                            // Lisätään signaali, joka kertoo tavan lisäksi myös tarkan kuukauden
-                            const tapaSig = extractedTapa === 'PUH' ? 'puhelin_tapaaminen' : 'kayntitapaaminen';
-                            const tapaLabel = extractedTapa === 'PUH' 
-                                ? `Viimeksi: Puhelin (${extractedKk})` 
-                                : `Viimeksi: Käynti (${extractedKk})`;
-                                
-                            if (!extractedData.signals.some(s => s.id === tapaSig)) {
-                                extractedData.signals.push({ id: tapaSig, label: tapaLabel });
-                            }
+
+                        // Tallennetaan historia
+                        if (historia.length > 0) {
+                            extractedData.variables.tapaamishistoria = historia;
                         }
+
+                        if (viimeKayntiKk) {
+                            extractedData.variables.viime_kaynti_kk = viimeKayntiKk;
+                            sources.viime_kaynti_kk = 'db';
+                        }
+                        
+                        if (!extractedData.variables.yhteydenottotapa && latestTapa) {
+                            extractedData.variables.yhteydenottotapa = latestTapa;
+                            sources.yhteydenottotapa = 'db';
+                        }
+                        
+                        // Lisätään Ovimiehen luomat älykkäät signaalit (esim. 6kk hälytys)
+                        signals.forEach(sig => {
+                            if (!extractedData.signals.some(s => s.id === sig.id)) {
+                                extractedData.signals.push(sig);
+                            }
+                        });
                     }
                 } catch (err) {
                     console.error("Sentinel Modal Check Error:", err);
@@ -259,11 +258,12 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
             ) : (
                 <div className="flex-col-gap" style={{ paddingTop: '1rem' }}>
                     
-                    {/* UUSI: Älykäs paneeli propseilla */}
+                 {/* UUSI: Älykäs paneeli propseilla ja historialla! */}
                     <ScraperSentinelPanel 
                         variables={parsedData.variables} 
                         isKnownCustomer={sentinelMeta.isKnown}
                         sourceFlags={sentinelMeta.sources}
+                        historia={parsedData.variables.tapaamishistoria || []}
                     />
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>

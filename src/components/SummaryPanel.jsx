@@ -17,40 +17,51 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
     const [activeSectionId, setActiveSectionId] = useState(null);
     const [isManagerOpen, setIsManagerOpen] = useState(false); 
     const [isSaved, setIsSaved] = useState(false); 
-    const [isTestMode, setIsTestMode] = useState(false); // UUSI: Testitilan kytkin
-    const [currentFingerprint, setCurrentFingerprint] = useState(''); // UUSI: Avaimen visualisointi
+    const [isTestMode, setIsTestMode] = useState(false); 
+    const [currentFingerprint, setCurrentFingerprint] = useState(''); 
     const observerRef = useRef(null); 
     const identityCheckedRef = useRef(false); 
     
     const { logPlanCopied } = useSentinelAnalytics();
     
-    const { generateFingerprints } = useSentinelFingerprint(state);
+    // KORJAUS: Haetaan uusi erotteleva funktio
+    const { getFingerprintData } = useSentinelFingerprint(state);
     const { checkIdentity, registerIdentity, isReturning } = useSentinelIdentity();
 
     const isStateEmpty = !state || Object.keys(state).length === 0;
 
     // --- 🕵️ OVIMIEHEN TAUSTATARKISTUS (HILJAINEN) ---
     useEffect(() => {
-        const checkKeys = generateFingerprints('check');
+        if (!getFingerprintData) return;
         
-        if (checkKeys && checkKeys.length > 0) {
-            // Päivitetään avain aina ruudulle näkyviin
-            setCurrentFingerprint(checkKeys[0]);
+        // KORJAUS: Noudetaan vain Tunniste (idPart)
+        const { idPart } = getFingerprintData('check');
+        
+        if (idPart) {
+            // Päivitetään avain aina ruudulle näkyviin (vain naamaosa, ei reppua)
+            setCurrentFingerprint(idPart);
 
             if (!isStateEmpty && !identityCheckedRef.current) {
-                const idPart = checkKeys[0].slice(0, -9);
-                
                 // Katsotaan onko siellä OIKEAA dataa (Pyyhitään X:t pois ja katsotaan jääkö vähintään 4 merkkiä)
                 const realDataLength = idPart.replace(/X/g, '').length;
 
                 if (realDataLength >= 4) {
-                    // Haetaan hiljaisuudessa
-                    checkIdentity(checkKeys);
+                    console.log("Ovimies: Tunniste analysoitu, kysytään tietokannalta...");
+                    
+                    // KORJAUS: Lähetetään vain idPart
+                    checkIdentity(idPart).then(result => {
+                        if (result?.found) {
+                            console.group("📋 OVIMIEHEN LÖYDÖKSET LOMAKKEELLE:");
+                            console.log("Holvin sisältö (JSON):", result.vaultData);
+                            console.log("Tiedot ovat nyt muistissa, niitä ei vielä pakoteta lomakkeelle.");
+                            console.groupEnd();
+                        }
+                    });
                     identityCheckedRef.current = true; 
                 }
             }
         }
-    }, [state, isStateEmpty, generateFingerprints, checkIdentity]);
+    }, [state, isStateEmpty, getFingerprintData, checkIdentity]);
 
     useEffect(() => {
         setIsSaved(false);
@@ -94,10 +105,13 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                     logPlanCopied(state, asiantuntijaId);
                 }
 
-                const saveKeys = generateFingerprints('save');
-                // Estetään tyhjien (XXXX) reppujen tallentaminen vanhan hyvän datan päälle
-                if (!saveKeys[0].endsWith('XXXXXXXXX')) {
-                    registerIdentity(saveKeys);
+                // KORJAUS: Noudetaan idPart ja payload JSON
+                if (getFingerprintData) {
+                    const { idPart, payload } = getFingerprintData('save');
+                    // Estetään täysin tyhjien reppujen tallentaminen
+                    if (payload && (payload.sv !== 'XXXX' || payload.historia.length > 0)) {
+                        registerIdentity(idPart, payload);
+                    }
                 }
 
                 setTimeout(() => setFeedback(''), 2000); 
@@ -110,9 +124,11 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                         logPlanCopied(state, asiantuntijaId);
                     }
                     
-                    const saveKeys = generateFingerprints('save');
-                    if (!saveKeys[0].endsWith('XXXXXXXXX')) {
-                        registerIdentity(saveKeys);
+                    if (getFingerprintData) {
+                        const { idPart, payload } = getFingerprintData('save');
+                        if (payload && (payload.sv !== 'XXXX' || payload.historia.length > 0)) {
+                            registerIdentity(idPart, payload);
+                        }
                     }
                     
                     setTimeout(() => setFeedback(''), 2000);
@@ -276,7 +292,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
 
             <div className="summary-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem' }}>
                 
-                {/* UUSI: Testitilan valintaruutu */}
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
                     <input 
                         type="checkbox" 
@@ -313,7 +328,6 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                     🚀 Kopioi kokeilu (Supabase) 
                 </Button>
 
-                {/* UUSI: Tunnisteavaimen visualisointi ruudulla */}
                 {currentFingerprint && (
                     <div className="text-xs-dense text-muted font-mono" style={{ textAlign: 'center', marginTop: '0.25rem', wordBreak: 'break-all' }}>
                         [Tunniste: {currentFingerprint}]

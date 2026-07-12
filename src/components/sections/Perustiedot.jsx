@@ -3,7 +3,7 @@ import { supabase } from '../../utils/supabaseClient';
 import { PhraseOption } from '../PhraseOption';
 import { planData } from '../../data/planData';
 import { aggregateSignalText } from '../../utils/textAggregator';
-import { FileText, Sparkles, Check } from 'lucide-react';
+import { FileText, Sparkles, Check, MapPin } from 'lucide-react'; // MapPin lisätty
 
 const Perustiedot = ({ state, actions }) => {
     const DB_PERUSTIEDOT = '33c681b0-4d06-4236-a63c-6f5675780fbb';
@@ -12,11 +12,10 @@ const Perustiedot = ({ state, actions }) => {
     const [phrases, setPhrases] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // Uudet tilat koontilaatikkoa varten
     const [includeAutoText, setIncludeAutoText] = useState(true);
     const [selectedExtras, setSelectedExtras] = useState([]);
 
-    const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
+    const { onSelect, onUpdateVariable, onUpdateCustomText, onUpdateAsiakas } = actions; // onUpdateAsiakas tuotu
 
     const transformVariables = (varsArray) => {
         if (!varsArray || varsArray.length === 0) return null;
@@ -62,8 +61,6 @@ const Perustiedot = ({ state, actions }) => {
     }, []);
 
     // --- KOONTILAATIKON LOGIIKKA ---
-    
-    // Sanakirja etuuksille, jotta ne tulostuvat suomeksi oikeassa sijamuodossa
     const EXTRA_SIGNALS_MAP = useMemo(() => ({
         'ETUUS_ASUMISTUKI': { label: 'Asumistuki', text: 'asumistukea' },
         'ETUUS_TOIMEENTULOTUKI': { label: 'Toimeentulotuki', text: 'toimeentulotukea' },
@@ -77,11 +74,8 @@ const Perustiedot = ({ state, actions }) => {
         const signals = state.signals || {};
         const activeKeys = Object.keys(signals).filter(k => signals[k]);
         
-        // Etsitään ne kaksi peruspilaria
         const hasEtuus = activeKeys.includes('TT_HAKEE_ETUUTTA');
         const hasKokoaika = activeKeys.includes('TT_HAKEE_KOKOAIKATYOTA');
-        
-        // Etsitään löytyykö taustalta muita etuuksia
         const availableExtras = activeKeys.filter(k => EXTRA_SIGNALS_MAP[k]);
 
         let parts = [];
@@ -110,9 +104,33 @@ const Perustiedot = ({ state, actions }) => {
     const handleMoveToText = () => {
         if (!autoData.text) return;
         const currentText = state[`custom-${UI_KEY}`] || '';
-        const separator = currentText.trim() ? '\n\n' : ''; // Jos laatikossa on jo tekstiä, laitetaan tyhjä rivi väliin
+        const separator = currentText.trim() ? '\n\n' : ''; 
         onUpdateCustomText(UI_KEY, currentText + separator + autoData.text.trim());
-        setIncludeAutoText(false); // Kytketään automaatio pois, ettei asiantuntija siirrä sitä vahingossa tuplana
+        setIncludeAutoText(false); 
+    };
+
+  // --- POSTINUMERON KÄSITTELY ---
+    const handlePostinumeroChange = (e) => {
+        const oldVal = state?.asiakas?.postinumero || '';
+        const val = e.target.value.replace(/\D/g, '').slice(0, 5);
+        
+        // 1. Tallennetaan arvo Ovimiestä varten
+        if (onUpdateAsiakas) {
+            onUpdateAsiakas('postinumero', val);
+        }
+
+        // 2. Signaalin hallinta
+        if (actions.setSignal) {
+            // A) Jos vanha arvo oli valmis (5 numeroa) ja sitä muutetaan, sammutetaan vanha haamusignaali
+            if (oldVal.length === 5 && oldVal !== val) {
+                actions.setSignal(`postinumero_${oldVal}`, false);
+            }
+            
+            // B) Kun uusi arvo on tasan 5 numeroa pitkä, sytytetään se!
+            if (val.length === 5) {
+                actions.setSignal(`postinumero_${val}`, true);
+            }
+        }
     };
 
     if (loading) return <div className="section-container">Ladataan...</div>;
@@ -122,6 +140,28 @@ const Perustiedot = ({ state, actions }) => {
             <h2 className="section-title icon-heading">
                 <FileText size={22} color="var(--color-primary)" /> Suunnitelman perustiedot
             </h2>
+
+            {/* UUSI: OVIMIEHEN POSTINUMEROKENTTÄ */}
+            <div style={{ 
+                marginBottom: '1.5rem', 
+                padding: '1rem', 
+                backgroundColor: 'var(--color-bg-light)', 
+                borderRadius: '8px', 
+                borderLeft: '4px solid var(--color-border)' 
+            }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
+                    <MapPin size={14} />
+                    Postinumero (Tunnistetta varten, ei tulostu suunnitelmaan)
+                </label>
+                <input 
+                    type="text" 
+                    className="form-input text-mono text-sm" 
+                    placeholder="Esim. 00100" 
+                    value={state?.asiakas?.postinumero || ''} 
+                    onChange={handlePostinumeroChange}
+                    style={{ maxWidth: '150px' }}
+                />
+            </div>
 
             <div className="options-container">
                 {phrases
@@ -144,7 +184,7 @@ const Perustiedot = ({ state, actions }) => {
                 ))}
             </div>
 
-            {/* UUSI ÄLYKÄS KOONTILAATIKKO */}
+            {/* ÄLYKÄS KOONTILAATIKKO */}
             <div className="smart-analysis-box" style={{ marginTop: '1.5rem', backgroundColor: 'rgba(139, 92, 246, 0.04)', borderColor: 'var(--color-ai)', borderStyle: 'dashed' }}>
                 <div className="smart-analysis-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-ai)' }}>
@@ -168,7 +208,6 @@ const Perustiedot = ({ state, actions }) => {
                             {autoData.text || 'Ei aktiivisia työnhakusignaaleja tällä hetkellä.'}
                         </p>
 
-                        {/* Etuus-Chipit näkyvät vain jos taustalta löytyy etuuksia */}
                         {autoData.availableExtras.length > 0 && (
                             <div style={{ borderTop: '1px solid rgba(139, 92, 246, 0.2)', paddingTop: '12px', paddingBottom: '4px' }}>
                                 <span style={{ fontSize: '0.75rem', color: '#6d28d9', display: 'block', marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase' }}>
@@ -205,7 +244,6 @@ const Perustiedot = ({ state, actions }) => {
                             </div>
                         )}
 
-                        {/* Siirtopainike */}
                         {autoData.text && (
                             <div style={{ marginTop: '16px', textAlign: 'right' }}>
                                 <button 

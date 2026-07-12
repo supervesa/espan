@@ -109,6 +109,18 @@ export const useScraperAdapter = (actions) => {
                 else if (actions.onUpdateAsiakas) {
                     actions.onUpdateAsiakas(key, value);
                 }
+
+                // --- POSTINUMERO ---
+                else if (key === 'postinumero') {
+                    // Tallennetaan suoraan asiakkaan taustatietoihin (ilmestyy lomakkeen kenttään)
+                    if (actions.onUpdateAsiakas) {
+                        actions.onUpdateAsiakas('postinumero', value);
+                    }
+                    // Sytytetään signaali livenä
+                    if (actions.onAddSignal && value.length === 5) {
+                        actions.onAddSignal(`postinumero_${value}`);
+                    }
+                }
             });
         }
 

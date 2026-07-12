@@ -10,6 +10,11 @@ ndist/
 .DS_Store
 Thumbs.db
 
-# Ympäristömuuttujat (ERITTÄIN TÄRKEÄ: sisältää usein API-avaimet)
+# Ympäristömuuttujat (ERITTÄIN TÄRKEÄ: sisältää API-avaimet)
 .env
 .env.local
+.env.*
+
+# Salausavaimet (Estää vahingossa luotujen avainten vuotamisen!)
+*.pem
+*.key
