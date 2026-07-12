@@ -24,8 +24,8 @@ export const extractSentinelData = (text) => {
         results.variables['kotikunta'] = kuntaMatch[1].trim();
     }
 
-    // 3. ÄIDINKIELI
-    const kieliRegex = /Asiakkaan\s+äidinkieli\s+on\s+([a-zäöåA-ZÄÖÅ\s-]+)(?:[,.]|$)/i;
+  // 3. ÄIDINKIELI (Korjattu: Ei enää ahneita välilyöntejä, pysähtyy heti kielen nimen jälkeen)
+    const kieliRegex = /Asiakkaan\s+äidinkieli\s+on\s+([a-zäöåA-ZÄÖÅ-]+)/i;
     const kieliMatch = text.match(kieliRegex);
     if (kieliMatch && kieliMatch[1]) {
         const kieli = kieliMatch[1].trim().toLowerCase();
@@ -64,13 +64,5 @@ export const extractSentinelData = (text) => {
             results.signals.push({ id: 'kayntitapaaminen', label: 'Tapa: Käynti' });
         }
     }
-
-    // 6. POSTINUMERO (Esim: "00100 Helsinki" tai "00100")
-    const postinroRegex = /\b(\d{5})\b/i;
-    const postinroMatch = text.match(postinroRegex);
-    if (postinroMatch && postinroMatch[1]) {
-        results.variables['postinumero'] = postinroMatch[1];
-    }
-
     return results;
 };

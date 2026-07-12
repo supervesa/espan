@@ -82,20 +82,28 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                 return String(str).toUpperCase().replace(/[^A-Z0-9ÄÖÅ]/g, '');
             };
 
-            // Rakennetaan väliaikainen avain
-            let paiva = 'X', vuosiPari = 'X';
+            // Rakennetaan väliaikainen avain (Modulo 997)
+            let suola = 'XXX', vuosiPari = 'X';
             if (extractedData.variables.tyonhaku_alkanut) {
                 const parts = String(extractedData.variables.tyonhaku_alkanut).split('.');
-                if (parts[0]) paiva = parts[0].padStart(2, '0');
                 if (parts.length >= 3) {
+                    const p = parts[0].padStart(2, '0');
+                    const k = parts[1].padStart(2, '0');
                     const v = parts[2].trim().substring(0, 4); 
-                    if (v.length === 4) vuosiPari = v.charAt(1) + v.charAt(3);
+                    
+                    if (v.length === 4) {
+                        const rimpsuNum = parseInt(`${p}${k}${v}`, 10);
+                        if (!isNaN(rimpsuNum)) {
+                            suola = String(rimpsuNum % 997).padStart(3, '0');
+                        }
+                        vuosiPari = v.charAt(1) + v.charAt(3);
+                    }
                 }
             }
             const kieli = extractedData.variables.aidinkieli || 'X';
-            const kunta = extractedData.variables.postinumero || extractedData.variables.kotikunta || 'X';
+            const kunta = extractedData.variables.kotikunta || 'X';
             
-            const idPart = `${normalize(paiva)}${normalize(kieli)}${normalize(kunta)}${normalize(vuosiPari)}`;
+            const idPart = `${suola}${normalize(kieli)}${normalize(kunta)}${normalize(vuosiPari)}`;
             const realDataLength = idPart.replace(/X/g, '').length;
 
             if (realDataLength >= 4) {

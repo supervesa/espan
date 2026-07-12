@@ -11,15 +11,23 @@ export const useSentinelFingerprint = (state) => {
 
     const getFingerprintData = useCallback(() => {
         // --- 1. STABIILI TUNNISTE (Pää) ---
-        let paiva = 'X', vuosiPari = 'X';
+        let suola = 'XXX', vuosiPari = 'X';
         const alkuPvm = state?.suunnitelman_perustiedot?.tyonhaku_alkanut?.muuttujat?.TH_ALKU_PVM || state?.asiakas?.tyonhaku_alkanut;
         
         if (alkuPvm) {
             const parts = String(alkuPvm).split('.');
-            if (parts[0]) paiva = parts[0].padStart(2, '0');
             if (parts.length >= 3) {
+                const p = parts[0].padStart(2, '0');
+                const k = parts[1].padStart(2, '0');
                 const v = parts[2].trim().substring(0, 4); 
-                if (v.length === 4) vuosiPari = v.charAt(1) + v.charAt(3);
+                
+                if (v.length === 4) {
+                    const rimpsuNum = parseInt(`${p}${k}${v}`, 10);
+                    if (!isNaN(rimpsuNum)) {
+                        suola = String(rimpsuNum % 997).padStart(3, '0');
+                    }
+                    vuosiPari = v.charAt(1) + v.charAt(3);
+                }
             }
         }
 
@@ -43,8 +51,8 @@ export const useSentinelFingerprint = (state) => {
             kieli = state['custom-kielitaso_aidinkieli'];
         }
 
-        // Tunniste luodaan päivän, kielen, KUNNAN ja vuosiparin perusteella
-        const idPart = `${normalize(paiva)}${normalize(kieli)}${normalize(kunta)}${normalize(vuosiPari)}`;
+        // Tunniste luodaan suolan, kielen, KUNNAN ja vuosiparin perusteella
+        const idPart = `${suola}${normalize(kieli)}${normalize(kunta)}${normalize(vuosiPari)}`;
 
         // --- 2. HOLVIN SISÄLTÖ (JSON Reppu) ---
         let tapa = 'XXX'; 
