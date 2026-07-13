@@ -54,8 +54,32 @@ export const analyzeSchedule = (rules = [], signals = {}, sessionServices = [], 
     }
 
     const planDate = parseSafeDate(rawPlanDate);
-    const lastKayntiDate = parseSafeDate(rawKaynti) || planDate || thAlkuDate;
-    const lastTapaaminenDate = parseSafeDate(rawTapaaminen) || planDate || thAlkuDate;
+
+    // ==========================================
+    // 🚂 RAITEENVAIHTAJA: Tapaamishistorian tarkistus
+    // ==========================================
+    const historia = perustiedot?.tapaamishistoria || [];
+    let lastTapaaminenDate = null;
+    let lastKayntiDate = null;
+
+    if (historia.length > 0) {
+        // 🟢 RAIDE 1: Aito historia Ovimiehen repusta
+        const latestTapaaminen = historia[0]; // Uusin on aina ensimmäisenä
+        lastTapaaminenDate = new Date(latestTapaaminen.v, latestTapaaminen.kk - 1, 15);
+
+        const latestKaynti = historia.find(h => h.tapa === 'KÄY');
+        if (latestKaynti) {
+            lastKayntiDate = new Date(latestKaynti.v, latestKaynti.kk - 1, 15);
+        } else {
+            // Jos historiassa on vain puheluita, arvataan käynti vanhaan malliin
+            lastKayntiDate = planDate || thAlkuDate; 
+        }
+    } else {
+        // 🟡 RAIDE 2: Legacy-tila (Uusi tai vanha asiakas ilman tallennettua historiaa)
+        lastTapaaminenDate = parseSafeDate(rawTapaaminen) || planDate || thAlkuDate;
+        lastKayntiDate = parseSafeDate(rawKaynti) || planDate || thAlkuDate;
+    }
+    // ==========================================
 
     const monthsFromKaynti = getMonthsDiff(lastKayntiDate);
     const monthsFromTapaaminen = getMonthsDiff(lastTapaaminenDate);
@@ -115,42 +139,44 @@ export const analyzeSchedule = (rules = [], signals = {}, sessionServices = [], 
         }
     }
 
-    // PRIORITEETTI 3: Lakisääteinen perusrytmi - ANKKURIMALLI (Aina eteenpäin)
-    if (thAlkuDate) {
-        const base = new Date(thAlkuDate);
-        let targetMonths = 3;
-        let nextMilestone = new Date(base);
-        nextMilestone.setMonth(base.getMonth() + targetMonths);
+    // PRIORITEETTI 3: Lakisääteinen perusrytmi (3kk edellisestä tapaamisesta)
+    if (lastTapaaminenDate || thAlkuDate) {
+        // LAKI: Tasan 3 kk edellisestä tapaamisesta. Jos ei ole, lasketaan työnhaun alusta.
+        const baseDate = lastTapaaminenDate ? new Date(lastTapaaminenDate) : new Date(thAlkuDate);
+        let nextMilestone = new Date(baseDate);
+        nextMilestone.setMonth(nextMilestone.getMonth() + 3);
 
-        // Määritetään turvaraja: Emme hae aikaa menneisyydestä, emmekä liian läheltä nykyhetkeä
+        // Varmistus: Jos asiakas on pudonnut rytmistä ja 3kk eräpäivä on jo menneisyydessä,
+        // asetetaan tavoite täksi päiväksi, jotta järjestelmä etsii ensimmäisen vapaan ajan heti.
         const today = new Date();
-        const bufferDate = new Date();
-        bufferDate.setDate(bufferDate.getDate() + 14); // Haetaan 14 pv päähän aikaisintaan
-
-        // Todellisuustarkistus: Jos tapaaminen oli esim. viikko sitten, vältetään tuplabuukkaus
-        const tapaaminenBuffer = lastTapaaminenDate ? new Date(lastTapaaminenDate) : new Date(0);
-        if (lastTapaaminenDate) tapaaminenBuffer.setDate(tapaaminenBuffer.getDate() + 45); // Ohitetaan jos alle 1.5 kk edellisestä
-
-        // Kumpaa rajaa noudatetaan (kumpi on kauempana)
-        const limitDate = bufferDate > tapaaminenBuffer ? bufferDate : tapaaminenBuffer;
-
-        // Kelataan ruudukkoa eteenpäin kunnes löydetään puhdas tulevaisuuden etappi
-        while (nextMilestone < limitDate && targetMonths <= 120) {
-            targetMonths += 3;
-            nextMilestone = new Date(base);
-            nextMilestone.setMonth(base.getMonth() + targetMonths);
+        if (nextMilestone < today) {
+            nextMilestone = new Date();
+            nextMilestone.setDate(today.getDate() + 3);
         }
 
-        const isSixMonthStep = (targetMonths % 6 === 0);
-const rule = findRule('saannollinen_tyonhakukeskustelu', 'säännöllise');
+        // LÄHIKÄYNTIVELVOITE: Laki vaatii kasvokkaista tapaamista 6 kk välein
+        let isSixMonthStep = false;
+        if (lastKayntiDate) {
+            const monthsFromKaynti = getMonthsDiff(lastKayntiDate);
+            if (monthsFromKaynti >= 6) {
+                isSixMonthStep = true;
+            }
+        } else {
+            // Jos ei ole koskaan käynyt (tai historiadataa ei ole), pakotetaan lähikäynti
+            isSixMonthStep = true; 
+        }
+
+        const rule = findRule('saannollinen_tyonhakukeskustelu', 'säännöllise');
         
         if (rule) {
             suggestion = { 
                 priority: 3, rule, 
-                reason: `Lakisääteinen ${targetMonths} kk etappi (${nextMilestone.toLocaleDateString('fi-FI')})`, 
+                reason: lastTapaaminenDate 
+                    ? `Lakisääteinen 3 kk rytmi edellisestä (${nextMilestone.toLocaleDateString('fi-FI')})` 
+                    : `Lakisääteinen 3 kk rytmi työnhaun alusta (${nextMilestone.toLocaleDateString('fi-FI')})`, 
                 type: 'normi', suggestedCount: 1, suggestedPeriod: 1, 
                 forcedMode: isSixMonthStep ? 'kaynti' : null,
-                targetDate: nextMilestone // <-- Tämä välitetään nyt kalenterille!
+                targetDate: nextMilestone // Tasan 3kk päässä!
             };
             return { suggestion, diagnostics };
         }

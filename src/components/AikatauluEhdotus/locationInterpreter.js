@@ -4,8 +4,9 @@ import { findAvailableSlots } from './schedulingUtils';
 /**
  * PÄÄTULKKI: Käsittelee viikkonäkymän asiantuntijan manuaalista valintaa varten.
  * Toteuttaa GM 2.5 vesiputouksen, ankkurin ja lennossa laimentamisen.
+ * PÄIVITETTY VAIHTOEHTO B: Mooditietoinen vesiputous.
  */
-export const getInterpretedWeekSlots = (targetRuleType, expertRules, bookedSlots, searchStart, expertLocations) => {
+export const getInterpretedWeekSlots = (targetRuleType, expertRules, bookedSlots, searchStart, expertLocations, requestedMode = null) => {
     // 1. Hae raakakapasiteetti kaikista luokista katseltavalle viikolle
     const rawNormi = findAvailableSlots('normi', expertRules, bookedSlots, searchStart, 1);
     const rawTaydentava = findAvailableSlots('taydentava', expertRules, bookedSlots, searchStart, 1);
@@ -22,7 +23,7 @@ export const getInterpretedWeekSlots = (targetRuleType, expertRules, bookedSlots
                 return false;
             }
             
-            // SÄÄNTÖ 1: Etäpuheluita EI saa varata päiville, joita ei ole vielä lukittu (automaatin haamuehdotukset).
+            // SÄÄNTÖ 1: Etäpuheluita EI saa varata päiville, joita ei ole vielä lukittu.
             if (dayLoc && dayLoc.is_auto_generated && slot.mode === 'puhelu') {
                 return false; 
             }
@@ -54,7 +55,7 @@ export const getInterpretedWeekSlots = (targetRuleType, expertRules, bookedSlots
     // Suodatetaan ankkuri pois tavallisten normiaikojen pinosta
     const normiPool = processedNormi.filter(s => anchorSlot && s.time.getTime() !== anchorSlot.time.getTime());
 
-    // 3. MAANANTAIN TUNNISTUS
+    // 3. MAANANTAIN TUNNISTUS JA LOKEROINTI
     const isMonday = (slot) => slot.time.getDay() === 1;
 
     const normiTiPe = normiPool.filter(s => !isMonday(s));
@@ -64,29 +65,45 @@ export const getInterpretedWeekSlots = (targetRuleType, expertRules, bookedSlots
 
     let finalSlots = [];
 
-    // 4. VESIPUTOUSMALLI JOS HAETAAN TAVALLISTA AIKAA
+    // ==========================================
+    // 4. UUSI MOODITIETOINEN VESIPUTOUSMALLI
+    // ==========================================
     if (targetRuleType === 'normi') {
-        // Taso 1: Vihreä vyöhyke
+        
+        // Apufunktio kapasiteetin tarkistukseen pyydetyn moodin mukaan
+        const getRelevantCapacity = (pool) => {
+            if (!requestedMode) return pool; // Jos ei pyydetä tiettyä, katsotaan kaikkia
+            return pool.filter(s => s.mode === requestedMode);
+        };
+
+        const relevantNormiTiPe = getRelevantCapacity(normiTiPe);
+        const relevantTaydentavaTiPe = getRelevantCapacity(taydentavaTiPe);
+
+        // Taso 1: Vihreä vyöhyke (kaikki jäljellä olevat)
         finalSlots = [...normiTiPe];
 
-        // Taso 2: Kapasiteettivaroitus (Enää <= 2 normiaikaa jäljellä)
-        if (normiTiPe.length <= 2) {
+        // Taso 2: Kapasiteettivaroitus (Katsotaan vain PYYDETYN TAVAN kapasiteettia!)
+        if (relevantNormiTiPe.length <= 2) {
+            // Lainataan myös pyydetyn tavan mukaisia täydentäviä
             const borrowed = taydentavaTiPe.map(s => ({...s, isBorrowed: true, icon: '⚠️', label: 'Lainattu täydentävistä'}));
             finalSlots = [...finalSlots, ...borrowed];
         }
 
-        // Taso 3: Maanantain uhraus
-        if (normiTiPe.length === 0 && taydentavaTiPe.length === 0) {
+        // Taso 3: Maanantain uhraus (Laukeaa, jos pyydettyä tapaa ei löydy normista EIKÄ täydentävistä ti-pe)
+        if (relevantNormiTiPe.length === 0 && relevantTaydentavaTiPe.length === 0) {
             finalSlots = [...finalSlots, ...normiMa];
             const borrowedMa = taydentavaMa.map(s => ({...s, isBorrowed: true, icon: '⚠️', label: 'Lainattu täydentävistä'}));
             finalSlots = [...finalSlots, ...borrowedMa];
         }
 
-        // Taso 4: Viimeinen linnake
-        if (finalSlots.length === 0) {
+        // Taso 4: Viimeinen linnake (Aktivointiajat)
+        // Katsotaan onko Taso 3:n jälkeenkään mitään pyydetyn tavan aikoja
+        const relevantFinalSlots = getRelevantCapacity(finalSlots);
+        if (relevantFinalSlots.length === 0) {
             const borrowedAkti = processedAktivointi.map(s => ({...s, isBorrowed: true, icon: '🚨', label: 'Lainattu aktivoinnista'}));
-            finalSlots = [...borrowedAkti];
+            finalSlots = [...finalSlots, ...borrowedAkti];
         }
+
     } else if (targetRuleType === 'taydentava') {
         finalSlots = [...processedTaydentava];
     } else if (targetRuleType === 'aktivointi') {
@@ -101,14 +118,10 @@ export const getInterpretedWeekSlots = (targetRuleType, expertRules, bookedSlots
     return finalSlots.sort((a, b) => a.time - b.time);
 };
 
-/**
- * KORITULKKI: Käsittelee automaattisen ehdotusmoottorin (draftingEngine) tekemät korit.
- * Tekee estot/laimennukset ja piilottaa ankkurin, jotta automaatti ei varaa alkuhaastatteluaikoja.
- */
 export const interpretDraftBasket = (slots, expertRules, bookedSlots, expertLocations) => {
+    // ... tämä pysyy täsmälleen samana kuin ennen ...
     if (!slots) return [];
     
-    // Perus laimennus ja estot
     let filtered = slots.filter(slot => {
         const dateStr = slot.time.toISOString().split('T')[0];
         const dayLoc = expertLocations.find(l => l.date === dateStr);
@@ -125,7 +138,6 @@ export const interpretDraftBasket = (slots, expertRules, bookedSlots, expertLoca
         return slot;
     });
 
-    // Piilotetaan ankkurit automaattiselta korilta
     return filtered.filter(slot => {
         const slotDate = new Date(slot.time);
         const dayOfWeek = slotDate.getDay();
@@ -145,7 +157,7 @@ export const interpretDraftBasket = (slots, expertRules, bookedSlots, expertLoca
         const anchor = processedNormi.length > 0 ? processedNormi[0] : null;
 
         if (anchor && slot.time.getTime() === anchor.time.getTime()) {
-            return false; // Heitetään slotti pois, automaatti yritti varata ankkurin!
+            return false;
         }
         return true;
     });

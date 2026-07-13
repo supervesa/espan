@@ -11,18 +11,17 @@ import SmartSuggestionBox from './SmartSuggestionBox';
 import { analyzeSchedule } from './schedulePriorityEngine';
 import { findAvailableSlots } from './schedulingUtils';
 import { generateSmartDraft } from './draftingEngine';
+import { getAlueJaToimipiste } from '../../hooks/usePostinumero';
 import { FlaskConical, Calendar, User, Activity, CheckCircle2, Phone, Database, Link, AlertCircle, History, Download } from 'lucide-react';
 
 import { useViestiKokoamo } from '../../hooks/useViestiKokoamo';
 import TilausAssistenttiPaneeli from './TilausAssistenttiPaneeli';
 
-// TUODAAN UUSI GM 2.5 TULKKI
-import { getInterpretedWeekSlots, interpretDraftBasket } from './locationInterpreter';
+import { getInterpretedWeekSlots } from './locationInterpreter';
 
 const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
 
 const AikatauluEhdotus = ({ state, actions }) => {
-    // 1. OTETAAN MYÖS getSignalInfo KÄYTTÖÖN
     const { activeSignals, getSignalInfo } = useSignal();
 
     const [rules, setRules] = useState([]);
@@ -42,23 +41,23 @@ const AikatauluEhdotus = ({ state, actions }) => {
     const [basket, setBasket] = useState([]);
     const [isMandatory, setIsMandatory] = useState(true);
     const [expertLocations, setExpertLocations] = useState([]);
+    
+    const [viewMode, setViewMode] = useState('puhelu');
 
     const prevPhraseRef = useRef("");
 
-    // --- UUSI TÄYSIN DYNAAMINEN TULKKIPÄÄTTELY ---
     const interpreterState = useMemo(() => {
         let lang = state?.asiakas?.asiointikieli || state?.asiakas?.aidinkieli || 'suomi';
         let explicitTulkki = false;
 
         Object.keys(activeSignals || {}).forEach(key => {
             const val = activeSignals[key];
-            if (!val || val.isMuted) return; // Ohitetaan mykistetyt
+            if (!val || val.isMuted) return; 
 
             if (key === 'osallistuu_tulkki') {
                 explicitTulkki = true;
             }
 
-            // Kysytään sanakirjalta, mihin kategoriaan tämä signaali kuuluu
             const info = getSignalInfo(key);
             if (info && (info.cat === 'Äidinkieli' || info.cat === 'Asiointikieli')) {
                 lang = info.label;
@@ -76,7 +75,6 @@ const AikatauluEhdotus = ({ state, actions }) => {
         };
     }, [state?.asiakas, activeSignals, getSignalInfo]);
 
-    // 2. VÄLITETÄÄN TULKKIPAKETTI SUORAAN HOOKILLE
     const { virallinenTeksti, virallinenTekstiICS, smsTeksti, resolvedAddress } = useViestiKokoamo(
         selectedRule,
         basket.length > 0 ? basket : confirmedSlots,
@@ -113,10 +111,23 @@ const AikatauluEhdotus = ({ state, actions }) => {
         }, {});
     }, [state.suunnitelman_perustiedot]);
 
-    const { suggestion: activeSuggestion, diagnostics } = useMemo(() => {
+ const { suggestion: activeSuggestion, diagnostics } = useMemo(() => {
         const services = Array.isArray(state.sessionServices) ? state.sessionServices : [];
-        return analyzeSchedule(rules, activeSignals, services, perustiedotVars);
-    }, [rules, activeSignals, state.sessionServices, perustiedotVars]);
+        const result = analyzeSchedule(rules, activeSignals, services, perustiedotVars);
+
+        // Lisätään ehdotukseen lähin toimipiste postinumeron perusteella
+        if (result.suggestion) {
+            const postinro = state?.asiakas?.postinumero;
+            if (postinro) {
+                const { toimipiste } = getAlueJaToimipiste(postinro);
+                result.suggestion.toimipiste = toimipiste;
+            } else {
+                result.suggestion.toimipiste = 'Malminkatu (Oletus)'; // Jos postinumeroa ei ole vielä syötetty
+            }
+        }
+
+        return result;
+    }, [rules, activeSignals, state.sessionServices, perustiedotVars, state?.asiakas?.postinumero]);
 
     useEffect(() => {
         if (!selectedRule) { setProposedSlots([]); return; }
@@ -124,14 +135,12 @@ const AikatauluEhdotus = ({ state, actions }) => {
         if (selectedRule.metadata?.triggers?.require_yleistuki) type = 'aktivointi';
         else if (selectedRule.title.toLowerCase().includes('täydentävä')) type = 'taydentava';
         
-        // KORJAUS 2: baseSearchStart on AINA nykyhetki (ei koskaan siirretä tulevaisuuteen pysyvästi)
         const searchStart = new Date();
         searchStart.setDate(searchStart.getDate() + (weekOffset * 7));
         
-        // KUTSUTAAN TÄYSIN ERILLISTÄ LOGIIKKAMOOTTORIA (GM 2.5)
-        const slots = getInterpretedWeekSlots(type, expertRules, bookedSlots, searchStart, expertLocations);
+        const slots = getInterpretedWeekSlots(type, expertRules, bookedSlots, searchStart, expertLocations, viewMode);
         setProposedSlots(slots);
-    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion, expertLocations]);
+    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion, expertLocations, viewMode]);
 
     const handleRuleChange = (ruleId, suggestedCount = 1, suggestedPeriod = 3, forcedMode = null) => {
         const rule = rules.find(r => r.id === ruleId);
@@ -140,10 +149,11 @@ const AikatauluEhdotus = ({ state, actions }) => {
             setCount(suggestedCount);
             setPeriod(suggestedPeriod);
             setActiveForcedMode(forcedMode);
+            if (forcedMode) setViewMode(forcedMode);
+            
             setIsMandatory(rule.title.toLowerCase().includes('alkuhaastattelu') || rule.title.toLowerCase().includes('työnhakukeskustelu'));
             const passedTargetDate = (activeSuggestion && rule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
             
-            // GM 2.5: ZERO-CLICK LOIKKA (EI ENÄÄ 14 PV VÄHENNYSTÄ)
             let newOffset = 0;
             if (passedTargetDate) {
                 const now = new Date();
@@ -159,9 +169,9 @@ const AikatauluEhdotus = ({ state, actions }) => {
             }
             setWeekOffset(newOffset);
             
-            // AUTOMATISOIDUN KORIN SUODATUS ERILLISESSÄ TULKISSA
-            const rawBasket = generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod, passedTargetDate);
-            setBasket(interpretDraftBasket(rawBasket, expertRules, bookedSlots, expertLocations));
+            // Moottori palauttaa nyt täydellisen ja virheettömän korin suoraan!
+            const finalBasket = generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod, passedTargetDate, expertLocations);
+            setBasket(finalBasket);
         } else {
             setBasket([]);
             setActiveForcedMode(null);
@@ -173,18 +183,16 @@ const AikatauluEhdotus = ({ state, actions }) => {
         setCount(newCount);
         const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
         
-        // KÄÄNNETÄÄN KORIN EHDOTUKSET LENNOSSA ERILLISESSÄ TULKISSA
-        const rawBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, newCount, period, passedTargetDate);
-        setBasket(interpretDraftBasket(rawBasket, expertRules, bookedSlots, expertLocations));
+        const finalBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, newCount, period, passedTargetDate, expertLocations);
+        setBasket(finalBasket);
     };
 
     const handlePeriodChange = (newPeriod) => {
         setPeriod(newPeriod);
         const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
         
-        // KÄÄNNETÄÄN KORIN EHDOTUKSET LENNOSSA ERILLISESSÄ TULKISSA
-        const rawBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod, passedTargetDate);
-        setBasket(interpretDraftBasket(rawBasket, expertRules, bookedSlots, expertLocations));
+        const finalBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod, passedTargetDate, expertLocations);
+        setBasket(finalBasket);
     };
 
     const handleBooking = async () => {
@@ -227,7 +235,6 @@ const AikatauluEhdotus = ({ state, actions }) => {
         }
     });
 
-    // Haistelee, onko Tulkki tehnyt lennosta muutoksia aikoihin
     const hasTranslatedSlots = proposedSlots.some(s => s.isTranslated) || basket.some(s => s.isTranslated);
 
     if (loading) return <Card title="Ladataan aikatauluavustajaa..."></Card>;
@@ -240,7 +247,28 @@ const AikatauluEhdotus = ({ state, actions }) => {
 
             <div className="subsection">
                 <label style={{ fontWeight: 600, fontSize: '0.85rem' }}>Valitse sääntö:</label>
-                <select className="modern-select" value={selectedRule?.id || ""} onChange={e => handleRuleChange(e.target.value, 1, 3, null)}>
+                <select 
+                    className="modern-select" 
+                    value={selectedRule?.id || ""} 
+                    onChange={e => {
+                        const ruleId = e.target.value;
+                        if (!ruleId) {
+                            handleRuleChange("", 1, 3, null);
+                            return;
+                        }
+                        
+                        const selectedObj = rules.find(r => r.id === ruleId);
+                        let defaultCount = 1;
+                        let defaultMode = null;
+                        
+                        if (selectedObj?.metadata?.triggers?.require_yleistuki) {
+                            defaultCount = 2; 
+                            defaultMode = 'kaynti';
+                        }
+                        
+                        handleRuleChange(ruleId, defaultCount, 3, defaultMode);
+                    }}
+                >
                     <option value="">-- Ei säännöllistä tarvetta --</option>
                     {rules.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
                 </select>
@@ -248,7 +276,6 @@ const AikatauluEhdotus = ({ state, actions }) => {
 
             {selectedRule && (
                 <>
-                    {/* ============ UUSI INFO-BANNERI ============ */}
                     {hasTranslatedSlots && (
                         <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                             <AlertCircle size={18} color="#1d4ed8" style={{ flexShrink: 0, marginTop: '2px' }} />
@@ -257,7 +284,6 @@ const AikatauluEhdotus = ({ state, actions }) => {
                             </div>
                         </div>
                     )}
-                    {/* =========================================== */}
 
                     <BasketSlotPicker 
                         slots={proposedSlots} 
@@ -270,6 +296,8 @@ const AikatauluEhdotus = ({ state, actions }) => {
                         confirmedCount={confirmedSlots.length} 
                         weekOffset={weekOffset}
                         onOffsetChange={(val) => setWeekOffset(prev => Math.max(0, prev + val))}
+                        currentMode={viewMode}
+                        onModeChange={setViewMode}
                     />
                     
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '1.5rem' }}>
@@ -312,7 +340,7 @@ const AikatauluEhdotus = ({ state, actions }) => {
                     selectedRule={selectedRule}
                     expertLocations={expertLocations} 
                     resolvedAddress={resolvedAddress}
-                    interpreterState={interpreterState} // 3. TULKKIPAKETTI PANEELILLE
+                    interpreterState={interpreterState}
                 />
             </div>
         </Card>

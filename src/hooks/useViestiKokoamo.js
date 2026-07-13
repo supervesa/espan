@@ -47,9 +47,27 @@ export function useViestiKokoamo(selectedRule, basket, isMandatory, expertLocati
             setError(null);
             try {
                 const templates = selectedRule.metadata?.message_templates || {};
+                
+                // ==========================================
+                // UUSI JOUSTAVA TEMPLATE-HAKU (EI KAATUMISTA)
+                // ==========================================
                 const puzzleId = templates[meetingMode];
 
-                if (!puzzleId) throw new Error(`Säännön metadatasta puuttuu 'message_templates.${meetingMode}'`);
+                if (!puzzleId) {
+                    console.warn(`Säännöllä '${selectedRule.title}' ei ole määriteltynä templatea tavalle: '${meetingMode}'. Käytetään oletustekstiä.`);
+                    
+                    const fallbackText = `Tapaaminen sovittu ${dateStr} klo ${timeStr}. Tapaamistapa: ${meetingMode === 'kaynti' ? 'Käyntiasiointi' : 'Puhelin'}. (Tarkemmat viestipohjat puuttuvat säännöltä).`;
+                    
+                    setVirallinenTeksti(fallbackText);
+                    setVirallinenTekstiICS(fallbackText);
+                    setSmsTeksti(fallbackText);
+                    
+                    // Asetetaan osoite manuaalisesti jotta TilausAssistenttiPaneeli ei hajoa
+                    setResolvedAddress(meetingMode === 'kaynti' ? (currentLocName || 'Asiointipaikka') : 'Puhelin');
+                    setIsLoading(false);
+                    return; // Katkaistaan suoritus tähän, koska puzzlea ei ole haettavaksi
+                }
+                // ==========================================
 
                 const [puzzleRes, blueprintsRes] = await Promise.all([
                     supabase.from('puzzles').select('*').eq('id', puzzleId).single(),

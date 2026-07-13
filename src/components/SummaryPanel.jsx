@@ -4,8 +4,9 @@ import { planData } from '../data/planData.js';
 import AikatauluEhdotus from './AikatauluEhdotus';
 import CopyButton from './common/CopyButton';
 import Button from './common/Button';
+import Checkbox from './common/Checkbox';
 import ServiceManager from './ServiceManager'; 
-import { Database } from 'lucide-react';
+import { Database, Zap } from 'lucide-react';
 import { useSentinelAnalytics } from '../context/useSentinelAnalytics';
 import { useSentinelFingerprint } from '../hooks/useSentinelFingerprint';
 import { useSentinelIdentity } from '../hooks/useSentinelIdentity';
@@ -17,14 +18,17 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
     const [activeSectionId, setActiveSectionId] = useState(null);
     const [isManagerOpen, setIsManagerOpen] = useState(false); 
     const [isSaved, setIsSaved] = useState(false); 
-    const [isTestMode, setIsTestMode] = useState(false); 
+    
+    // UUDET TILAT ASETUKSILLE
+    const [useLegacy, setUseLegacy] = useState(false);
+    const [skipAnalytics, setSkipAnalytics] = useState(false);
+    const [skipSentinel, setSkipSentinel] = useState(false);
+    
     const [currentFingerprint, setCurrentFingerprint] = useState(''); 
     const observerRef = useRef(null); 
     const identityCheckedRef = useRef(false); 
     
     const { logPlanCopied } = useSentinelAnalytics();
-    
-    // KORJAUS: Haetaan uusi erotteleva funktio
     const { getFingerprintData } = useSentinelFingerprint(state);
     const { checkIdentity, registerIdentity, isReturning } = useSentinelIdentity();
 
@@ -34,21 +38,17 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
     useEffect(() => {
         if (!getFingerprintData) return;
         
-        // KORJAUS: Noudetaan vain Tunniste (idPart)
         const { idPart } = getFingerprintData('check');
         
         if (idPart) {
-            // Päivitetään avain aina ruudulle näkyviin (vain naamaosa, ei reppua)
             setCurrentFingerprint(idPart);
 
             if (!isStateEmpty && !identityCheckedRef.current) {
-                // Katsotaan onko siellä OIKEAA dataa (Pyyhitään X:t pois ja katsotaan jääkö vähintään 4 merkkiä)
                 const realDataLength = idPart.replace(/X/g, '').length;
 
                 if (realDataLength >= 4) {
                     console.log("Ovimies: Tunniste analysoitu, kysytään tietokannalta...");
                     
-                    // KORJAUS: Lähetetään vain idPart
                     checkIdentity(idPart).then(result => {
                         if (result?.found) {
                             console.group("📋 OVIMIEHEN LÖYDÖKSET LOMAKKEELLE:");
@@ -78,10 +78,12 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [isStateEmpty, isSaved]);
 
-    const handleCopyLogic = (isHybrid = false) => {
-        const summaryToCopy = isHybrid 
-            ? generateHybridSummary(state, dbPlanData, dbKnowledge) 
-            : generateFullSummary(state); 
+    // --- YHDISTETTY MASTER-KOPIOINTI ---
+    const handleMasterCopy = () => {
+        // Valitaan generaattori asetuksen mukaan
+        const summaryToCopy = useLegacy 
+            ? generateFullSummary(state) 
+            : generateHybridSummary(state, dbPlanData, dbKnowledge); 
             
         try {
             const plainText = summaryToCopy.replace(FINGERPRINT, '').replace(/\*\*/g, '');
@@ -97,41 +99,38 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
             const clipboardItem = new ClipboardItem({'text/html': blobHtml, 'text/plain': blobText}); 
             
             navigator.clipboard.write([clipboardItem]).then(() => { 
-                setFeedback(isHybrid ? 'Hybridi kopioitu!' : 'Kopioitu muotoiltuna!'); 
+                setFeedback('Suunnitelma kopioitu ja tiedot lukittu!'); 
                 setIsSaved(true); 
                 
-                // Analytiikka tallennetaan vain jos testitila ei ole päällä
-                if (!isTestMode && logPlanCopied) {
+                if (!skipAnalytics && logPlanCopied) {
                     logPlanCopied(state, asiantuntijaId);
                 }
 
-                // KORJAUS: Noudetaan idPart ja payload JSON
-                if (getFingerprintData) {
+                if (!skipSentinel && getFingerprintData) {
                     const { idPart, payload } = getFingerprintData('save');
-                    // Estetään täysin tyhjien reppujen tallentaminen
                     if (payload && (payload.sv !== 'XXXX' || payload.historia.length > 0)) {
                         registerIdentity(idPart, payload);
                     }
                 }
 
-                setTimeout(() => setFeedback(''), 2000); 
+                setTimeout(() => setFeedback(''), 2500); 
             }, () => { 
                 navigator.clipboard.writeText(plainText).then(() => {
                     setFeedback('Kopioitu (ei-muotoiltuna)!');
                     setIsSaved(true);
                     
-                    if (!isTestMode && logPlanCopied) {
+                    if (!skipAnalytics && logPlanCopied) {
                         logPlanCopied(state, asiantuntijaId);
                     }
                     
-                    if (getFingerprintData) {
+                    if (!skipSentinel && getFingerprintData) {
                         const { idPart, payload } = getFingerprintData('save');
                         if (payload && (payload.sv !== 'XXXX' || payload.historia.length > 0)) {
                             registerIdentity(idPart, payload);
                         }
                     }
                     
-                    setTimeout(() => setFeedback(''), 2000);
+                    setTimeout(() => setFeedback(''), 2500);
                 });
             }); 
         } catch (err) {
@@ -245,6 +244,7 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                          sectionText = state['custom-lopullinen_33_arvio']?.trim() || state['custom-edellytykset']?.trim() || '';
                      }
                      else if (sectionDataFromPlan) { 
+                         // Huom: Tässä paneelin esikatselussa käytetään aina Hybridiä näyttämiseen
                          sectionText = generateHybridSectionContent(sectionDataFromPlan, selection, state, dbKnowledge);
                          let customText = state[`custom-${sectionId}`]?.trim() || '';
                          
@@ -290,42 +290,34 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                 })}
             </ul>
 
-            <div className="summary-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem' }}>
+            <div className="summary-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
                 
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
-                    <input 
-                        type="checkbox" 
-                        checked={isTestMode} 
-                        onChange={(e) => setIsTestMode(e.target.checked)} 
-                        style={{ accentColor: 'var(--color-primary)', width: '14px', height: '14px' }}
+                {/* UUDET ASETUS-CHECKBOXIT */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', padding: '0.75rem', backgroundColor: 'var(--color-bg-light)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                    <Checkbox 
+                        label="Käytä perinteistä tekstigeneraattoria (Legacy)" 
+                        checked={useLegacy} 
+                        onChange={setUseLegacy} 
                     />
-                    Testitila (älä tallenna tilastoihin)
-                </label>
-
-                <Button 
-                    id="save-button" 
-                    disabled={!areAllSectionsComplete}
-                    className={areAllSectionsComplete ? 'button--primary' : 'button--disabled'}
-                > 
-                    Tallenna analyysi 
-                </Button>
+                    <Checkbox 
+                        label="Älä tallenna tilastoihin (Testitila)" 
+                        checked={skipAnalytics} 
+                        onChange={setSkipAnalytics} 
+                    />
+                    <Checkbox 
+                        label="Älä päivitä asiakkaan taustatietoja arkistoon" 
+                        checked={skipSentinel} 
+                        onChange={setSkipSentinel} 
+                    />
+                </div>
                 
                 <Button 
-                    variant="secondary" 
-                    onClick={() => handleCopyLogic(false)} 
+                    fullWidth={true}
+                    onClick={handleMasterCopy} 
                     disabled={isStateEmpty}
+                    icon={Zap}
                 > 
-                    Kopioi yhteenveto 
-                </Button>
-                
-                <Button 
-                    variant="secondary" 
-                    className="text-primary fw-bold" 
-                    style={{ backgroundColor: 'var(--color-background)', border: '2px dashed var(--color-primary)' }} 
-                    onClick={() => handleCopyLogic(true)} 
-                    disabled={isStateEmpty}
-                > 
-                    🚀 Kopioi kokeilu (Supabase) 
+                    Kopioi ja Tallenna
                 </Button>
 
                 {currentFingerprint && (

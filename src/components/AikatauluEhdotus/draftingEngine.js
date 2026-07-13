@@ -1,7 +1,8 @@
 import { findAvailableSlots } from './schedulingUtils';
+import { interpretDraftBasket } from './locationInterpreter';
 
-export const generateSmartDraft = (rule, expertRules, bookedSlots, count, periodMonths, targetDate = null) => {
-    if (!rule) return [];
+export const generateSmartDraft = (rule, expertRules, bookedSlots, count, periodMonths, targetDate = null, expertLocations = []) => {
+    if (!rule || count <= 0) return [];
     
     const draft = [];
     const tempBooked = [...bookedSlots]; 
@@ -30,36 +31,51 @@ export const generateSmartDraft = (rule, expertRules, bookedSlots, count, period
     // --- UUSI LOGIIKKA: Aloitetaan oikeasta tavoiteajasta ---
     if (targetDate) {
         currentDate = new Date(targetDate);
-        // Peruutetaan 14 päivää, jotta ehdotuksia etsitään fiksusti hieman ennen eräpäivää
-        currentDate.setDate(currentDate.getDate() - 14);
-
-        // Estetään haun meneminen menneisyyteen
+        
+        // Estetään vain haun meneminen menneisyyteen.
         const today = new Date();
         if (currentDate < today) {
             currentDate = today;
         }
     }
+
+    // ==========================================
+    // AKTIVOINNIN ALOITUSHYPPY
+    // Koska aktivointi alkaa tästä päivästä, ensimmäinen varattava
+    // tulevaisuuden aika on tasan 4 viikon (28 päivän) päässä.
+    // ==========================================
+    if (meetingType === 'aktivointi') {
+        currentDate.setDate(currentDate.getDate() + 28);
+    }
     // --------------------------------------------------------
 
-    // 3. Draftataan ajat
-    for (let i = 0; i < count; i++) {
-        const available = findAvailableSlots(meetingType, expertRules, tempBooked, currentDate, 8);
+    // 3. Draftataan ajat periksiantamattomasti
+    let attempts = 0; // Varmistus, ettei jäädä ikiluuppiin jos kalenteri on aivan täynnä
+    
+    while (draft.length < count && attempts < 50) {
+        // 1. Haetaan VAIN yhden viikon raaka-ajat kerrallaan, jotta automaatti ei karkaa liian kauas!
+        const rawAvailable = findAvailableSlots(meetingType, expertRules, tempBooked, currentDate, 1);
         
-        if (available.length > 0) {
-            // FIKSU POIMINTA (Round-Robin): Ei oteta aina ensimmäistä!
-            // Tämä jakaa ajat nätisti eri kellonajoille ja tapaamistavoille (puhelu/käynti).
-            const selectedIndex = i % available.length;
-            const selected = available[selectedIndex]; 
+        // 2. Ajetaan ajat TULKIN läpi täällä moottorissa! Näin varmistetaan, ettei koriin oteta loma-aikoja tai ankkureita.
+        const validForThisWeek = interpretDraftBasket(rawAvailable, expertRules, tempBooked, expertLocations);
+        
+        if (validForThisWeek.length > 0) {
+            // Pyöräytetään indeksiä, jotta ei oteta aina viikon ensimmäistä aikaa
+            const selectedIndex = draft.length % validForThisWeek.length;
+            const selected = validForThisWeek[selectedIndex]; 
             
             draft.push({ time: selected.time, mode: selected.mode });
             tempBooked.push({ start_time: selected.time.toISOString() });
 
-            // Asetetaan seuraavan haun tavoitepäivä
+            // ONNISTUMINEN: Hypätään eteenpäin tavoiterytmin verran (esim. 4 vko) seuraavaa aikaa varten
             currentDate = new Date(selected.time);
             currentDate.setDate(currentDate.getDate() + (intervalWeeks * 7));
         } else {
-            currentDate.setDate(currentDate.getDate() + (intervalWeeks * 7));
+            // HYLSY: Tällä viikolla ei ollut TULKIN hyväksymiä aikoja. 
+            // Siirrytään VAIN 1 viikko eteenpäin ja yritetään heti uudestaan!
+            currentDate.setDate(currentDate.getDate() + 7);
         }
+        attempts++;
     }
     
     return draft;

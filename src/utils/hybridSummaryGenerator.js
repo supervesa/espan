@@ -54,17 +54,14 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
              }
         }
     }
-    // --- KORJATTU THV-LUKU: Poistettu '&& selection' rajoite ---
     else if (sectionId === 'tyonhakuvelvollisuus') {
         let koottuTeksti = '';
         
-        // 1. Jos numeerinen pääfraasi ON valittu, käsitellään se
         if (selection && selection.avainsana) {
             const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
             if (phraseData) {
                 koottuTeksti = processPhrase(phraseData, selection);
                 
-                // Alennusten perustelut
                 if (selection.alentamisenPerustelut || selection.alentamisenVapaaTeksti) {
                     const perustelut = Object.entries(selection.alentamisenPerustelut || {}).filter(([, v]) => v).map(([k]) => k);
                     let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
@@ -75,13 +72,9 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
             }
         }
 
-        // 2. AINA MUKAAN: Aikatauluehdotus + Lakisääteiset tekstit
         if (selection && selection.vakiotekstitYhdistetty) {
-            // Jos asiantuntija on käynyt THV-välilehdellä, sieltä löytyy valmiiksi puristettu paketti
             koottuTeksti += (koottuTeksti ? '\n\n' : '') + selection.vakiotekstitYhdistetty.trim();
         } else {
-            // HÄTÄVARA: Jos asiantuntija ei koskaan edes avannut THV-välilehteä, 
-            // haetaan aikataulu suoraan Master-profiilista ja peruslait tietokannasta.
             const aikataulu = state.asiakas?.aikataulu_teksti;
             if (aikataulu && !koottuTeksti.includes(aikataulu)) {
                 koottuTeksti += (koottuTeksti ? '\n\n' : '') + aikataulu.trim();
@@ -96,7 +89,6 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
                 }
             }
         }
-
         generated = koottuTeksti.trim();
     }
     else if (section.id === 'suunnitelma' && state.suunnitelma) {
@@ -109,27 +101,50 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
     else if (sectionId === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
         generated = state.tyottomyysturva.yhteenvetoFraasi.replace(/\.$/, '').trim();
     }
+    // --- KORJAUS 1: Edellytykset osion täydellinen hallinta ---
+    else if (sectionId === 'edellytykset') {
+        // Ensisijainen: Asiantuntijan asettama "Lopullinen arvio" ohittaa kaiken muun
+        if (state['custom-lopullinen_33_arvio']?.trim()) {
+            generated = state['custom-lopullinen_33_arvio'].trim();
+        } 
+        // Toissijainen: Imurista tullut "Vapaa teksti"
+        else if (state['custom-edellytykset']?.trim()) {
+            generated = state['custom-edellytykset'].trim();
+        } 
+        // Vasta viimeisenä (jos ei tekstejä ole), tulostetaan yksittäiset ruksit
+        else if (selection && typeof selection === 'object') {
+            let parts = [];
+            Object.keys(selection).forEach(avainsana => {
+                const phraseState = selection[avainsana];
+                if (phraseState === true || (typeof phraseState === 'object' && phraseState !== null && phraseState.avainsana === avainsana)) {
+                    const phraseData = section.fraasit?.find(f => f.avainsana === avainsana);
+                    if (phraseData) {
+                        parts.push(processPhrase(phraseData, phraseState === true ? {} : phraseState));
+                    }
+                }
+            });
+            generated = parts.join('. ');
+        }
+    }
     else if (selection && typeof selection === 'object' && !['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
         let generatedParts = [];
         if (section.monivalinta) {
-            if (selection) { 
-                const selectedKeys = Object.keys(selection).filter(avainsana => 
-                    avainsana !== 'syntymavuosi' && 
-                    avainsana !== 'alle_6kk_tyossa' && 
-                    (selection[avainsana] === true || (typeof selection[avainsana] === 'object' && selection[avainsana] !== null && selection[avainsana].avainsana === avainsana))
-                );
-                selectedKeys.forEach(avainsana => {
-                    const phraseState = selection[avainsana];
-                    const phraseData = section.fraasit?.find(f => f.avainsana === avainsana);
-                    if (phraseData) {
-                        let processedText = '';
-                        if (typeof phraseState === 'object' && phraseState !== null) { processedText = processPhrase(phraseData, phraseState); }
-                        else if (phraseState === true) { processedText = processPhrase(phraseData, {}); }
-                        if (processedText) generatedParts.push(processedText);
-                    }
-                });
-                generated = generatedParts.join('. ');
-            }
+            const selectedKeys = Object.keys(selection).filter(avainsana => 
+                avainsana !== 'syntymavuosi' && 
+                avainsana !== 'alle_6kk_tyossa' && 
+                (selection[avainsana] === true || (typeof selection[avainsana] === 'object' && selection[avainsana] !== null && selection[avainsana].avainsana === avainsana))
+            );
+            selectedKeys.forEach(avainsana => {
+                const phraseState = selection[avainsana];
+                const phraseData = section.fraasit?.find(f => f.avainsana === avainsana);
+                if (phraseData) {
+                    let processedText = '';
+                    if (typeof phraseState === 'object' && phraseState !== null) { processedText = processPhrase(phraseData, phraseState); }
+                    else if (phraseState === true) { processedText = processPhrase(phraseData, {}); }
+                    if (processedText) generatedParts.push(processedText);
+                }
+            });
+            generated = generatedParts.join('. ');
         } else if (selection.avainsana) {
             const phraseData = section.fraasit?.find(f => f.avainsana === selection.avainsana);
             if (phraseData) {
@@ -176,8 +191,13 @@ export const generateHybridSummary = (state, dbPlanData, dbKnowledge) => {
 
         generatedContent = generateHybridSectionContent(section, selection, state, dbKnowledge);
         
+        // --- KORJAUS 2: Estetään tuplaukset! ---
         if (customText) {
-            generatedContent += (generatedContent ? FREE_TEXT_SEPARATOR : '') + customText;
+            // Jos generoitu teksti EI jo valmiiksi sisällä tätä custom-tekstiä, lisätään se perään
+            // Tämä estää sen, että Edellytykset-vapaateksti liimautuisi kopioinnissa tuplana!
+            if (!generatedContent.includes(customText)) {
+                generatedContent += (generatedContent ? FREE_TEXT_SEPARATOR : '') + customText;
+            }
         }
         
         let finalContent = generatedContent;

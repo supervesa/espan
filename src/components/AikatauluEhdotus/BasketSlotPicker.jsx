@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { CalendarCheck, Lock, ChevronLeft, ChevronRight, Phone, MapPin, Trash2, AlertTriangle, CalendarX, Star, AlertCircle, Info } from 'lucide-react';
 
-const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, confirmedCount, weekOffset = 0, onOffsetChange, bookedSlots = [] }) => {
-    const [currentMode, setCurrentMode] = useState('puhelu');
+const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, confirmedCount, weekOffset = 0, onOffsetChange, bookedSlots = [], currentMode, onModeChange }) => {
 
     // SUODATUS: Näytetään vain valitun moodin mukaiset ajat
     const filteredSlots = useMemo(() => {
@@ -84,10 +83,10 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div style={{ display: 'flex', gap: '8px', background: '#e2e8f0', padding: '4px', borderRadius: '8px' }}>
-                    <button onClick={() => setCurrentMode('puhelu')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', border: 'none', borderRadius: '6px', background: currentMode === 'puhelu' ? '#fff' : 'transparent', color: currentMode === 'puhelu' ? '#0f172a' : '#64748b', fontWeight: currentMode === 'puhelu' ? 'bold' : 'normal', cursor: 'pointer', boxShadow: currentMode === 'puhelu' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>
+                    <button onClick={() => onModeChange('puhelu')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', border: 'none', borderRadius: '6px', background: currentMode === 'puhelu' ? '#fff' : 'transparent', color: currentMode === 'puhelu' ? '#0f172a' : '#64748b', fontWeight: currentMode === 'puhelu' ? 'bold' : 'normal', cursor: 'pointer', boxShadow: currentMode === 'puhelu' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>
                         <Phone size={14} /> Puhelu
                     </button>
-                    <button onClick={() => setCurrentMode('kaynti')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', border: 'none', borderRadius: '6px', background: currentMode === 'kaynti' ? '#fff' : 'transparent', color: currentMode === 'kaynti' ? '#0f172a' : '#64748b', fontWeight: currentMode === 'kaynti' ? 'bold' : 'normal', cursor: 'pointer', boxShadow: currentMode === 'kaynti' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>
+                    <button onClick={() => onModeChange('kaynti')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', border: 'none', borderRadius: '6px', background: currentMode === 'kaynti' ? '#fff' : 'transparent', color: currentMode === 'kaynti' ? '#0f172a' : '#64748b', fontWeight: currentMode === 'kaynti' ? 'bold' : 'normal', cursor: 'pointer', boxShadow: currentMode === 'kaynti' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>
                         <MapPin size={14} /> Käynti
                     </button>
                 </div>
@@ -198,6 +197,7 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                         {visibleBookedSlots.map((booking, i) => {
                             const bTime = new Date(booking.start_time);
+                            const isAllDay = booking.start_time.includes('00:00:00'); 
                             const h = bTime.getHours();
                             const m = String(bTime.getMinutes()).padStart(2, '0');
                             
@@ -218,8 +218,9 @@ const BasketSlotPicker = ({ slots, basket, setBasket, onBook, isAktivointi, conf
                                     }}
                                 >
                                     <Lock size={10} />
-                                    {bTime.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m}
-                                    {booking.contact_method === 'kaynti' ? <MapPin size={10} /> : <Phone size={10} />}
+                                    {bTime.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })}
+                                    {isAllDay ? ' (Poissaolo)' : ` klo ${h}:${m}`}
+                                    {!isAllDay && (booking.contact_method === 'kaynti' ? <MapPin size={10} /> : <Phone size={10} />)}
                                 </div>
                             );
                         })}

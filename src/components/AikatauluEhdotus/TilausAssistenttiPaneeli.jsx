@@ -72,50 +72,89 @@ function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiIC
     setTimeout(() => setCopySuccess(''), 2500);
   };
 
+  // UUSI LAAJENNETTU ICS-MOOTTORI (Monivaraustuki)
   const downloadICS = () => {
-    if (!activeSlot) return;
+    if (!basket || basket.length === 0) return;
     
-    const startObj = new Date(activeSlot.time);
-    const endObj = new Date(startObj.getTime() + 60 * 60 * 1000); 
     const formatDateForICS = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const baseDateFi = slotDateObj.toLocaleDateString('fi-FI');
+    const baseTimeFi = timeStr;
     
-    const actualICSDescriptionText = virallinenTekstiICS || virallinenTeksti || '';
-    
-    // 2. ICS-KUVAUS KORJATTU (Molemmat viralliset tekstit)
-    let description = `--- 1. VIRALLINEN ILMOITUSTEKSTI (Kopioitavaksi) ---\\n${(virallinenTeksti || '').replace(/\n/g, '\\n')}\\n\\n--- 2. VIRALLINEN ILMOITUSTEKSTI (Kalenteriin) ---\\n${actualICSDescriptionText.replace(/\n/g, '\\n')}`;
-    let alarmBlock = '';
+    let icsContent = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Helsingin Työllisyyspalvelut//Espan//FI\n`;
 
-    const modeText = meetingType === 'kaynti' ? 'läsnä' : 'soitto';
-    const rawId = asiakasId.trim();
-    const tunnisteStr = interpreterState.needsInterpreter ? ` ${generatedTunniste}` : '';
-    const title = `Ajanvaraus/${modeText}${rawId ? ` ${rawId}` : ''}${tunnisteStr}`;
+    basket.forEach((slotItem, index) => {
+      const startObj = new Date(slotItem.time);
+      const endObj = new Date(startObj.getTime() + 60 * 60 * 1000); 
+      
+      const loopYyyy = startObj.getFullYear();
+      const loopMm = String(startObj.getMonth() + 1).padStart(2, '0');
+      const loopDd = String(startObj.getDate()).padStart(2, '0');
+      
+      const loopDateFi = startObj.toLocaleDateString('fi-FI');
+      const loopTimeFi = startObj.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' }).replace('.', ':');
+      const loopMode = slotItem.mode || 'puhelu';
 
-    if (interpreterState.needsInterpreter) {
-      description = `--- 0. TILAUSTIEDOT ---\\nViite: ${generatedTunniste}\\nTulkki: ${tulkkiName || 'Ei erityistoivetta'}\\nKieli: ${(interpreterState.displayLanguage || '').toUpperCase()}\\n\\n${description}`;
-      alarmBlock = `BEGIN:VALARM\nTRIGGER:-P14D\nACTION:DISPLAY\nDESCRIPTION:Muista tilata tulkkipalvelu. Kieli: ${interpreterState.displayLanguage}. Viite: ${generatedTunniste}\nEND:VALARM\n`;
-    }
+      // Ratkaistaan dynaaminen lokaatio tätä spesifiä päivää kohden
+      const loopDayRow = expertLocations.find(l => l.date === `${loopYyyy}-${loopMm}-${loopDd}`);
+      const loopLocType = loopDayRow?.location_type || 'toimisto';
+      
+      let loopLocationStr = resolvedAddress;
+      if (loopMode === 'puhelu') {
+        loopLocationStr = 'Puhelin';
+      } else if (loopLocType === 'eta') {
+        loopLocationStr = 'Etäyhteys / Puhelin';
+      }
 
-    const locationLine = resolvedAddress ? `LOCATION:${resolvedAddress.replace(/\n/g, ' ')}\n` : '';
+      // Luodaan uniikki tilausviite (tunniste) tätä tiettyä aikaa kohden
+      let loopTunniste = '';
+      if (interpreterState.needsInterpreter) {
+        const langCode = interpreterState.displayLanguage && interpreterState.displayLanguage !== 'Määrittelemätön kieli' ? interpreterState.displayLanguage.substring(0, 3).toUpperCase() : 'TUL';
+        const dateKoodi = `${loopDd}${loopMm}`;
+        const timeKoodi = loopTimeFi.replace(':', '');
+        const modeLetter = loopMode === 'kaynti' ? 'K' : 'P';
+        loopTunniste = `${langCode}-${dateKoodi}-${timeKoodi}-${modeLetter}`;
+      }
 
-    // 3. STATUS:TENTATIVE LISÄTTY
-    const icsContent = `BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Helsingin Työllisyyspalvelut//Espan//FI
-BEGIN:VEVENT
-UID:${Math.random().toString(36).substr(2, 9)}@espan.hel.fi
+      // Korjataan tekstipohjista automaattisesti oikea pvm ja aika (koska hook latasi ne ekan ajan mukaan)
+      let actualICSDescriptionText = (virallinenTekstiICS || virallinenTeksti || '');
+      actualICSDescriptionText = actualICSDescriptionText.split(baseDateFi).join(loopDateFi).split(baseTimeFi).join(loopTimeFi);
+      
+      let actualVirallinenTeksti = (virallinenTeksti || '').replace(/\n/g, '\\n');
+      actualVirallinenTeksti = actualVirallinenTeksti.split(baseDateFi).join(loopDateFi).split(baseTimeFi).join(loopTimeFi);
+
+      let description = `--- 1. VIRALLINEN ILMOITUSTEKSTI (Kopioitavaksi) ---\\n${actualVirallinenTeksti}\\n\\n--- 2. VIRALLINEN ILMOITUSTEKSTI (Kalenteriin) ---\\n${actualICSDescriptionText.replace(/\n/g, '\\n')}`;
+      let alarmBlock = '';
+
+      const modeText = loopMode === 'kaynti' ? 'läsnä' : 'soitto';
+      const rawId = asiakasId.trim();
+      const tunnisteStr = interpreterState.needsInterpreter ? ` ${loopTunniste}` : '';
+      const title = `Ajanvaraus/${modeText}${rawId ? ` ${rawId}` : ''}${tunnisteStr}`;
+
+      if (interpreterState.needsInterpreter) {
+        description = `--- 0. TILAUSTIEDOT ---\\nViite: ${loopTunniste}\\nTulkki: ${tulkkiName || 'Ei erityistoivetta'}\\nKieli: ${(interpreterState.displayLanguage || '').toUpperCase()}\\n\\n${description}`;
+        alarmBlock = `BEGIN:VALARM\nTRIGGER:-P14D\nACTION:DISPLAY\nDESCRIPTION:Muista tilata tulkkipalvelu. Kieli: ${interpreterState.displayLanguage}. Viite: ${loopTunniste}\nEND:VALARM\n`;
+      }
+
+      const locationLine = loopLocationStr ? `LOCATION:${loopLocationStr.replace(/\n/g, ' ')}\n` : '';
+      
+      // Lisätään jokaiselle eventille uniikki UID indexin avulla
+      icsContent += `BEGIN:VEVENT
+UID:${Math.random().toString(36).substr(2, 9)}_${index}@espan.hel.fi
 DTSTAMP:${formatDateForICS(new Date())}
 DTSTART:${formatDateForICS(startObj)}
 DTEND:${formatDateForICS(endObj)}
 SUMMARY:${title}
 STATUS:TENTATIVE
 ${locationLine}DESCRIPTION:${description}
-${alarmBlock}END:VEVENT
-END:VCALENDAR`;
+${alarmBlock}END:VEVENT\n`;
+    });
+
+    icsContent += `END:VCALENDAR`;
 
     const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
     const link = document.createElement('a');
     link.href = window.URL.createObjectURL(blob);
-    link.download = `tapaaminen_${dateParts[0]}${dateParts[1]}.ics`;
+    link.download = basket.length > 1 ? `tapaamiset_${dateParts[0]}${dateParts[1]}_alkaen.ics` : `tapaaminen_${dateParts[0]}${dateParts[1]}.ics`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -219,7 +258,7 @@ END:VCALENDAR`;
           onClick={downloadICS}
           style={{ width: '100%', padding: '0.75rem', backgroundColor: '#0f172a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', fontWeight: 'bold', fontSize: '0.85rem', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
         >
-          <Calendar size={16} /> Tallenna kalenteriin (.ics)
+          <Calendar size={16} /> Tallenna kalenteriin ({basket?.length || 0} kpl)
         </button>
         {interpreterState.needsInterpreter && (
           <div style={{ textAlign: 'center', fontSize: '0.65rem', color: '#64748b', marginTop: '0.3rem', fontStyle: 'italic' }}>

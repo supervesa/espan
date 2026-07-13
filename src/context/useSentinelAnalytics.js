@@ -1,6 +1,8 @@
-// --- src/hooks/useSentinelAnalytics.js ---
 import { supabase } from '../utils/supabaseClient';
 import { STATE_MUUTTUJAT } from '../data/constants';
+
+// KORJATTU IMPORT: Haetaan hooks-kansiosta!
+import { getAlueJaToimipiste } from '../hooks/usePostinumero';
 
 const getWeekData = (date) => {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -19,10 +21,10 @@ export const useSentinelAnalytics = () => {
         }
 
         // --- 1. ULTRA-ANONYYMI SORMENJÄLKI (Syntymävuoden loppu + Työhaun aloituspäivä) ---
-        // A) Syntymävuoden 2 viimeistä numeroa (esim. 1995 -> "95")
         let sigBirth = "xx";
         const syntymaVuosiRaa = state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.[STATE_MUUTTUJAT.SYNTYMAVUOSI]
-                             || state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.['[SYNTYMÄVUOSI]'];
+                             || state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.['[SYNTYMÄVUOSI]']
+                             || state?.asiakas?.syntymavuosi;
                              
         if (syntymaVuosiRaa) {
             const vuosiStr = String(syntymaVuosiRaa).replace(/\D/g, ''); 
@@ -31,7 +33,6 @@ export const useSentinelAnalytics = () => {
             }
         }
 
-        // B) Työhaun aloituksen päivä (esim. 14.05.2023 -> "14")
         let sigStartDay = "xx";
         const thInfo = state?.suunnitelman_perustiedot?.tyonhaku_alkanut;
         const rawStartStr = state?.suunnitelman_perustiedot?.TH_ALKU_PVM 
@@ -39,14 +40,11 @@ export const useSentinelAnalytics = () => {
                          || thInfo?.value 
                          || JSON.stringify(thInfo?.muuttujat || {});
                          
-        // Etsitään tekstistä päivämäärä muodossa pp.kk.vvvv ja poimitaan päivä (pp)
         const dateMatch = String(rawStartStr).match(/\b(\d{1,2})\.\d{1,2}\.\d{4}\b/);
         if (dateMatch && dateMatch[1]) {
-            // padStart varmistaa, että 1. päivä on "01" eikä "1", jotta pituus pysyy vakiona
             sigStartDay = dateMatch[1].padStart(2, '0'); 
         }
 
-        // Yhdistetty sormenjälki (esim. "9514")
         const planSignature = `${sigBirth}${sigStartDay}`;
         const lastSignature = sessionStorage.getItem('espan_last_logged_signature');
 
@@ -70,7 +68,11 @@ export const useSentinelAnalytics = () => {
                 }
             }
 
-            // --- 3. Laske aikalaatikot ---
+            // --- 3. Päättele alue postinumeron perusteella ---
+            const postinro = state?.asiakas?.postinumero;
+            const { alue } = getAlueJaToimipiste(postinro);
+
+            // --- 4. Laske aikalaatikot ---
             const now = new Date();
             const currentWeek = getWeekData(now);
 
@@ -78,7 +80,7 @@ export const useSentinelAnalytics = () => {
             future.setDate(future.getDate() + (13 * 7));
             const futureWeek = getWeekData(future);
 
-            // --- 4. Lähetä tietokantaan ---
+            // --- 5. Lähetä tietokantaan ---
             const upsertCounter = async (year, week, isEraantyva) => {
                 const { data: existing } = await supabase
                     .schema('espan')
@@ -88,6 +90,7 @@ export const useSentinelAnalytics = () => {
                     .eq('viikko', week)
                     .eq('asiantuntija_id', asiantuntijaId)
                     .eq('ikaryhma', ikaryhma)
+                    .eq('alue', alue) // UUSI: Lokeroidaan myös alueen mukaan!
                     .maybeSingle();
 
                 if (existing) {
@@ -101,6 +104,7 @@ export const useSentinelAnalytics = () => {
                         viikko: week,
                         asiantuntija_id: asiantuntijaId,
                         ikaryhma: ikaryhma,
+                        alue: alue, // UUSI: Uuden sarakkeen tallennus
                         tehdyt_suunnitelmat: isEraantyva ? 0 : 1,
                         eraantyvat_suunnitelmat: isEraantyva ? 1 : 0
                     };
@@ -113,13 +117,12 @@ export const useSentinelAnalytics = () => {
                 upsertCounter(futureWeek.year, futureWeek.week, true)
             ]);
 
-            // --- 5. Tallenna uusi sormenjälki muistiin ---
             sessionStorage.setItem('espan_last_logged_signature', planSignature);
 
             const paivanTavoite = parseInt(localStorage.getItem('espan_paivan_tyot') || '0', 10) + 1;
             localStorage.setItem('espan_paivan_tyot', paivanTavoite);
 
-            console.log(`✅ Sentinel: Tilastot päivitetty (Sormenjälki: ${planSignature})`);
+            console.log(`✅ Sentinel: Tilastot päivitetty (Alue: ${alue}, Sormenjälki: ${planSignature})`);
 
         } catch (err) {
             console.error("❌ Sentinel Analytics Virhe:", err);
