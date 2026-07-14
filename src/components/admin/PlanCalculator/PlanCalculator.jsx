@@ -2,16 +2,18 @@
 import React, { useState } from 'react';
 import { usePlanCalculator } from './usePlanCalculator';
 import { useTargetCalculator } from './useTargetCalculator'; 
+import ProjectionChart from './ProjectionChart';
 import Card from '../../common/Card';
 import MetricBox from '../../common/MetricBox';
 import SmartInput from '../../common/SmartInput';
 import Button from '../../common/Button';
 import DataTable from '../../common/DataTable';
 import Badge from '../../common/Badge';
-import { Activity, Users, Target, Save, TrendingUp, TrendingDown, Clock, CheckCircle } from 'lucide-react';
+import { Activity, Users, Target, Save, TrendingUp, TrendingDown, Clock, CheckCircle, MapPin } from 'lucide-react';
 
 const PlanCalculator = ({ asiantuntijaId }) => {
-    const { snapshots, loading, unreportedPlans, ageDistribution, saveSnapshot } = usePlanCalculator(asiantuntijaId);
+    // Lisätty areaDistribution hookin vastaanottoon
+    const { snapshots, loading, unreportedPlans, ageDistribution, areaDistribution, saveSnapshot } = usePlanCalculator(asiantuntijaId);
     
     const latestSnapshot = snapshots[0] || null;
     const laskuri = useTargetCalculator(latestSnapshot, unreportedPlans);
@@ -85,7 +87,7 @@ const PlanCalculator = ({ asiantuntijaId }) => {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '1rem' }}>
             
-            {/* YLÄRIVI: 3 Ydinmittaria + Täysleveä Tahti-laatikko */}
+            {/* YLÄRIVI: 4 Ydinmittaria + Täysleveä Tahti-laatikko */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
                 
                 {/* Mittari 1: Kohderyhmät */}
@@ -117,7 +119,36 @@ const PlanCalculator = ({ asiantuntijaId }) => {
                     </div>
                 </MetricBox>
 
-                {/* Mittari 2: Voimassaolo */}
+                {/* UUSI MITTARI 2: Alueet */}
+                <MetricBox title="Alueet (Tehdyt)" icon={MapPin} variant="default">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+                        {areaDistribution?.length > 0 ? areaDistribution.map((item, index) => {
+                            const maxCount = areaDistribution[0].count;
+                            const widthPercent = (item.count / maxCount) * 100;
+                            return (
+                                <div key={item.name}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '2px' }}>
+                                        <span className={index === 0 ? "fw-bold text-slate-700" : "text-slate-500"}>{item.name}</span>
+                                        <span className="text-slate-600 font-mono">{item.count} kpl</span>
+                                    </div>
+                                    <div style={{ width: '100%', backgroundColor: '#e2e8f0', borderRadius: '4px', height: '6px' }}>
+                                        <div style={{ 
+                                            width: `${widthPercent}%`, 
+                                            backgroundColor: index === 0 ? '#10b981' : '#94a3b8', // Smaragdinvihreä väriteema tähän
+                                            height: '100%', 
+                                            borderRadius: '4px',
+                                            transition: 'width 0.5s ease-in-out'
+                                        }} />
+                                    </div>
+                                </div>
+                            );
+                        }) : (
+                            <div className="text-xs text-slate-500 mt-2">Ei vielä kirjattuna.</div>
+                        )}
+                    </div>
+                </MetricBox>
+
+                {/* Mittari 3: Voimassaolo */}
                 <MetricBox 
                     title="Voimassaolo %" 
                     icon={Activity} 
@@ -127,7 +158,7 @@ const PlanCalculator = ({ asiantuntijaId }) => {
                     <div className="text-sm text-slate-500 mt-1">Tavoite {latestSnapshot?.tavoite_prosentti || '80'} %</div>
                 </MetricBox>
 
-                {/* Mittari 3: Espanin Tutka */}
+                {/* Mittari 4: Espanin Tutka */}
                 <MetricBox title="Espanin tutka (Odottaa)" icon={Clock}>
                     <div className="text-2xl fw-bold font-mono text-primary">+{unreportedPlans}</div>
                     <div className="text-sm text-slate-500 mt-1">Uusia tehty (ei vielä Power BI:ssä)</div>
@@ -227,6 +258,10 @@ const PlanCalculator = ({ asiantuntijaId }) => {
             <Card title="Raporttihistoria & Espanin Delta" icon={CheckCircle}>
                 <DataTable columns={tableColumns} data={snapshots} emptyMessage="Ei tallennettuja Power BI -raportteja." />
             </Card>
+
+            {/* --- UUSI LISÄYS: TYÖTTÖMYYSTURVAN 16 VIIKON HORISONTTI --- */}
+            <ProjectionChart asiantuntijaId={asiantuntijaId} />
+
         </div>
     );
 };

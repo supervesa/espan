@@ -5,7 +5,8 @@ export const usePlanCalculator = (asiantuntijaId) => {
     const [snapshots, setSnapshots] = useState([]);
     const [loading, setLoading] = useState(true);
     const [unreportedPlans, setUnreportedPlans] = useState(0);
-    const [ageDistribution, setAgeDistribution] = useState([]); // Uusi tila ikäryhmäjakaumalle
+    const [ageDistribution, setAgeDistribution] = useState([]);
+    const [areaDistribution, setAreaDistribution] = useState([]); // Uusi tila alueille
 
     const fetchData = useCallback(async () => {
         if (!asiantuntijaId) return;
@@ -40,27 +41,40 @@ export const usePlanCalculator = (asiantuntijaId) => {
             const totalUnreported = counterData.reduce((sum, row) => sum + (row.tehdyt_suunnitelmat || 0), 0);
             setUnreportedPlans(totalUnreported);
 
-            // 3. Hae KAIKKI ikäryhmäkirjaukset jakaumaa varten
-            const { data: ageData, error: ageErr } = await supabase
+            // 3. Hae KAIKKI ikäryhmä- ja aluekirjaukset jakaumia varten
+            const { data: distData, error: distErr } = await supabase
                 .schema('espan')
                 .from('weekly_counters')
-                .select('ikaryhma, tehdyt_suunnitelmat')
+                .select('ikaryhma, alue, tehdyt_suunnitelmat') // 'alue' haetaan nyt mukana
                 .eq('asiantuntija_id', asiantuntijaId);
 
-            if (!ageErr && ageData) {
-                const dist = {};
-                ageData.forEach(row => {
-                    const group = row.ikaryhma || 'Ei määritelty';
-                    dist[group] = (dist[group] || 0) + (row.tehdyt_suunnitelmat || 0);
+            if (!distErr && distData) {
+                const ageDist = {};
+                const areaDist = {};
+                
+                distData.forEach(row => {
+                    // Ikäryhmät
+                    const ageGroup = row.ikaryhma || 'Ei määritelty';
+                    ageDist[ageGroup] = (ageDist[ageGroup] || 0) + (row.tehdyt_suunnitelmat || 0);
+
+                    // Alueet
+                    const areaGroup = row.alue || 'Tuntematon';
+                    areaDist[areaGroup] = (areaDist[areaGroup] || 0) + (row.tehdyt_suunnitelmat || 0);
                 });
                 
-                // Muutetaan objektista taulukoksi, suodatetaan nollat pois ja järjestetään suurimmasta pienimpään
-                const compiledAgeStats = Object.keys(dist)
-                    .map(k => ({ name: k, count: dist[k] }))
+                // Koostetaan ja järjestetään ikäryhmät
+                const compiledAgeStats = Object.keys(ageDist)
+                    .map(k => ({ name: k, count: ageDist[k] }))
                     .filter(item => item.count > 0)
                     .sort((a, b) => b.count - a.count);
-                    
                 setAgeDistribution(compiledAgeStats);
+
+                // Koostetaan ja järjestetään alueet täsmälleen samalla lailla
+                const compiledAreaStats = Object.keys(areaDist)
+                    .map(k => ({ name: k, count: areaDist[k] }))
+                    .filter(item => item.count > 0)
+                    .sort((a, b) => b.count - a.count);
+                setAreaDistribution(compiledAreaStats);
             }
 
         } catch (error) {
@@ -95,5 +109,6 @@ export const usePlanCalculator = (asiantuntijaId) => {
         }
     };
 
-    return { snapshots, loading, unreportedPlans, ageDistribution, saveSnapshot };
+    // Palautetaan myös uusi areaDistribution käyttöön
+    return { snapshots, loading, unreportedPlans, ageDistribution, areaDistribution, saveSnapshot };
 };

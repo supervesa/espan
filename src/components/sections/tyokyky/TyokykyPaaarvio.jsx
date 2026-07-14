@@ -1,6 +1,8 @@
-// --- src/components/sections/tyokyky/TyokykyPaaarvio.jsx ---
 import React, { useEffect } from 'react';
 import OptionGroup from '../../common/OptionGroup';
+// UUDET TUONNIT:
+import NumericSelector from '../../common/NumericSelector';
+import Card from '../../common/Card';
 
 const TyokykyPaaarvio = ({ state, actions, paavalinnat = [], arvioKysymykset = [] }) => {
     const { onUpdateCustomText, onAddSignal, onRemoveSignal } = actions;
@@ -66,11 +68,8 @@ const TyokykyPaaarvio = ({ state, actions, paavalinnat = [], arvioKysymykset = [
     }));
 
     return (
-        <div className="card-inner" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-                Asiantuntijan arvio työkyvystä
-            </h3>
-
+        <Card title="Asiantuntijan arvio työkyvystä" className="mb-4">
+            
             <OptionGroup 
                 options={paavalintaOptions}
                 selectedValue={valittuAvainsana}
@@ -78,8 +77,10 @@ const TyokykyPaaarvio = ({ state, actions, paavalinnat = [], arvioKysymykset = [
             />
 
             {valittuAvainsana === 'tyokyky_alentunut' && (
-                <div style={{ marginTop: '1rem', animation: 'fadeIn 0.3s ease' }}>
-                    <label htmlFor="alentuma-kuvaus" style={{ fontWeight: '500' }}>Kuvaus työkyvyn alentumasta:</label>
+                <div className="mt-3" style={{ animation: 'fadeIn 0.3s ease' }}>
+                    <label htmlFor="alentuma-kuvaus" className="text-sm fw-medium mb-1 block">
+                        Kuvaus työkyvyn alentumasta:
+                    </label>
                     <textarea 
                         id="alentuma-kuvaus" 
                         className="form-input"
@@ -92,44 +93,25 @@ const TyokykyPaaarvio = ({ state, actions, paavalinnat = [], arvioKysymykset = [
             )}
 
             {arvioKysymykset.length > 0 && (
-                <div style={{ marginTop: '2rem' }}>
-                    <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Asiakkaan oma arvio työkyvystään (1-10)</h3>
+                <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--color-border)' }}>
+                    <h3 className="text-md fw-semibold mb-3">Asiakkaan oma arvio työkyvystään (1-10)</h3>
                     {arvioKysymykset.map(q => {
                         const stateKey = `custom-tyokyky_arvio_${q.id}`;
                         const currentValue = state[stateKey];
                         return (
-                            <div key={q.id} style={{ marginBottom: '1.5rem' }}>
-                                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>{q.teksti}</label>
-                                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                                    {[...Array(10)].map((_, i) => {
-                                        const num = i + 1;
-                                        const isSelected = parseInt(currentValue, 10) === num;
-                                        return (
-                                            <button
-                                                key={num}
-                                                type="button"
-                                                onClick={() => handleNumberClick(q.id, num)}
-                                                style={{
-                                                    padding: '0.5rem 0.8rem',
-                                                    border: '1px solid var(--color-border)',
-                                                    borderRadius: '4px',
-                                                    backgroundColor: isSelected ? 'var(--color-primary)' : '#fff',
-                                                    color: isSelected ? '#fff' : 'var(--color-text)',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s'
-                                                }}
-                                            >
-                                                {num}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
+                            <NumericSelector
+                                key={q.id}
+                                label={q.teksti}
+                                options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}
+                                value={currentValue ? parseInt(currentValue, 10) : null}
+                                onChange={(val) => handleNumberClick(q.id, val)}
+                                className="mb-3"
+                            />
                         );
                     })}
                 </div>
             )}
-        </div>
+        </Card>
     );
 };
 

@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../utils/supabaseClient';
-import { Activity, BrainCircuit, FileText } from 'lucide-react';
+import { Activity, BrainCircuit, FileText, ArrowDown } from 'lucide-react';
 
 import TyokykyPaaarvio from './TyokykyPaaarvio';
 import ToimenpiteetJaPalvelut from './ToimenpiteetJaPalvelut';
 import KeskusteluJaAi from './KeskusteluJaAi';
+import TyokykyViestit from './TyokykyViestit';
 import { useTyokykySummary } from './useTyokykySummary';
 import CopyButton from '../../common/CopyButton';
+
+// UUDET TUONNIT COMMON-KOMPONENTEISTA
+import Button from '../../common/Button';
+import AdminAlert from '../../common/AdminAlert';
 
 const TyokykyOsio = ({ state, actions }) => {
     const DB_TYOKYKY_SECTION_ID = '5b48f731-fc8d-4a00-894e-ac7104f6b422'; 
@@ -136,7 +141,7 @@ const TyokykyOsio = ({ state, actions }) => {
     if (isLoading) {
         return (
             <section className="section-container">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-text-secondary)' }}>
+                <div className="text-secondary fw-medium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <Activity className="animate-pulse" /> Ladataan Työkyky-osiota...
                 </div>
             </section>
@@ -148,15 +153,18 @@ const TyokykyOsio = ({ state, actions }) => {
 
     return (
         <section className="section-container" style={{ animation: 'fadeIn 0.3s ease-out' }}>
-            <div className="smart-analysis-box" style={{ marginBottom: '1.5rem' }}>
-                <div className="smart-analysis-header"><BrainCircuit size={20} /> Älykäs Työkyky-moduuli</div>
-                <p style={{ margin: 0, fontSize: '0.9rem', color: '#495057' }}>
+            
+            <AdminAlert type="info" className="mb-4">
+                <div className="fw-semibold text-md mb-1" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <BrainCircuit size={18} /> Älykäs Työkyky-moduuli
+                </div>
+                <p className="text-sm m-0">
                     Tämä moduuli on yhdistetty sääntömoottoriin. Kun kirjaat tänne toimenpiteitä, järjestelmä huomioi ne automaattisesti.
                 </p>
-            </div>
+            </AdminAlert>
 
-            <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Activity size={22} color="var(--color-primary)" /> Työkyky
+            <h2 className="section-title text-xl fw-semibold text-primary mb-3" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Activity size={22} /> Työkyky
             </h2>
             
             <TyokykyPaaarvio 
@@ -181,30 +189,37 @@ const TyokykyOsio = ({ state, actions }) => {
                 kysymysKategoriat={muuKeskustelu} 
             />
 
-            <div className="subsection" style={{ marginTop: '2rem', borderTop: '2px solid var(--color-border)', paddingTop: '1.5rem' }}>
-                <h3 className="subsection-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <TyokykyViestit 
+                state={state}
+                actions={actions}
+                toimenpiteet={dbData.toimenpiteet}
+            />
+
+            <div className="subsection mt-4 pt-4" style={{ borderTop: '1px solid var(--color-border)' }}>
+                <h3 className="subsection-title text-lg fw-semibold mb-3" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <FileText size={20} /> Lopullinen kirjaus
                 </h3>
                 
                 {summaryText && (
-                    <div className="summary-preview" style={{ marginBottom: '1rem' }}>
-                        <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Automaattisesti muodostuva teksti:</h4>
-                        <p style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>
+                    <div className="summary-preview p-3 mb-3" style={{ backgroundColor: 'var(--color-surface)', borderRadius: 'var(--border-radius)', border: '1px solid var(--color-border)' }}>
+                        <h4 className="text-sm fw-semibold m-0 mb-2">Automaattisesti muodostuva teksti:</h4>
+                        <p className="text-sm text-secondary mt-0 mb-3" style={{ whiteSpace: 'pre-wrap' }}>
                             {summaryText}
                         </p>
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                            <button onClick={handleUseSummary} className="btn-neg" style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}>
-                                ↓ Kopioi teksti alla olevaan laatikkoon
-                            </button>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <Button variant="secondary" size="sm" onClick={handleUseSummary} icon={ArrowDown}>
+                                Kopioi teksti alla olevaan laatikkoon
+                            </Button>
                             <CopyButton textToCopy={summaryText} />
                         </div>
                     </div>
                 )}
 
                 <div className="custom-text-container">
-                    <label className="custom-text-label" htmlFor="custom-tyokyky-lopullinen">Lisätiedot / Koonti:</label>
+                    <label className="custom-text-label text-sm fw-medium block mb-1" htmlFor="custom-tyokyky-lopullinen">Lisätiedot / Koonti:</label>
                     <textarea 
                         id="custom-tyokyky-lopullinen"
+                        className="form-input"
                         rows="4" 
                         value={state['custom-tyokyky_lopullinen'] || ''} 
                         onChange={(e) => onUpdateCustomText('tyokyky_lopullinen', e.target.value)} 

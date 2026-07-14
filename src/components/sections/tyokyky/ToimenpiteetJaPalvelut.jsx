@@ -4,6 +4,10 @@ import Checkbox from '../../common/Checkbox';
 import { VariableInput } from '../../common/Inputs';
 import AlertBox from '../../common/AlertBox';
 
+// UUDET TUONNIT UI-KIRJASTOSTA:
+import Card from '../../common/Card';
+import Button from '../../common/Button';
+
 const ToimenpiteetJaPalvelut = ({ state, actions, palveluohjaukset = [], toimenpiteet = [] }) => {
     const { onUpdateCustomText, onAddSignal, onRemoveSignal } = actions;
     
@@ -45,22 +49,28 @@ const ToimenpiteetJaPalvelut = ({ state, actions, palveluohjaukset = [], toimenp
     ];
 
     return (
-        <div className="grid-cols-2" style={{ marginTop: '1.5rem', alignItems: 'start', animation: 'fadeIn 0.3s ease' }}>
+        <div className="grid-cols-2 mt-4" style={{ alignItems: 'start', animation: 'fadeIn 0.3s ease' }}>
             
             {/* VASEN SARAKE: ASIAKKAAN TOIMENPITEET */}
-            <div className="card-inner" style={{ padding: '1rem' }}>
-                <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-                    Asiakkaan toimenpiteet
-                </h3>
-                
-                {toimenpiteet.length === 0 && <p className="stat-label">Ei toimenpiteitä saatavilla.</p>}
+            <Card title="Asiakkaan toimenpiteet">
+                {toimenpiteet.length === 0 && (
+                    <p className="text-sm text-secondary m-0">Ei toimenpiteitä saatavilla.</p>
+                )}
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {toimenpiteet.map(toim => {
                         const isSelected = valitut.includes(toim.avainsana);
 
                         return (
-                            <div key={toim.avainsana} style={{ backgroundColor: isSelected ? 'var(--color-bg-secondary)' : 'transparent', padding: '0.5rem', borderRadius: '4px', transition: 'all 0.2s' }}>
+                            <div 
+                                key={toim.avainsana} 
+                                style={{ 
+                                    backgroundColor: isSelected ? 'var(--color-bg-secondary, rgba(0,0,0,0.02))' : 'transparent', 
+                                    padding: '0.5rem', 
+                                    borderRadius: 'var(--border-radius)', 
+                                    transition: 'all 0.2s' 
+                                }}
+                            >
                                 <Checkbox 
                                     label={toim.lyhyt || toim.teksti} 
                                     checked={isSelected}
@@ -71,8 +81,6 @@ const ToimenpiteetJaPalvelut = ({ state, actions, palveluohjaukset = [], toimenp
                                     <div style={{ marginLeft: '1.75rem', marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                         {Object.entries(toim.muuttujat).map(([vKey, config]) => {
                                             
-                                            // Tarkistetaan onko tietokannassa määritelty vaihtoehtoja (options-sarake)
-                                            // Jos ei ole, tarjoillaan vakiolista ajankohdille
                                             const pikaValinnat = (config.vaihtoehdot && config.vaihtoehdot.length > 0) 
                                                 ? config.vaihtoehdot 
                                                 : defaultPikaValinnat;
@@ -90,29 +98,19 @@ const ToimenpiteetJaPalvelut = ({ state, actions, palveluohjaukset = [], toimenp
                                                         onUpdate={(secId, av, varKey, val) => handleVarUpdate(av, varKey, val)}
                                                     />
                                                     
-                                                    {/* Pikatäyttö-napit */}
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                                                    {/* Pikatäyttö-napit toteutettu uudella yhtenäisellä Button-komponentilla! */}
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                                                         {pikaValinnat.map((pika, idx) => {
                                                             const isPikaSelected = currentValue === pika;
                                                             return (
-                                                                <button
+                                                                <Button
                                                                     key={idx}
-                                                                    type="button"
+                                                                    size="sm"
+                                                                    variant={isPikaSelected ? 'primary' : 'secondary'}
                                                                     onClick={() => handleVarUpdate(toim.avainsana, vKey, pika)}
-                                                                    style={{ 
-                                                                        padding: '0.25rem 0.6rem', 
-                                                                        fontSize: '0.75rem', 
-                                                                        borderRadius: '12px',
-                                                                        backgroundColor: isPikaSelected ? 'var(--color-primary)' : 'var(--color-bg-secondary)',
-                                                                        color: isPikaSelected ? '#fff' : 'var(--color-text-secondary)',
-                                                                        border: '1px solid',
-                                                                        borderColor: isPikaSelected ? 'var(--color-primary)' : 'var(--color-border)',
-                                                                        cursor: 'pointer',
-                                                                        transition: 'all 0.2s'
-                                                                    }}
                                                                 >
                                                                     {pika}
-                                                                </button>
+                                                                </Button>
                                                             );
                                                         })}
                                                     </div>
@@ -125,15 +123,13 @@ const ToimenpiteetJaPalvelut = ({ state, actions, palveluohjaukset = [], toimenp
                         );
                     })}
                 </div>
-            </div>
+            </Card>
 
             {/* OIKEA SARAKE: PALVELUOHJAUKSET */}
-            <div className="card-inner" style={{ padding: '1rem' }}>
-                <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-                    Palveluohjaukset (Asiantuntija)
-                </h3>
-                
-                {palveluohjaukset.length === 0 && <p className="stat-label">Ei palveluohjauksia saatavilla.</p>}
+            <Card title="Palveluohjaukset (Asiantuntija)">
+                {palveluohjaukset.length === 0 && (
+                    <p className="text-sm text-secondary m-0">Ei palveluohjauksia saatavilla.</p>
+                )}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {palveluohjaukset.map(palvelu => {
@@ -152,14 +148,13 @@ const ToimenpiteetJaPalvelut = ({ state, actions, palveluohjaukset = [], toimenp
                 </div>
 
                 {valitut.includes('ohjaus_terveystarkastus') && (
-                    <div style={{ marginTop: '1.5rem' }}>
+                    <div className="mt-4">
                         <AlertBox type="info">
                             Muista tehdä lähete terveystarkastukseen ja huomioida tämä työnhakuvelvollisuuden alennuksissa, kunnes tarkastus on tehty.
                         </AlertBox>
                     </div>
                 )}
-
-            </div>
+            </Card>
         </div>
     );
 };
