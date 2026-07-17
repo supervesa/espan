@@ -13,6 +13,7 @@ import Checkbox from '../common/Checkbox';
 
 // Imurin omat paneelit
 import ScraperGMServicePanel from './ScraperGMServicePanel'; 
+import ScraperServicesPanel from './ScraperServicesPanel'; // Lisätty asiantuntijapalveluiden paneeli
 import ScraperGMEducationPanel from './ScraperGMEducationPanel'; 
 import ScraperPatevyydetPanel from './ScraperPatevyydetPanel';
 import ScraperVariablesPanel from './ScraperVariablesPanel';
@@ -181,18 +182,29 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
 
     const handleApply = () => {
         if (typeof onApply === 'function') {
+            
+            // 1. Viedään uudet Asiantuntijapalvelut (TÄMÄ PUUTTUI!)
+            const asiantuntijaToApply = parsedData.services || [];
+            if (asiantuntijaToApply.length > 0 && actions?.onUpdateVariable) {
+                const currentAsiantuntija = Array.isArray(state?.services) ? state.services : [];
+                actions.onUpdateVariable('global', 'services', null, [...currentAsiantuntija, ...asiantuntijaToApply]);
+            }
+
+            // 2. Viedään vanhat raskaat palvelut
             const servicesToApply = parsedData.sessionServices || [];
             if (servicesToApply.length > 0 && actions?.onUpdateVariable) {
                 const currentServices = Array.isArray(state?.sessionServices) ? state.sessionServices : [];
                 actions.onUpdateVariable('global', 'sessionServices', null, [...currentServices, ...servicesToApply]);
             }
 
+            // 3. Viedään koulutukset
             const edusToApply = parsedData.sessionEducations || [];
             if (edusToApply.length > 0 && actions?.onUpdateVariable) {
                 const currentEdus = Array.isArray(state?.sessionEducations) ? state.sessionEducations : [];
                 actions.onUpdateVariable('global', 'sessionEducations', null, [...currentEdus, ...edusToApply]);
             }
 
+            // 4. Viedään vapaat tekstit
             const filteredCustomTexts = {};
             Object.entries(parsedData.customTexts).forEach(([key, text]) => {
                 if (activeSections[key]) filteredCustomTexts[key] = text;
@@ -277,6 +289,14 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                         
                         <div className="flex-col-gap">
+                            
+                            {/* LISÄTTY: Asiantuntijapalveluiden auditointipaneeli */}
+                            <ScraperServicesPanel 
+                                services={parsedData.services} 
+                                onUpdateService={(newData) => setParsedData(prev => ({ ...prev, services: newData }))}
+                                onRemoveService={(id) => removeItem('services', id)}
+                            />
+
                             <ScraperGMServicePanel 
                                 services={parsedData.sessionServices} 
                                 onUpdate={(newData) => setParsedData(prev => ({ ...prev, sessionServices: newData }))}

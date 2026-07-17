@@ -7,6 +7,7 @@ import CopyButton from '../../common/CopyButton';
 import { useSmartText } from './useSmartText';
 import { formatFinnishList } from '../../../utils/textAggregator';
 import { HeartPulse, Activity, FileText, Sparkles, Plus } from 'lucide-react';
+import PalveluhistoriaNosto from './PalveluhistoriaNosto'; // UUSI LISÄYS: Tuodaan uusi komponentti!
 
 const ElamantilannePaneeli = ({ data, updateData, dbPhrases, actions, globalSignals = {}, masterState = {} }) => {
     const { sniffText, buildSentence } = useSmartText();
@@ -18,7 +19,7 @@ const ElamantilannePaneeli = ({ data, updateData, dbPhrases, actions, globalSign
     const vireillaOptions = useMemo(() => dbPhrases.filter(p => p.grouping_key === 'etuus_vireilla'), [dbPhrases]);
     const hylattyOptions = useMemo(() => dbPhrases.filter(p => p.grouping_key === 'etuus_hylatty'), [dbPhrases]);
 
-    // --- UUSI LISÄYS: Synkronoidaan imurin asettamat signaalit takaisin UI-valinnoiksi ---
+    // --- Synkronoidaan imurin asettamat signaalit takaisin UI-valinnoiksi ---
     useEffect(() => {
         if (globalSignals && elamaPhrases.length > 0) {
             const imuroidutTags = elamaPhrases
@@ -99,11 +100,9 @@ const ElamantilannePaneeli = ({ data, updateData, dbPhrases, actions, globalSign
                 if (baseWord.trim().length > 0) {
                     let perusNimi = baseWord.toLowerCase().trim();
                     
-                    // Tarkistetaan sanakirjasta täydellinen taivutus
                     if (TUKI_SANAKIRJA[perusNimi]) {
                         muutTuetSet.add(TUKI_SANAKIRJA[perusNimi]);
                     } else {
-                        // Varajärjestelmä tuntemattomille sanoille
                         let tukiNimi = perusNimi;
                         if (!tukiNimi.endsWith('a') && !tukiNimi.endsWith('ä')) {
                             tukiNimi += (tukiNimi.includes('ä') || tukiNimi.includes('y') || tukiNimi.includes('ö')) ? 'ä' : 'a';
@@ -127,7 +126,7 @@ const ElamantilannePaneeli = ({ data, updateData, dbPhrases, actions, globalSign
             osiot.push({ id: 'muut_tuet', teksti: `Asiakas saa ${tuetTekstina}.` });
         }
 
-        // 4. Nuorisotakuu (erillisenä lauseena)
+        // 4. Nuorisotakuu
         if (asiakasIka && asiakasIka < 25) {
             osiot.push({ id: 'nuorisotakuu', teksti: "Asiakas kuuluu ikänsä puolesta nuorisotakuun piiriin." });
         }
@@ -176,6 +175,12 @@ const ElamantilannePaneeli = ({ data, updateData, dbPhrases, actions, globalSign
                     </div>
                 </div>
             )}
+
+            {/* UUSI LISÄYS: Tuotu asiantuntijapalveluiden historia imurista */}
+            <PalveluhistoriaNosto 
+                services={masterState.services} 
+                onInject={lisaaTekstiin} 
+            />
 
             {(isTyokykyAlentunut || isTyokykySelvityksessa || hasDigiEste) && (
                 <div style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

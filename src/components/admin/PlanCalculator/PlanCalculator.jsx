@@ -12,8 +12,8 @@ import Badge from '../../common/Badge';
 import { Activity, Users, Target, Save, TrendingUp, TrendingDown, Clock, CheckCircle, MapPin } from 'lucide-react';
 
 const PlanCalculator = ({ asiantuntijaId }) => {
-    // Lisätty areaDistribution hookin vastaanottoon
-    const { snapshots, loading, unreportedPlans, ageDistribution, areaDistribution, saveSnapshot } = usePlanCalculator(asiantuntijaId);
+    // Lisätty currentWeekTotal hookin vastaanottoon
+    const { snapshots, loading, unreportedPlans, ageDistribution, areaDistribution, currentWeekTotal, saveSnapshot } = usePlanCalculator(asiantuntijaId);
     
     const latestSnapshot = snapshots[0] || null;
     const laskuri = useTargetCalculator(latestSnapshot, unreportedPlans);
@@ -162,6 +162,11 @@ const PlanCalculator = ({ asiantuntijaId }) => {
                 <MetricBox title="Espanin tutka (Odottaa)" icon={Clock}>
                     <div className="text-2xl fw-bold font-mono text-primary">+{unreportedPlans}</div>
                     <div className="text-sm text-slate-500 mt-1">Uusia tehty (ei vielä Power BI:ssä)</div>
+                    
+                    {/* TÄNNE LISÄTTY VIIKON SALDO */}
+                    <div className="text-sm fw-semibold text-slate-700 mt-3 pt-3" style={{ borderTop: '1px solid #e2e8f0' }}>
+                        Koko viikon saldo: <span className="font-mono text-success text-base">{currentWeekTotal} kpl</span>
+                    </div>
                 </MetricBox>
 
                 {/* TÄYSLEVEÄ: Tahti & Tavoite */}

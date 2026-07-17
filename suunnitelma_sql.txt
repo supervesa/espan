@@ -1,0 +1,89 @@
+DROP VIEW IF EXISTS "espan"."v_tyottomyysturva_seuranta";
+
+CREATE VIEW "espan"."v_tyottomyysturva_seuranta" AS
+WITH RECURSIVE aikahorisontti AS (
+    SELECT 
+        EXTRACT(ISOYEAR FROM CURRENT_DATE)::INTEGER AS vuosi,
+        EXTRACT(WEEK FROM CURRENT_DATE)::INTEGER AS viikko,
+        1 AS horisontti_viikko,
+        CURRENT_DATE AS pohja_pvm
+    UNION ALL
+    SELECT 
+        EXTRACT(ISOYEAR FROM pohja_pvm + INTERVAL '1 week')::INTEGER,
+        EXTRACT(WEEK FROM pohja_pvm + INTERVAL '1 week')::INTEGER,
+        horisontti_viikko + 1,
+        (pohja_pvm + INTERVAL '1 week')::DATE
+    FROM aikahorisontti
+    WHERE horisontti_viikko < 16
+),
+viikkotasoiset_laskurit AS (
+    SELECT 
+        asiantuntija_id, vuosi, viikko,
+        SUM(COALESCE(tehdyt_suunnitelmat, 0)) AS viikon_tehdyt_yhteensa,
+        SUM(COALESCE(eraantyvat_suunnitelmat, 0)) AS viikon_eraantyvat_yhteensa
+    FROM "espan"."weekly_counters"
+    GROUP BY asiantuntija_id, vuosi, viikko
+),
+kalenteri_varaukset AS (
+    SELECT 
+        expert_id AS asiantuntija_id, 
+        EXTRACT(ISOYEAR FROM start_time)::INTEGER AS vuosi,
+        EXTRACT(WEEK FROM start_time)::INTEGER AS viikko,
+        COUNT(id) AS kalenterin_vahvistetut_kpl
+    FROM "espan"."availability"
+    WHERE meeting_type IN ('normi', 'aktivointi')
+    GROUP BY expert_id, vuosi, viikko
+),
+uusin_powerbi AS (
+    SELECT DISTINCT ON (asiantuntija_id)
+        asiantuntija_id, salkku_koko, voimassa_prosentti AS nyky_prosentti, tavoite_prosentti,
+        ROUND((asiakkaat_yht * (voimassa_prosentti::numeric / 100.0)), 0) AS nyky_voimassa_kpl
+    FROM "espan"."powerbi_snapshots"
+    ORDER BY asiantuntija_id, raportti_pvm DESC
+),
+pitka_historia AS (
+    SELECT asiantuntija_id, ROUND(AVG(viikon_tehdyt_yhteensa), 2) AS todellinen_viikkotahti_ka
+    FROM viikkotasoiset_laskurit GROUP BY asiantuntija_id
+),
+tuleva_data AS (
+    SELECT 
+        h.horisontti_viikko, h.vuosi, h.viikko, pbi.asiantuntija_id, pbi.salkku_koko, pbi.nyky_voimassa_kpl, pbi.tavoite_prosentti,
+        COALESCE(ph.todellinen_viikkotahti_ka, 0) AS pitkan_ajan_tahti,
+        COALESCE(vl.viikon_tehdyt_yhteensa, 0) AS viikon_tehdyt,
+        COALESCE(vl.viikon_eraantyvat_yhteensa, 0) AS viikon_eraantyvat,
+        COALESCE(kv.kalenterin_vahvistetut_kpl, 0) AS kalenteri_varattu, 
+        CASE WHEN h.horisontti_viikko <= 12 THEN 'Vahvistettu' ELSE 'Projektio' END AS tietotyyppi
+    FROM aikahorisontti h
+    CROSS JOIN uusin_powerbi pbi
+    LEFT JOIN pitka_historia ph ON pbi.asiantuntija_id = ph.asiantuntija_id
+    LEFT JOIN viikkotasoiset_laskurit vl ON pbi.asiantuntija_id = vl.asiantuntija_id AND h.vuosi = vl.vuosi AND h.viikko = vl.viikko
+    LEFT JOIN kalenteri_varaukset kv ON pbi.asiantuntija_id = kv.asiantuntija_id AND h.vuosi = kv.vuosi AND h.viikko = kv.viikko
+),
+ennuste_logiikka AS (
+    SELECT 
+        *,
+        -- TÄSSÄ SE TAIKA ON: Kalenteri pakottaa pylvään vähintään varausten korkuiseksi (SUORISTAA LASKELMAN)
+        GREATEST(
+            CASE WHEN tietotyyppi = 'Vahvistettu' THEN viikon_tehdyt ELSE pitkan_ajan_tahti END,
+            kalenteri_varattu
+        ) AS korjattu_viikkotahti
+    FROM tuleva_data
+),
+rullaava_tase AS (
+    SELECT 
+        *,
+        SUM(korjattu_viikkotahti) OVER (PARTITION BY asiantuntija_id ORDER BY horisontti_viikko ASC) AS kumulatiiviset_tehdyt,
+        SUM(viikon_eraantyvat) OVER (PARTITION BY asiantuntija_id ORDER BY horisontti_viikko ASC) AS kumulatiiviset_eraantyvat
+    FROM ennuste_logiikka
+)
+SELECT 
+    asiantuntija_id, horisontti_viikko, vuosi, viikko, tietotyyppi, tavoite_prosentti,
+    viikon_tehdyt AS tehdyt_suunnitelmat, viikon_eraantyvat AS eraantyvat_suunnitelmat,
+    kalenteri_varattu, pitkan_ajan_tahti, 
+    
+    korjattu_viikkotahti AS laskennallinen_toteuma,
+
+    ROUND(((nyky_voimassa_kpl + kumulatiiviset_tehdyt - kumulatiiviset_eraantyvat) / NULLIF(salkku_koko, 0)) * 100, 2) AS ennustettu_prosentti
+
+FROM rullaava_tase
+ORDER BY asiantuntija_id, horisontti_viikko;

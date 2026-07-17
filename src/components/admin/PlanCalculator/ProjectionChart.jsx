@@ -8,7 +8,9 @@ const ProjectionChart = ({ asiantuntijaId }) => {
     const { projectionData, projectionLoading } = useProjection(asiantuntijaId);
 
     const projWeek = projectionData?.find(r => r.tietotyyppi === 'Projektio');
-    const assumedPace = projWeek ? parseFloat(projWeek.pitkan_ajan_tahti) : 0; // Hakee vain raakatahdin tekstia varten
+    
+    // TÄSMÄISKU 1: Haetaan ensisijaisesti uusi PBI-tavoitetahti, jos sitä ei ole (esim. nolla), käytetään historiaa
+    const targetPace = projWeek ? (parseFloat(projWeek.pbi_tavoitetahti) || parseFloat(projWeek.pitkan_ajan_tahti)) : 0; 
     
     // Suurin mahdollinen arvo grafiikan skaalaamiseen kauniisti
     const highestBarValue = projectionData?.reduce((max, row) => {
@@ -47,7 +49,7 @@ const ProjectionChart = ({ asiantuntijaId }) => {
                                 }
                                 <div>
                                     <div className="text-sm fw-bold text-slate-700">Tarkennettu ennuste: 3 kk ankkuripiste (Viikko {anchorWeek.viikko})</div>
-                                    <div className="text-xs text-slate-500">Hyödyntää suorana kalenterin varaukset ja täydentää tahdilla ({assumedPace} kpl/vk).</div>
+                                    <div className="text-xs text-slate-500">Hyödyntää suorana kalenterin varaukset ja täydentää tahdilla ({targetPace} kpl/vk).</div>
                                 </div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
@@ -98,28 +100,30 @@ const ProjectionChart = ({ asiantuntijaId }) => {
                             // Se osuus siitä, mikä todella on jo lyöty lukkoon
                             const calendarVal = parseFloat(row.kalenteri_varattu) || 0;
                             
-                            // Visualisoinnin skaalaus (vähintään 2% reunan näyttämiseksi nollilla)
-                            const totalHeightPct = Math.max(Math.min((displayVal / highestBarValue) * 100, 100), 2); 
+                            // TÄSMÄISKU 2: Käytetään absoluuttisia pikseleitä (max 120px) jotta selain ei kadota tyhjiä palkkeja
+                            const barPixelHeight = Math.max((displayVal / highestBarValue) * 120, 3); 
                             
                             // Lasketaan tummansinisen osan prosentti KOKO palkin sisältä 
-                            // (esim. jos varattu 2 ja tilaa 5 -> palkin ylärajasta 40% värittyy umpeen)
-                            const solidFillPct = displayVal > 0 ? (calendarVal / displayVal) * 100 : 0;
+                            const solidFillPct = displayVal > 0 ? Math.min((calendarVal / displayVal) * 100, 100) : 0;
+                            
+                            const pbiTargetVal = parseFloat(row.pbi_tavoitetahti) || 0;
+                            const histPaceVal = parseFloat(row.pitkan_ajan_tahti) || 0;
 
                             return (
                                 <div 
                                     key={row.horisontti_viikko} 
                                     style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', height: '100%', justifyContent: 'flex-end' }}
-                                    title={`Viikko ${row.viikko} (${row.tietotyyppi})\n\nVahvistettu kalenterissa: ${calendarVal} kpl\nOdotettu yhteismäärä viikolla: ${displayVal} kpl\n\nErääntyy täksi viikoksi: -${row.eraantyvat_suunnitelmat} kpl\nKumulatiivinen saldo-osa: ${row.ennustettu_prosentti} %`}
+                                    title={`Viikko ${row.viikko} (${row.tietotyyppi})\n\nVahvistettu kalenterissa: ${calendarVal} kpl\nOdotettu yhteismäärä viikolla: ${displayVal} kpl\n\nPowerBI tavoitetahti: ${pbiTargetVal} kpl/vk\nHistorian tahti: ${histPaceVal} kpl/vk\n\nErääntyy täksi viikoksi: -${row.eraantyvat_suunnitelmat} kpl\nKumulatiivinen saldo-osa: ${row.ennustettu_prosentti} %`}
                                 >
                                     <div className="text-xs font-mono fw-bold" style={{ color: isProj ? '#94a3b8' : '#475569', marginBottom: '4px' }}>
                                         {displayVal}
                                     </div>
                                     
-                                    {/* Varsinainen pystypalkkikontti (Korkeus asetettu SQL-lopulliseen korjattuun summaan) */}
+                                    {/* Varsinainen pystypalkkikontti - Korkeus pikseleissä! */}
                                     <div style={{ 
                                         position: 'relative',
                                         width: '100%', 
-                                        height: `${totalHeightPct}%`,
+                                        height: `${barPixelHeight}px`,
                                         backgroundColor: isProj ? '#eff6ff' : '#3b82f6',
                                         border: isProj ? '1px dashed #3b82f6' : '1px solid #2563eb',
                                         borderRadius: '4px 4px 0 0',
@@ -127,13 +131,15 @@ const ProjectionChart = ({ asiantuntijaId }) => {
                                         overflow: 'hidden' // Leikkaa yli menevän
                                     }}>
                                         {/* Varattujen asioiden nestepinta, nousee alhaalta ylöspäin */}
-                                        <div style={{
-                                            position: 'absolute',
-                                            bottom: 0, left: 0, right: 0,
-                                            height: `${Math.min(solidFillPct, 100)}%`,
-                                            backgroundColor: '#1e3a8a', 
-                                            transition: 'height 0.5s ease-out'
-                                        }} />
+                                        {solidFillPct > 0 && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                bottom: 0, left: 0, right: 0,
+                                                height: `${solidFillPct}%`,
+                                                backgroundColor: '#1e3a8a', 
+                                                transition: 'height 0.5s ease-out'
+                                            }} />
+                                        )}
                                     </div>
                                     
                                     <div className="text-xs fw-bold mt-1" style={{ color: row.horisontti_viikko === 13 ? '#0f172a' : '#64748b' }}>

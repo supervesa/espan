@@ -1,12 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../utils/supabaseClient';
 
+// Apufunktio viikon ja vuoden laskentaan
+const getWeekData = (date) => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return { year: d.getUTCFullYear(), week };
+};
+
 export const usePlanCalculator = (asiantuntijaId) => {
     const [snapshots, setSnapshots] = useState([]);
     const [loading, setLoading] = useState(true);
     const [unreportedPlans, setUnreportedPlans] = useState(0);
     const [ageDistribution, setAgeDistribution] = useState([]);
     const [areaDistribution, setAreaDistribution] = useState([]); // Uusi tila alueille
+    const [currentWeekTotal, setCurrentWeekTotal] = useState(0); // UUSI: Viikkosaldo
 
     const fetchData = useCallback(async () => {
         if (!asiantuntijaId) return;
@@ -41,18 +52,28 @@ export const usePlanCalculator = (asiantuntijaId) => {
             const totalUnreported = counterData.reduce((sum, row) => sum + (row.tehdyt_suunnitelmat || 0), 0);
             setUnreportedPlans(totalUnreported);
 
-            // 3. Hae KAIKKI ikäryhmä- ja aluekirjaukset jakaumia varten
+            // 3. Hae KAIKKI ikäryhmä- ja aluekirjaukset jakaumia varten (+ vuosi ja viikko!)
             const { data: distData, error: distErr } = await supabase
                 .schema('espan')
                 .from('weekly_counters')
-                .select('ikaryhma, alue, tehdyt_suunnitelmat') // 'alue' haetaan nyt mukana
+                .select('ikaryhma, alue, tehdyt_suunnitelmat, vuosi, viikko') 
                 .eq('asiantuntija_id', asiantuntijaId);
 
             if (!distErr && distData) {
                 const ageDist = {};
                 const areaDist = {};
                 
+                // Määritetään kuluva hetki viikkosaldon laskua varten
+                const now = new Date();
+                const currentWeek = getWeekData(now);
+                let viikkoSaldo = 0;
+                
                 distData.forEach(row => {
+                    // LASKETAAN KULUVAN VIIKON SALDO
+                    if (row.vuosi === currentWeek.year && row.viikko === currentWeek.week) {
+                        viikkoSaldo += (row.tehdyt_suunnitelmat || 0);
+                    }
+
                     // Ikäryhmät
                     const ageGroup = row.ikaryhma || 'Ei määritelty';
                     ageDist[ageGroup] = (ageDist[ageGroup] || 0) + (row.tehdyt_suunnitelmat || 0);
@@ -62,6 +83,8 @@ export const usePlanCalculator = (asiantuntijaId) => {
                     areaDist[areaGroup] = (areaDist[areaGroup] || 0) + (row.tehdyt_suunnitelmat || 0);
                 });
                 
+                setCurrentWeekTotal(viikkoSaldo); // Tallennetaan tilaan
+
                 // Koostetaan ja järjestetään ikäryhmät
                 const compiledAgeStats = Object.keys(ageDist)
                     .map(k => ({ name: k, count: ageDist[k] }))
@@ -109,6 +132,6 @@ export const usePlanCalculator = (asiantuntijaId) => {
         }
     };
 
-    // Palautetaan myös uusi areaDistribution käyttöön
-    return { snapshots, loading, unreportedPlans, ageDistribution, areaDistribution, saveSnapshot };
+    // Palautetaan myös uusi currentWeekTotal käyttöön
+    return { snapshots, loading, unreportedPlans, ageDistribution, areaDistribution, currentWeekTotal, saveSnapshot };
 };

@@ -19,15 +19,37 @@ const handler = async (event, context) => {
             return { statusCode: 200, body: 'No experts found' };
         }
 
-        const today = new Date();
-        const endDate = new Date(today);
-        endDate.setDate(today.getDate() + 105); // 3,5 kk horisontti
+        // =======================================================================
+        // AIKAVYÖHYKKEEN JA PÄIVÄMÄÄRIEN TURVALLINEN LASKENTA (SUOMEN AIKA)
+        // =======================================================================
+        const now = new Date();
+        const helsinkiTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Helsinki' }));
         
-        const startDateStr = today.toISOString().split('T')[0];
-        const endDateStr = endDate.toISOString().split('T')[0];
+        const formatISODate = (d) => {
+            return d.getFullYear() + '-' + 
+                   String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+                   String(d.getDate()).padStart(2, '0');
+        };
+
+        const todayStr = formatISODate(helsinkiTime);
+
+        // Kuluvan viikon maanantai (jotta tietokannasta saadaan mukaan myös viikon menneet päivät)
+        let currentWeekStart = new Date(helsinkiTime);
+        const dayOffset = currentWeekStart.getDay() === 0 ? -6 : 1 - currentWeekStart.getDay();
+        currentWeekStart.setDate(currentWeekStart.getDate() + dayOffset);
+        currentWeekStart.setHours(0, 0, 0, 0);
+
+        const queryStartStr = formatISODate(currentWeekStart);
+
+        // Horisontin laajennus: 120 päivää (n. 4 kuukautta)
+        const endDate = new Date(helsinkiTime);
+        endDate.setDate(endDate.getDate() + 120); 
+        const endDateStr = formatISODate(endDate);
+
+        console.log(`CRON Aikaikkuna: ${queryStartStr} -> ${endDateStr}. "Tänään" on ${todayStr}.`);
 
         // 2. PORTINVARTIJA-DATA: Haetaan kansalliset pyhäpäivät kerralla yhteisesti kaikille asiantuntijoille
-        const { data: holidays } = await supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', startDateStr).lte('date', endDateStr);
+        const { data: holidays } = await supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', queryStartStr).lte('date', endDateStr);
         const holidayList = holidays || [];
 
         // Käsitellään jokainen asiantuntija erikseen omassa 2 viikon syklitoteutuksessaan
@@ -37,9 +59,9 @@ const handler = async (event, context) => {
 
             // Haetaan asiantuntijan omat varaukset, lukitukset ja etäpäiväpankin tilanne
             const [availRes, locRes, ledgerRes] = await Promise.all([
-                supabase.schema('espan').from('availability').select('start_time, is_blocked, meeting_type, contact_method').eq('expert_id', expertId).gte('start_time', `${startDateStr} 00:00:00`).lte('start_time', `${endDateStr} 23:59:59`),
-                supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', expertId).gte('date', startDateStr).lte('date', endDateStr),
-                supabase.schema('espan').from('expert_remote_bank_ledger').select('transaction_type').eq('expert_id', expertId).gt('expiration_date', startDateStr)
+                supabase.schema('espan').from('availability').select('start_time, is_blocked, meeting_type, contact_method').eq('expert_id', expertId).gte('start_time', `${queryStartStr} 00:00:00`).lte('start_time', `${endDateStr} 23:59:59`),
+                supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', expertId).gte('date', queryStartStr).lte('date', endDateStr),
+                supabase.schema('espan').from('expert_remote_bank_ledger').select('transaction_type').eq('expert_id', expertId).gt('expiration_date', queryStartStr)
             ]);
 
             const availability = availRes.data || [];
@@ -51,18 +73,16 @@ const handler = async (event, context) => {
             let carriedDeficit = 0; 
             let newLocations = [];
 
-            // Etsitään kuluvan viikon maanantai viikko- ja syklitason analyysiä varten
-            let currentWeekStart = new Date(today);
-            const dayOffset = currentWeekStart.getDay() === 0 ? -6 : 1 - currentWeekStart.getDay();
-            currentWeekStart.setDate(currentWeekStart.getDate() + dayOffset); 
+            // Työkopio kelaukseen
+            let iterWeekStart = new Date(currentWeekStart);
 
             // PYÖRITETÄÄN AS_ASIANTUNTIJAN KALENTERIA KIINTEISSÄ 2 VIIKON (14 PV) SYKLEISSÄ
-            while (currentWeekStart < endDate) {
+            while (iterWeekStart < endDate) {
                 let cycleDays = [];
 
                 // Luodaan kahden viikon (10 työpäivän) jaksolohko
                 for (let w = 0; w < 2; w++) {
-                    const weekStart = new Date(currentWeekStart);
+                    const weekStart = new Date(iterWeekStart);
                     weekStart.setDate(weekStart.getDate() + (w * 7));
                     
                     // Arvotaan kyseisen viikon torstain ihannetila runkosäännön mukaan
@@ -71,7 +91,7 @@ const handler = async (event, context) => {
                     for (let i = 0; i < 5; i++) {
                         let d = new Date(weekStart);
                         d.setDate(d.getDate() + i);
-                        const dateStr = d.toISOString().split('T')[0];
+                        const dateStr = formatISODate(d);
                         const dayNum = d.getDate();
                         const dayOfWeek = i + 1; // 1=Ma, 2=Ti, 3=Ke, 4=To, 5=Pe
 
@@ -81,12 +101,23 @@ const handler = async (event, context) => {
                             isUserLocked: false, isAnchor: false 
                         };
 
-                        // KOSKEMATTOMAT SUOJAT (Käsin lukitut, pyhät ja lomat)
-                        const lockedLoc = existingLocations.find(l => l.date === dateStr && !l.is_auto_generated);
-                        if (lockedLoc) {
-                            dayObj.isUserLocked = true;
-                            dayObj.type = lockedLoc.location_type;
-                            dayObj.name = lockedLoc.location_name;
+                        const existingLoc = existingLocations.find(l => l.date === dateStr);
+                        const isPastOrToday = dateStr <= todayStr; // Tänään tai menneisyydessä
+                        const isUserManuallyLocked = existingLoc && !existingLoc.is_auto_generated;
+
+                        // ==========================================================
+                        // MENNEISYYDEN MUURI JA IHMISEN VALINTOJEN SUOJAUS
+                        // ==========================================================
+                        if (isPastOrToday || isUserManuallyLocked) {
+                            dayObj.isUserLocked = true; // Estää automaattia ylikirjoittamasta tätä kantaan
+                            if (existingLoc) {
+                                dayObj.type = existingLoc.location_type;
+                                dayObj.name = existingLoc.location_name;
+                            } else if (isPastOrToday) {
+                                // Jos menneisyydessä ei ole merkintää, oletetaan etätyö laskentaa varten
+                                dayObj.type = 'eta';
+                                dayObj.name = 'Etätyö';
+                            }
                             cycleDays.push(dayObj);
                             continue;
                         }
@@ -168,7 +199,7 @@ const handler = async (event, context) => {
 
                 // ================= ILMAINEN TASAPAINOTUS (TRIMMAUS) =================
                 if (currentOfficeDays > targetOfficeDays) {
-                    // Liikaa toimistopäiviä. Kevennetään reunapäiviä luomatta saarekkeita (Vain matkaviikkojen perjantai tai tiistai)
+                    // Liikaa toimistopäiviä. Kevennetään reunapäiviä luomatta saarekkeita
                     cycleDays.forEach(day => {
                         if (currentOfficeDays <= targetOfficeDays) return;
                         if (day.isUserLocked || day.isAnchor) return;
@@ -194,7 +225,7 @@ const handler = async (event, context) => {
 
                 // ================= VAJEEN TÄYTTÖ TAI RULLAUS ETEENPÄIN =================
                 if (currentOfficeDays < targetOfficeDays) {
-                    // Kalenterissa liikaa etää. Täytetään laajentamalla olemassa olevia matkablokkeja saarekkeettomasti
+                    // Kalenterissa liikaa etää. Täytetään laajentamalla olemassa olevia matkablokkeja
                     cycleDays.forEach(day => {
                         if (currentOfficeDays >= targetOfficeDays) return;
                         if (day.isUserLocked || day.isAnchor) return;
@@ -206,7 +237,7 @@ const handler = async (event, context) => {
                         }
                     });
 
-                    // Tarkistetaan jäikö sykli silti vajaaksi saarekesuojan takia (esim. kaksi paikallisviikkoa putkeen)
+                    // Tarkistetaan jäikö sykli silti vajaaksi
                     if (currentOfficeDays < targetOfficeDays) {
                         carriedDeficit = targetOfficeDays - currentOfficeDays; // Rullataan vaje seuraavaan sykliin
                     } else {
@@ -245,6 +276,7 @@ const handler = async (event, context) => {
 
                 // KERÄTÄÄN SYKLIN VALMIIT AUTOMAATTIEHDOTUKSET TALLENNUSLISTALLE
                 cycleDays.forEach(day => {
+                    // Viimeinen varmistus: Menneisyyteen ja käsin lukittuihin ei kosketa!
                     if (!day.isUserLocked) {
                         newLocations.push({ 
                             expert_id: expertId, 
@@ -257,18 +289,20 @@ const handler = async (event, context) => {
                 });
 
                 // Siirretään pääluuppia eteenpäin tasan 14 päivää
-                currentWeekStart.setDate(currentWeekStart.getDate() + 14);
+                iterWeekStart.setDate(iterWeekStart.getDate() + 14);
             }
 
-            // 4. Tallennetaan generoitu data kantaan UPSERT-komennolla (Yksilöllisesti kullekin asiantuntijalle)
+            // 4. Tallennetaan generoitu data kantaan UPSERT-komennolla
             if (newLocations.length > 0) {
                 const { error: upsertError } = await supabase.schema('espan').from('expert_daily_locations').upsert(newLocations, { onConflict: 'expert_id, date' });
                 
                 if (upsertError) {
                     console.error(`CRON: Virhe tallennettaessa asiantuntijalle ${expertId}:`, upsertError);
                 } else {
-                    console.log(`CRON: Asiantuntijan ${expertId} kalenteri tallennettu.`);
+                    console.log(`CRON: Asiantuntijan ${expertId} kalenteri tallennettu (${newLocations.length} uutta päivää).`);
                 }
+            } else {
+                console.log(`CRON: Asiantuntijan ${expertId} kalenteri on jo ajan tasalla.`);
             }
         }
 

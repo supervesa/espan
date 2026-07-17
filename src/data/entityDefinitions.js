@@ -34,5 +34,14 @@ export const ENTITY_DEFINITIONS = {
         icon: "Clock",
         fields: { alku: "date", loppu: "date", oppilaitos: "text" },
         isLawCritical: false
+    },
+
+    // --- GLOBAALI POHJA TIETOKANNAN PALVELUILLE ---
+    asiantuntijapalvelu: {
+        label: "Dynaaminen", // Korvataan ajonaikaisesti (esim. "Ammatinvalinnan ja uraohjauksen psykologipalvelu")
+        category: "asiantuntijapalvelu",
+        icon: "Activity", // Voidaan myös mapata db:n 'category' kentän perusteella myöhemmin
+        fields: { tila: "select", lisatieto: "text" },
+        isLawCritical: false // Korvataan ajonaikaisesti db:n 'hard_service' -arvolla
     }
 };

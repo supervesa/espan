@@ -29,9 +29,10 @@ const deepMerge = (target, source) => {
 export const usePlanState = (dbPlanData) => {
     // Alustetaan tila, jossa on mukana myös palvelut (sessionServices)
     const [state, setState] = useState({ 
-        asiakas: {}, 
+      asiakas: {}, 
         signals: {}, 
         palvelut: {},
+        services: [], // LISÄTTY: Uusi asiantuntijapalveluiden taulukko
         sessionServices: [], // UUSI: Golden Master -taulukko palveluille
         sessionEducations: [] // UUSI: Golden Master -taulukko koulutuksille
     });
@@ -211,10 +212,10 @@ export const usePlanState = (dbPlanData) => {
         });
     }, [dbPlanData]);
 
-    const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => {
+  const handleUpdateVariable = useCallback((sectionId, avainsana, variableKey, value) => {
         setState(currentState => {
             // TÄRKEÄ: Golden Master -tuki sessionServices- ja sessionEducations-taulukoille.
-            if (sectionId === 'global' && (avainsana === 'sessionServices' || avainsana === 'sessionEducations')) {
+            if (sectionId === 'global' && (avainsana === 'sessionServices' || avainsana === 'sessionEducations' || avainsana === 'services')) {
                 const actualValue = value !== undefined ? value : variableKey;
                 return { ...currentState, [avainsana]: actualValue };
             }

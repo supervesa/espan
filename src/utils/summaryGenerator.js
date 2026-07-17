@@ -1,8 +1,8 @@
+// --- src/utils/summaryGenerator.js ---
 import { planData, TYONHAKUVELVOLLISUUS_LOPPUTEKSTI } from '../data/planData.js';
 import { PALKKATUKI_LISAHUOMIOT, YLEISET_SUUNNITELMA_FRAASIT } from '../data/constants.js';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
-const FREE_TEXT_SEPARATOR = '\n\n---\n\n';
 
 const processPhrase = (phraseData, specificSelectionState) => {
     if (!phraseData?.teksti) return '';
@@ -48,7 +48,7 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
         let combinedSelectionsText = tyokykyParts.join('. ').trim();
         
         if (s.lisatietoa?.trim()) { 
-            generated = combinedSelectionsText ? `${combinedSelectionsText}\n\n${s.lisatietoa.trim()}` : s.lisatietoa.trim(); 
+            generated = combinedSelectionsText ? `${combinedSelectionsText}\n${s.lisatietoa.trim()}` : s.lisatietoa.trim(); 
         } else { 
             generated = combinedSelectionsText; 
         }
@@ -59,9 +59,9 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
             const lisahuomiotText = Object.entries(state.palkkatuki.lisahuomiot)
                 .filter(([key, value]) => value && PALKKATUKI_LISAHUOMIOT[key])
                 .map(([key]) => PALKKATUKI_LISAHUOMIOT[key].teksti) 
-                .join('\n\n');
+                .join('\n');
              if (lisahuomiotText) {
-                 generated += (generated ? '\n\n' : '') + lisahuomiotText;
+                 generated += (generated ? '\n' : '') + lisahuomiotText;
              }
         }
     }
@@ -71,14 +71,14 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
             let koottuTeksti = processPhrase(phraseData, selection);
             
             if (selection.alentamisenValmisTeksti || selection.alentamisenVapaaTeksti) {
-                let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
+                let alennusTeksti = '\nTyönhakuvelvollisuutta on alennettu.';
                 if (selection.alentamisenValmisTeksti) alennusTeksti += ` Perusteet: ${selection.alentamisenValmisTeksti}`;
                 else if (selection.alentamisenVapaaTeksti) alennusTeksti += ` Perusteet: ${selection.alentamisenVapaaTeksti}`; 
                 koottuTeksti += alennusTeksti;
             }
 
             if (selection.vakiotekstitYhdistetty) {
-                koottuTeksti += `\n\n${selection.vakiotekstitYhdistetty.trim()}`;
+                koottuTeksti += `\n${selection.vakiotekstitYhdistetty.trim()}`;
             } 
             else {
                 let thvLopputeksti = TYONHAKUVELVOLLISUUS_LOPPUTEKSTI; 
@@ -89,7 +89,7 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
                     }
                 }
                 if (thvLopputeksti && !koottuTeksti.includes("Oikeudet ja velvollisuudet")) {
-                     koottuTeksti += `\n\n${thvLopputeksti.trim()}`;
+                     koottuTeksti += `\n${thvLopputeksti.trim()}`;
                 }
             }
             
@@ -157,7 +157,7 @@ export const generateSectionContent = (section, selection, state) => {
         let combinedSelectionsText = tyokykyParts.join('. ').trim();
         
         if (s.lisatietoa?.trim()) { 
-            generated = combinedSelectionsText ? `${combinedSelectionsText}\n\n${s.lisatietoa.trim()}` : s.lisatietoa.trim(); 
+            generated = combinedSelectionsText ? `${combinedSelectionsText}\n${s.lisatietoa.trim()}` : s.lisatietoa.trim(); 
         } else { 
             generated = combinedSelectionsText; 
         }
@@ -168,9 +168,9 @@ export const generateSectionContent = (section, selection, state) => {
             const lisahuomiotText = Object.entries(state.palkkatuki.lisahuomiot)
                 .filter(([key, value]) => value && PALKKATUKI_LISAHUOMIOT[key])
                 .map(([key]) => PALKKATUKI_LISAHUOMIOT[key].teksti)
-                .join('\n\n');
+                .join('\n');
              if (lisahuomiotText) {
-                 generated += (generated ? '\n\n' : '') + lisahuomiotText;
+                 generated += (generated ? '\n' : '') + lisahuomiotText;
              }
         }
     }
@@ -180,18 +180,18 @@ export const generateSectionContent = (section, selection, state) => {
             let koottuTeksti = processPhrase(phraseData, selection);
             
             if (selection.alentamisenValmisTeksti || selection.alentamisenVapaaTeksti) {
-                let alennusTeksti = '\n\nTyönhakuvelvollisuutta on alennettu.';
+                let alennusTeksti = '\nTyönhakuvelvollisuutta on alennettu.';
                 if (selection.alentamisenValmisTeksti) alennusTeksti += ` Perusteet: ${selection.alentamisenValmisTeksti}`;
                 else if (selection.alentamisenVapaaTeksti) alennusTeksti += ` Perusteet: ${selection.alentamisenVapaaTeksti}`;
                 koottuTeksti += alennusTeksti;
             }
 
             if (selection.vakiotekstitYhdistetty) {
-                koottuTeksti += `\n\n${selection.vakiotekstitYhdistetty.trim()}`;
+                koottuTeksti += `\n${selection.vakiotekstitYhdistetty.trim()}`;
             } 
             else {
                 if (TYONHAKUVELVOLLISUUS_LOPPUTEKSTI && !koottuTeksti.includes("Oikeudet ja velvollisuudet")) {
-                     koottuTeksti += `\n\n${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI.trim()}`;
+                     koottuTeksti += `\n${TYONHAKUVELVOLLISUUS_LOPPUTEKSTI.trim()}`;
                 }
             }
             
@@ -255,15 +255,21 @@ export const generateHybridSummary = (state, dbPlanData, dbKnowledge) => {
 
     mergedSections.forEach(section => {
         const selection = state[section.id];
-        const customKey = section.id === 'kielitaso' ? 'custom-kielitaso' : `custom-${section.id}`;
+        let customKey = section.id === 'kielitaso' ? 'custom-kielitaso' : `custom-${section.id}`;
         let customText = state[customKey]?.trim() ?? '';
         let generatedContent = '';
 
         if (section.id === 'tyokyky') {
             const tyokykyLopullinen = state['custom-tyokyky_lopullinen']?.trim();
             if (tyokykyLopullinen) {
-                customText = customText ? `${customText}\n\n${tyokykyLopullinen}` : tyokykyLopullinen;
+                customText = customText ? `${customText}\n${tyokykyLopullinen}` : tyokykyLopullinen;
             }
+        }
+
+        // TÄRKEÄ: Nollataan customText edellytykset-osiolta, ettei se yhdisty 
+        // tuplana, koska se on manuaalinen ja hoidetaan loopin ulkopuolella!
+        if (section.id === 'edellytykset') {
+            customText = '';
         }
 
         if (section.id === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
@@ -273,33 +279,37 @@ export const generateHybridSummary = (state, dbPlanData, dbKnowledge) => {
 
         if (['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
             if (customText) {
-                koulutusJaYrittajyysCustomText += (koulutusJaYrittajyysCustomText ? '\n\n' : '') + customText;
+                koulutusJaYrittajyysCustomText += (koulutusJaYrittajyysCustomText ? '\n' : '') + customText;
             }
             return; 
         }
 
         generatedContent = generateHybridSectionContent(section, selection, state, dbKnowledge);
         
-        if (customText) {
-            generatedContent += (generatedContent ? FREE_TEXT_SEPARATOR : '') + customText;
+        // Puhdistetaan tekoäly-lihavoinnit ja liialliset rivinvaihdot
+        generatedContent = generatedContent.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
+        customText = customText.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
+
+        if (customText && !generatedContent.includes(customText)) {
+            generatedContent += (generatedContent ? '\n' : '') + customText;
         }
         
-        let finalContent = generatedContent;
+        let finalContent = generatedContent.trim();
         if (finalContent === '.') finalContent = '';
         
         if (finalContent) {
             const lastLine = finalContent.split('\n').pop() ?? '';
-            if (!/[.!?]$/.test(lastLine.trim()) && !finalContent.endsWith('\n\n') && !finalContent.endsWith('---')) {
+            if (!/[.!?]$/.test(lastLine.trim())) {
                 finalContent += '.';
             }
             textParts.push(`**${section.otsikko}**\n${finalContent}`);
         }
     }); 
 
-    let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.trim(); 
+    let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n').trim(); 
     if (koulutusJaYrittajyysFinalContent) {
         const lastLine = koulutusJaYrittajyysFinalContent.split('\n').pop() ?? '';
-        if (!/[.!?]$/.test(lastLine.trim()) && !koulutusJaYrittajyysFinalContent.endsWith('\n\n')) {
+        if (!/[.!?]$/.test(lastLine.trim())) {
             koulutusJaYrittajyysFinalContent += '.';
         }
         let tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
@@ -311,49 +321,56 @@ export const generateHybridSummary = (state, dbPlanData, dbKnowledge) => {
     }
 
     if (tyottomyysturvaFraasi) {
-        const formattedTtFraasi = tyottomyysturvaFraasi.endsWith('.') ? tyottomyysturvaFraasi : tyottomyysturvaFraasi + '.';
+        const cleanedTtFraasi = tyottomyysturvaFraasi.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
+        const formattedTtFraasi = cleanedTtFraasi.endsWith('.') ? cleanedTtFraasi : cleanedTtFraasi + '.';
+        
         const perustiedotIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
         if (perustiedotIndex > -1) {
             const existingPerustiedot = textParts[perustiedotIndex];
             textParts[perustiedotIndex] = `${existingPerustiedot}\n${formattedTtFraasi}`;
         } else {
             const tyyppiIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman tyyppi**'));
-            textParts.splice(tyyppiIndex > -1 ? tyyppiIndex + 1 : 0, 0, `**Työttömyysturva**\n${formattedTtFraasi}`);
+            textParts.splice(tyyppiIndex > -1 ? tyyppiIndex + 1 : 0, `**Työttömyysturva**\n${formattedTtFraasi}`);
         }
     }
     
-    // --- UUSI 33 § MODUULIN LISÄYS ---
-    const edellytyksetTeksti = state['custom-edellytykset']?.trim();
+    // --- KORJATTU: EDELLYTYKSET-OSIO LISÄTÄÄN JÄLKIKÄTEEN MUKAAN ---
+    const edellytyksetTeksti = state['custom-lopullinen_33_arvio']?.trim() || state['custom-edellytykset']?.trim() || '';
     if (edellytyksetTeksti) {
-        const tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
+        // Puhdistetaan tähdet myös tästä!
+        const cleanedEdellytykset = edellytyksetTeksti.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
+        let tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
         const insertIndex = tyokykyIndex > -1 ? tyokykyIndex + 1 : textParts.length;
-        textParts.splice(insertIndex, 0, `**Työllistymisen edellytysten arviointi**\n${edellytyksetTeksti}`);
+        textParts.splice(insertIndex, 0, `**Työllistymisen edellytysten arviointi**\n${cleanedEdellytykset}`);
     }
-    // ---------------------------------
 
-    let cleanedTextParts = textParts.map(part => part.replace(/\n\s*\.\s*$/, '').trim()).filter(Boolean); 
+    let cleanedTextParts = textParts.filter(Boolean); 
     const finalText = FINGERPRINT + cleanedTextParts.join('\n\n');
     
     return finalText;
 };
 
 export const generateFullSummary = (state) => {
-    console.log("[generateFullSummary] Calculating full copy-text with state:", state);
     let textParts = [];
     let tyottomyysturvaFraasi = '';
     let koulutusJaYrittajyysCustomText = ''; 
 
     planData.aihealueet.forEach(section => {
         const selection = state[section.id];
-        const customKey = section.id === 'kielitaso' ? 'custom-kielitaso' : `custom-${section.id}`;
+        let customKey = section.id === 'kielitaso' ? 'custom-kielitaso' : `custom-${section.id}`;
         let customText = state[customKey]?.trim() ?? '';
         let generatedContent = '';
 
         if (section.id === 'tyokyky') {
             const tyokykyLopullinen = state['custom-tyokyky_lopullinen']?.trim();
             if (tyokykyLopullinen) {
-                customText = customText ? `${customText}\n\n${tyokykyLopullinen}` : tyokykyLopullinen;
+                customText = customText ? `${customText}\n${tyokykyLopullinen}` : tyokykyLopullinen;
             }
+        }
+
+        // TÄRKEÄ: Nollataan customText edellytykset-osiolta
+        if (section.id === 'edellytykset') {
+            customText = '';
         }
 
         if (section.id === 'tyottomyysturva' && state.tyottomyysturva?.yhteenvetoFraasi) {
@@ -363,33 +380,37 @@ export const generateFullSummary = (state) => {
 
         if (['koulutus', 'ammattikortit', 'yrittajyys', 'kielitaso'].includes(section.id)) {
             if (customText) {
-                koulutusJaYrittajyysCustomText += (koulutusJaYrittajyysCustomText ? '\n\n' : '') + customText;
+                koulutusJaYrittajyysCustomText += (koulutusJaYrittajyysCustomText ? '\n' : '') + customText;
             }
             return; 
         }
 
         generatedContent = generateSectionContent(section, selection, state);
         
-        if (customText) {
-            generatedContent += (generatedContent ? '\n\n' : '') + customText;
+        // Puhdistetaan tähdet ja tyhjät tuplarivit ennen yhdistämistä
+        generatedContent = generatedContent.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
+        customText = customText.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
+
+        if (customText && !generatedContent.includes(customText)) {
+            generatedContent += (generatedContent ? '\n' : '') + customText;
         }
         
-        let finalContent = generatedContent;
+        let finalContent = generatedContent.trim();
         if (finalContent === '.') finalContent = '';
         
         if (finalContent) {
             const lastLine = finalContent.split('\n').pop() ?? '';
-            if (!/[.!?]$/.test(lastLine.trim()) && !finalContent.endsWith('\n\n')) {
+            if (!/[.!?]$/.test(lastLine.trim())) {
                 finalContent += '.';
             }
             textParts.push(`**${section.otsikko}**\n${finalContent}`);
         }
     }); 
 
-    let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.trim(); 
+    let koulutusJaYrittajyysFinalContent = koulutusJaYrittajyysCustomText.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n').trim(); 
     if (koulutusJaYrittajyysFinalContent) {
         const lastLine = koulutusJaYrittajyysFinalContent.split('\n').pop() ?? '';
-        if (!/[.!?]$/.test(lastLine.trim()) && !koulutusJaYrittajyysFinalContent.endsWith('\n\n')) {
+        if (!/[.!?]$/.test(lastLine.trim())) {
             koulutusJaYrittajyysFinalContent += '.';
         }
         let tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
@@ -397,34 +418,35 @@ export const generateFullSummary = (state) => {
             tyotilanneIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
         }
         const insertIndex = tyotilanneIndex > -1 ? tyotilanneIndex + 1 : 0;
-        const koulutusOtsikko = 'Koulutus ja yrittäjyys'; 
-        textParts.splice(insertIndex, 0, `**${koulutusOtsikko}**\n${koulutusJaYrittajyysFinalContent}`);
+        textParts.splice(insertIndex, 0, `**Koulutus ja yrittäjyys**\n${koulutusJaYrittajyysFinalContent}`);
     }
 
     if (tyottomyysturvaFraasi) {
-        const formattedTtFraasi = tyottomyysturvaFraasi.endsWith('.') ? tyottomyysturvaFraasi : tyottomyysturvaFraasi + '.';
+        const cleanedTtFraasi = tyottomyysturvaFraasi.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
+        const formattedTtFraasi = cleanedTtFraasi.endsWith('.') ? cleanedTtFraasi : cleanedTtFraasi + '.';
+        
         const perustiedotIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman perustiedot**'));
         if (perustiedotIndex > -1) {
             const existingPerustiedot = textParts[perustiedotIndex];
             textParts[perustiedotIndex] = `${existingPerustiedot}\n${formattedTtFraasi}`;
         } else {
             const tyyppiIndex = textParts.findIndex(p => p.startsWith('**Suunnitelman tyyppi**'));
-            textParts.splice(tyyppiIndex > -1 ? tyyppiIndex + 1 : 0, 0, `**Työttömyysturva**\n${formattedTtFraasi}`);
+            textParts.splice(tyyppiIndex > -1 ? tyyppiIndex + 1 : 0, `**Työttömyysturva**\n${formattedTtFraasi}`);
         }
     }
     
-    // --- UUSI 33 § MODUULIN LISÄYS ---
-    const edellytyksetTeksti = state['custom-lopullinen_33_arvio']?.trim() || state['custom-edellytykset']?.trim();
+    // --- KORJATTU: EDELLYTYKSET-OSIO LISÄTÄÄN JÄLKIKÄTEEN MUKAAN ---
+    const edellytyksetTeksti = state['custom-lopullinen_33_arvio']?.trim() || state['custom-edellytykset']?.trim() || '';
     if (edellytyksetTeksti) {
-        const tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
+        // Puhdistetaan tähdet myös tästä!
+        const cleanedEdellytykset = edellytyksetTeksti.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
+        let tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
         const insertIndex = tyokykyIndex > -1 ? tyokykyIndex + 1 : textParts.length;
-        textParts.splice(insertIndex, 0, `**Työllistymisen edellytysten arviointi**\n${edellytyksetTeksti}`);
+        textParts.splice(insertIndex, 0, `**Työllistymisen edellytysten arviointi**\n${cleanedEdellytykset}`);
     }
-    // ---------------------------------
 
-    let cleanedTextParts = textParts.map(part => part.replace(/\n\s*\.\s*$/, '').trim()).filter(Boolean); 
+    let cleanedTextParts = textParts.filter(Boolean); 
     const finalText = FINGERPRINT + cleanedTextParts.join('\n\n');
     
-    console.log("[generateFullSummary] Final fullSummaryText for copy:", finalText);
     return finalText;
 };

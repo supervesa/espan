@@ -7,6 +7,7 @@ import { extractGMServices } from '../../utils/regex/gmServiceExtractor';
 import { extractKoulutus } from '../../utils/regex/extractKoulutus'; 
 import { extractTyottomyysturva } from '../../utils/regex/tyottomyysturvaExtractor';
 import { extractSentinelData } from '../../utils/regex/sentinelExtractor'; // Identiteetin poimija
+import { extractServices } from '../../utils/regex/serviceExtractor'; // UUSI LISÄYS: Asiantuntijapalveluiden imuri
 
 // Globaalit regex-vakiot
 const dateRegex = /ajalla\s*(\d{1,2}\.\d{1,2}\.\d{4})\s*[-–]\s*(\d{1,2}\.\d{1,2}\.\d{4})/gi;
@@ -17,6 +18,7 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
     const result = { 
         phrases: [], 
         signals: [], 
+        services: [], // UUSI LISÄYS: Tila asiantuntijapalveluille
         sessionServices: [], 
         sessionEducations: [], 
         patevyydet: [], 
@@ -77,6 +79,24 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
     const ttResult = extractTyottomyysturva(remainingText, dbPhrases);
     Object.assign(result.tyottomyysturvaData.answers, ttResult.answers);
     ttResult.foundPhrases.forEach(p => result.phrases.push(p));
+
+    // --- UUSI LISÄYS: Asiantuntijapalveluiden ja seurantataulukon uuttaja ---
+    const servicesRes = extractServices(remainingText, dbServices);
+    result.services = servicesRes.foundServices;
+    remainingText = servicesRes.remainingText;
+    
+    // Lisätään uuttajan generoimat automaatiosignaalit (esim. Incompatibility)
+    servicesRes.autoSignals.forEach(sigKey => {
+        if (!result.signals.some(s => s.id === sigKey || s.signal_key === sigKey)) {
+            const dbSig = dbSignals.find(s => s.signal_key === sigKey);
+            result.signals.push({
+                id: sigKey,
+                signal_key: sigKey,
+                label: dbSig ? dbSig.label : sigKey // Jos signaalia ei löydy kannasta, näytetään sen ID
+            });
+        }
+    });
+    // ------------------------------------------------------------------------
 
     // C) Golden Master uuttajat (nämä poistavat tunnistetut lauseet tekstistä)
     const gmResult = extractGMServices(remainingText);

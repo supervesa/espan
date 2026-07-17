@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import Modal from '../common/Modal';
 import { ENTITY_DEFINITIONS } from '../../data/entityDefinitions';
-import { Layers, Trash2, GraduationCap, CalendarClock } from 'lucide-react';
+import { Layers, Trash2, GraduationCap, CalendarClock, Activity } from 'lucide-react';
 
 const ServiceManager = ({ state, actions, isOpen, onClose }) => {
-    // 1. Luetaan molemmat Golden Master -taulukot
+    // 1. Luetaan molemmat Golden Master -taulukot ja uusi asiantuntijapalveluiden taulukko
     const services = Array.isArray(state.sessionServices) ? state.sessionServices : [];
     const educations = Array.isArray(state.sessionEducations) ? state.sessionEducations : [];
+    const asiantuntijapalvelut = Array.isArray(state.services) ? state.services : []; // UUSI LISÄYS
 
     // --- TOIMINNOT ---
     const handleRemoveService = (id) => {
@@ -17,6 +18,12 @@ const ServiceManager = ({ state, actions, isOpen, onClose }) => {
     const handleRemoveEducation = (id) => {
         const updatedEdus = educations.filter(x => x.id !== id);
         actions.onUpdateVariable('global', 'sessionEducations', updatedEdus);
+    };
+
+    // UUSI LISÄYS: Asiantuntijapalveluiden poisto
+    const handleRemoveAsiantuntijapalvelu = (id) => {
+        const updatedAsiantuntija = asiantuntijapalvelut.filter(x => x.id !== id);
+        actions.onUpdateVariable('global', 'services', updatedAsiantuntija);
     };
 
     return (
@@ -31,6 +38,45 @@ const ServiceManager = ({ state, actions, isOpen, onClose }) => {
                     Tässä listassa on kaikki tähän istuntoon tallennetut tapahtumat ja tutkinnot. 
                     Voit poistaa niitä tarvittaessa, mikä päivittää yhteenvedon tekstit automaattisesti.
                 </p>
+
+                {/* --- UUSI OSIO: ASIANTUNTIJAPALVELUT (services) --- */}
+                <div>
+                    <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: '#0ea5e9' }}>
+                        <Activity size={18} /> Asiantuntijapalvelut (Seuranta)
+                    </h4>
+                    {asiantuntijapalvelut.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {asiantuntijapalvelut.map(s => (
+                                <div key={s.id} style={{ padding: '12px 15px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f0f9ff' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 'bold', fontSize: '0.9rem', color: '#0369a1' }}>
+                                            {s.title || ENTITY_DEFINITIONS[s.definitionKey]?.label || 'Tuntematon palvelu'}
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', color: '#0ea5e9', marginTop: '4px' }}>
+                                            Tila: <span style={{ textTransform: 'capitalize', fontWeight: 'bold' }}>{s.tila || 'Ohjattu'}</span> 
+                                            {s.lisatieto && (
+                                                <span style={{ display: 'block', marginTop: '2px', color: '#475569' }}>
+                                                    Perustelu: {s.lisatieto}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => handleRemoveAsiantuntijapalvelu(s.id)}
+                                        style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '5px' }}
+                                        title="Poista palvelu"
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', border: '1px dashed #cbd5e1', borderRadius: '8px', fontSize: '0.85rem' }}>
+                            Ei tallennettuja asiantuntijapalveluita tässä istunnossa.
+                        </div>
+                    )}
+                </div>
 
                 {/* --- OSIO 1: AKTIIVISET PALVELUT (sessionServices) --- */}
                 <div>
