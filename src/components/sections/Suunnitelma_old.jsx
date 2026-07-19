@@ -1,12 +1,29 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../utils/supabaseClient';
-import { Zap, CheckSquare, FileText, Activity, Briefcase, GraduationCap, HeartPulse, ArrowDownCircle, Rocket, AlertTriangle, UserPlus } from 'lucide-react';
+import { 
+    CheckSquare, Zap, AlertTriangle, 
+    Briefcase, GraduationCap, HeartPulse, Rocket, UserPlus 
+} from 'lucide-react';
+
+// Uudet Context-hookit ja tekstimoottori
+import { useSignal } from '../signals/useSignal';
+import { useSmartText } from './TyollistymisenEdellytykset/useSmartText'; 
+
+// Sisäiset moduulit ja uudet UI-komponentit
 import Palveluohjaus from './Palveluohjaus';
 import Tyonhakuprofiili from './Tyonhakuprofiili';
+import AlertBox from '../common/AlertBox';
+import Checkbox from '../common/Checkbox';
+import Card from '../common/Card';
+import SmartTextPreview from '../common/SmartTextPreview';
+import Accordion from '../common/Accordion'; // UUSI TUONTI!
 
 const Suunnitelma = ({ state, actions }) => {
     const DB_SUUNNITELMA = 'd76dd312-1d0d-442e-bc6a-aefea2a655f8';
     const UI_KEY = 'suunnitelma'; 
+
+    const { activeSignals, actions: signalActions } = useSignal();
+    const { buildKokoPalveluhistoriaText } = useSmartText();
 
     const [dbPhrases, setDbPhrases] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -21,8 +38,6 @@ const Suunnitelma = ({ state, actions }) => {
     }, [rawValinnat]);
 
     const customText = state[`custom-${UI_KEY}`] || '';
-    const signals = state.signals || {};
-
     const prevTextRef = useRef(null);
     const prevIdsRef = useRef(null);
 
@@ -58,10 +73,18 @@ const Suunnitelma = ({ state, actions }) => {
         fetchSuunnitelmaPhrases();
     }, []);
 
+    // 2. TOGGLE-FUNKTIOT
     const handleTogglePhrase = (id, isChecked) => {
         const newValinnat = { ...valinnat };
-        if (isChecked) { newValinnat[id] = true; if (actions.setSignal) actions.setSignal(id, true); } 
-        else { delete newValinnat[id]; if (actions.setSignal) actions.setSignal(id, false); }
+        const setSignalContext = signalActions?.setSignal || actions.setSignal;
+
+        if (isChecked) { 
+            newValinnat[id] = true; 
+            if (setSignalContext) setSignalContext(id, true); 
+        } else { 
+            delete newValinnat[id]; 
+            if (setSignalContext) setSignalContext(id, false); 
+        }
         
         if (actions.updateSectionData) actions.updateSectionData(UI_KEY, newValinnat);
         else if (actions.updateSection) actions.updateSection(UI_KEY, newValinnat);
@@ -69,17 +92,34 @@ const Suunnitelma = ({ state, actions }) => {
 
     const handleTogglePath = (phrasesToToggle) => {
         const newValinnat = { ...valinnat };
-        phrasesToToggle.forEach(p => { newValinnat[p.id] = true; if (actions.setSignal) actions.setSignal(p.id, true); });
+        const setSignalContext = signalActions?.setSignal || actions.setSignal;
+
+        phrasesToToggle.forEach(p => { 
+            newValinnat[p.id] = true; 
+            if (setSignalContext) setSignalContext(p.id, true); 
+        });
+
         if (actions.updateSectionData) actions.updateSectionData(UI_KEY, newValinnat);
         else if (actions.updateSection) actions.updateSection(UI_KEY, newValinnat);
     };
 
-    const handleCustomTextChange = (e) => actions.onUpdateCustomText(UI_KEY, e.target.value);
+    // 3. AUTOMAATIO-KUUNTELIJA
+    const handledSignals = useRef(new Set());
+    useEffect(() => {
+        Object.entries(activeSignals).forEach(([key, isActive]) => {
+            if (isActive && !handledSignals.current.has(key)) {
+                const matchingPhrase = dbPhrases.find(p => p.triggerit?.some(t => t.signal_key === key));
+                if (matchingPhrase && !valinnat[matchingPhrase.id]) {
+                    handleTogglePhrase(matchingPhrase.id, true);
+                }
+                handledSignals.current.add(key); 
+            }
+        });
+        // eslint-disable-next-line
+    }, [activeSignals, dbPhrases]);
 
-    // --- ÄLYKÄS KOONTI: Yhdistää suunnitelmafraasit, palvelut ja velvoittavuuden lainsäädännön ---
+    // 4. ÄLYKÄS KOONTI JA GENERATTU TEKSTI
     const activeServices = useMemo(() => loadedServices.filter(service => valinnat[service.id]), [loadedServices, valinnat]);
-    
-    // Suodatetaan palvelut niiden tyypin mukaan
     const hardServices = activeServices.filter(s => s.hard_service);
     const referralServices = activeServices.filter(s => s.requires_referral);
 
@@ -93,14 +133,18 @@ const Suunnitelma = ({ state, actions }) => {
 
         let finalTexts = [...phraseTexts, ...serviceTexts];
 
-        // LISÄTÄÄN JURIDINEN VAROITUS, JOS HARD_SERVICE VALITTU
         if (hardServices.length > 0) {
             const hardTitles = hardServices.map(s => s.title).join(' ja ');
             finalTexts.push(`HUOMIO: Asiakkaalle on suunnitelmassa asetettu velvoittava palvelu (${hardTitles}). Palvelusta kieltäytyminen tai sen keskeyttäminen ilman pätevää syytä voi johtaa työttömyysturvalain mukaiseen seuraamukseen. Työnhakuvelvollisuutta voidaan mahdollisesti alentaa palvelun keston ajaksi.`);
         }
 
+        const jatkuvatPalvelut = (state.services || []).filter(s => ['alkanut', 'ohjattu'].includes(s.tila?.toLowerCase()));
+        if (jatkuvatPalvelut.length > 0 && buildKokoPalveluhistoriaText) {
+            finalTexts.push(`Asiakas jatkaa aiemmin sovituissa palveluissa:\n${buildKokoPalveluhistoriaText(jatkuvatPalvelut)}`);
+        }
+
         return finalTexts.join('\n\n');
-    }, [dbPhrases, valinnat, state.palkkatuki, activeServices, hardServices]);
+    }, [dbPhrases, valinnat, state.palkkatuki, activeServices, hardServices, state.services, buildKokoPalveluhistoriaText]);
 
     const handleMoveText = () => {
         if (!generatedText) return;
@@ -108,7 +152,7 @@ const Suunnitelma = ({ state, actions }) => {
         actions.onUpdateCustomText(UI_KEY, combinedText);
     };
 
-    // 3. Synkronointi Master-profiiliin
+    // 5. SYNKRONOINTI MASTER-PROFIILIIN
     useEffect(() => {
         const currentText = customText || generatedText;
         const valitutIdList = Object.keys(valinnat).filter(k => valinnat[k]);
@@ -123,7 +167,10 @@ const Suunnitelma = ({ state, actions }) => {
         }
     }, [customText, generatedText, valinnat, actions]);
 
-    const displaySignals = useMemo(() => Object.entries(signals).filter(([key, value]) => value && !key.match(/^[0-9a-f]{8}-[0-9a-f]{4}-/i)), [signals]);
+    // 6. APUMUUTTUJAT KÄYTTÖLIITTYMÄLLE
+    const displaySignals = useMemo(() => 
+        Object.entries(activeSignals).filter(([key, value]) => value && !key.match(/^[0-9a-f]{8}-[0-9a-f]{4}-/i)), 
+    [activeSignals]);
 
     const strategyPaths = useMemo(() => {
         const paths = {
@@ -136,7 +183,7 @@ const Suunnitelma = ({ state, actions }) => {
         dbPhrases.forEach(phrase => {
             if (phrase.triggerit && phrase.triggerit.length > 0) {
                 phrase.triggerit.forEach(t => {
-                    if (signals[t.signal_key]) {
+                    if (activeSignals[t.signal_key]) {
                         const path = paths[t.strategy_path];
                         if (path && !path.phrases.find(p => p.id === phrase.id)) path.phrases.push(phrase);
                     }
@@ -144,7 +191,7 @@ const Suunnitelma = ({ state, actions }) => {
             }
         });
         return paths;
-    }, [dbPhrases, signals]);
+    }, [dbPhrases, activeSignals]);
 
     const groupedPhrases = useMemo(() => {
         const groups = {};
@@ -160,17 +207,25 @@ const Suunnitelma = ({ state, actions }) => {
 
     return (
         <div className="section-container">
-            <h2 className="section-title"><CheckSquare size={24} /> Työllistymissuunnitelman kokoaminen</h2>
+            <h2 className="icon-heading">
+                <CheckSquare size={28} className="text-primary" /> 
+                Työllistymissuunnitelman kokoaminen
+            </h2>
 
-            <Tyonhakuprofiili state={state} actions={actions} />
+            <div className="mb-6">
+                <Tyonhakuprofiili state={state} actions={actions} />
+            </div>
 
-            <div className="thv-resolution-hub">
+            {/* RATKAISUKESKUS */}
+            <div className="thv-resolution-hub mb-6">
                 <div className="thv-resolution-header"><Zap size={20} /> Älykäs Ratkaisukeskus</div>
                 <div className="thv-resolution-grid">
                     <div className="thv-resolution-column">
                         <h4 className="thv-column-title">Havaitut signaalit</h4>
                         {displaySignals.length > 0 ? (
-                            <ul className="thv-resolution-signals">{displaySignals.map(([key]) => <li key={key}>{key.replace(/_/g, ' ')}</li>)}</ul>
+                            <ul className="thv-resolution-signals">
+                                {displaySignals.map(([key]) => <li key={key}>{key.replace(/_/g, ' ')}</li>)}
+                            </ul>
                         ) : <p className="thv-resolution-info">Ei vahvoja signaaleja.</p>}
                     </div>
                     <div className="thv-resolution-column" style={{ flex: '2', display: 'flex', gap: '1rem' }}>
@@ -187,75 +242,104 @@ const Suunnitelma = ({ state, actions }) => {
                 </div>
             </div>
 
-            <div style={{ marginBottom: '2rem' }}>
+            <div className="mb-6">
                 <Palveluohjaus state={state} actions={actions} onServicesLoaded={setLoadedServices} />
             </div>
 
-            {/* --- UUSI OSIO: LÄHETTEET (Näytetään vain, jos vaaditaan) --- */}
+            {/* JURIDINEN VAROITUS */}
+            {hardServices.length > 0 && (
+                <div className="mb-6">
+                    <AlertBox variant="warning" icon={AlertTriangle} title="Velvoittava palvelu valittu">
+                        Olet valinnut asiakkaalle velvoittavan palvelun. Palvelusta kieltäytyminen ilman pätevää syytä voi johtaa työttömyysturvalain mukaiseen seuraamukseen.
+                    </AlertBox>
+                </div>
+            )}
+
+            {/* LÄHETTEET */}
             {referralServices.length > 0 && (
-                <div className="referral-container" style={{ marginBottom: '2rem', padding: '1.5rem', backgroundColor: '#f0fdfa', border: '2px solid #0d9488', borderRadius: '8px' }}>
-                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#0f766e', marginBottom: '1rem', marginTop: 0 }}>
-                        <UserPlus size={22} /> Generoitavat lähetteet ammattilaisille
-                    </h3>
-                    <p style={{ color: '#115e59', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                <Card variant="info" title="Generoitavat lähetteet ammattilaisille" icon={UserPlus} className="mb-6">
+                    <p style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>
                         Valitsemasi palvelut vaativat tarkan lähetteen. Järjestelmä on tuonut pohjalle automaattisesti 33 § -edellytysten arvion pohjatiedoksi.
                     </p>
 
                     {referralServices.map(s => {
                         const refKey = `lahete_${s.id}`;
-                        // Taika tapahtuu tässä: Tuodaan 33 § arvio suoraan lähetteeseen!
                         const edellytyksetText = state['custom-edellytykset'] ? state['custom-edellytykset'] : 'Tietoa ei kirjattu 33 § -osioon.';
                         const defaultText = `TAUSTATIEDOT JA LÄHTÖTILANNE (33 § ARVIO):\n----------------------------------------\n${edellytyksetText}\n\nASIANTUNTIJAN KYSYMYS TAI TILAUS PALVELUNTUOTTAJALLE:\n----------------------------------------\n`;
                         const currentRefText = state[`custom-${refKey}`] !== undefined ? state[`custom-${refKey}`] : defaultText;
 
                         return (
-                            <div key={s.id} style={{ marginBottom: '1.5rem', backgroundColor: 'white', padding: '1rem', borderRadius: '6px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                                <h4 style={{ marginBottom: '0.5rem', color: '#0f766e', display: 'flex', justifyContent: 'space-between' }}>
+                            <div key={s.id} className="card-inner-sm mb-6">
+                                <h4 style={{ marginBottom: '0.5rem', color: 'var(--color-primary)', display: 'flex', justifyContent: 'space-between' }}>
                                     <span>{s.title}</span>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 'normal', backgroundColor: '#ccfbf1', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>Tilaus/Lähete</span>
+                                    <span className="tag tag--warning">Tilaus/Lähete</span>
                                 </h4>
                                 <textarea 
-                                    className="form-input" 
-                                    rows="12" 
+                                    className="text-mono" 
+                                    rows="8" 
                                     value={currentRefText} 
                                     onChange={(e) => actions.onUpdateCustomText(refKey, e.target.value)} 
-                                    style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace', fontSize: '0.9rem', backgroundColor: '#fafafa', border: '1px solid #cbd5e1' }}
                                 />
                             </div>
                         );
                     })}
-                </div>
+                </Card>
             )}
-            {/* ------------------------------------------------------------- */}
 
-            <div className="questions-container">
-                <h3 style={{ marginBottom: '1.5rem' }}>Käsiohjaus (Kaikki toimenpiteet)</h3>
-                {Object.entries(groupedPhrases).map(([group, phrases]) => (
-                    <div key={group} style={{ marginBottom: '1.5rem' }}>
-                        <h4 className="subsection-title">{group.charAt(0).toUpperCase() + group.slice(1).replace(/_/g, ' ')}</h4>
-                        {phrases.map(phrase => (
-                            <label key={phrase.id} className="custom-checkbox-row">
-                                <input type="checkbox" className="modern-checkbox" checked={!!valinnat[phrase.id]} onChange={(e) => handleTogglePhrase(phrase.id, e.target.checked)} />
-                                <span>{phrase.lyhenne}</span>
-                            </label>
-                        ))}
-                    </div>
-                ))}
-            </div>
+            {/* KÄSIOHJAUS ACCORDIONIEN AVULLA */}
+            <div className="mb-6">
+                <h3 className="icon-heading">Käsiohjaus (Kaikki toimenpiteet)</h3>
+                
+                <div className="flex-col-gap">
+                    {Object.entries(groupedPhrases).map(([group, phrases]) => {
+                        // ÄLY: Tarkistetaan, onko tässä ryhmässä yksikään valinta "päällä"
+                        const hasSelections = phrases.some(phrase => valinnat[phrase.id]);
 
-            <div className="thv-locked-text-container">
-                <div className="thv-locked-text-header">
-                    <span><FileText size={16} /> Suunnitelmaluonnos</span>
-                    {generatedText && <button onClick={handleMoveText} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-primary)', padding: '0.3rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}><ArrowDownCircle size={14} /> Siirrä muokattavaksi</button>}
+                        return (
+                            <div key={group} className="card-inner" style={{ padding: '0.5rem 1.5rem' }}>
+                                {/* Avataan automaattisesti vain, jos valintoja on! anders = siististi kiinni */}
+                                <Accordion 
+                                    title={<span style={{ textTransform: 'capitalize', fontSize: '1.1rem' }}>{group.replace(/_/g, ' ')}</span>}
+                                    defaultOpen={hasSelections}
+                                >
+                                    <div className="grid-cols-2-tight" style={{ marginTop: '0.5rem' }}>
+                                        {phrases.map(phrase => (
+                                            <Checkbox 
+                                                key={phrase.id}
+                                                label={phrase.lyhenne}
+                                                checked={!!valinnat[phrase.id]} 
+                                                onChange={(isChecked) => handleTogglePhrase(phrase.id, isChecked)} 
+                                            />
+                                        ))}
+                                    </div>
+                                </Accordion>
+                            </div>
+                        );
+                    })}
                 </div>
-                <div className="thv-locked-text-body" style={{ whiteSpace: 'pre-line' }}>{generatedText || <em>Valitse toimenpiteitä yläpuolelta...</em>}</div>
             </div>
 
-            <div className="custom-text-container" style={{ marginTop: '1.5rem' }}>
-                <label htmlFor="suunnitelma-custom-text" className="custom-text-label" style={{ fontWeight: 'bold' }}>
-                    Omat lisäykset ja tarkennukset (Tämä teksti tulostuu lopulliseen suunnitelmaan):
+            {/* SUUNNITELMALUONNOS */}
+            <SmartTextPreview 
+                title="Suunnitelmaluonnos"
+                text={generatedText}
+                onMoveText={handleMoveText}
+            />
+
+            {/* OMAT LISÄYKSET */}
+            <div className="custom-text-container">
+                <label htmlFor="suunnitelma-custom-text" className="icon-label">
+                    Omat lisäykset ja tarkennukset
                 </label>
-                <textarea id="suunnitelma-custom-text" className="form-input" rows="6" value={customText} onChange={handleCustomTextChange} placeholder="Kirjoita tähän vapaata tekstiä..." style={{ marginTop: '0.5rem', resize: 'vertical' }} />
+                <p className="stat-label">Tämä teksti tulostuu lopulliseen suunnitelmaan</p>
+                <textarea 
+                    id="suunnitelma-custom-text" 
+                    rows="8" 
+                    value={customText} 
+                    onChange={(e) => actions.onUpdateCustomText(UI_KEY, e.target.value)} 
+                    placeholder="Kirjoita tähän vapaata tekstiä..." 
+                    style={{ marginTop: '0.5rem', fontFamily: 'var(--font-sans)', lineHeight: '1.6' }}
+                />
             </div>
         </div>
     );

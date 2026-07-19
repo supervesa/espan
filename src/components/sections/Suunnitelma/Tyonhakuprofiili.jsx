@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { supabase } from '../../utils/supabaseClient';
-import { planData } from '../../data/planData';
+import { supabase } from "../../../utils/supabaseClient";
+import { planData } from '../../../data/planData';
 import { UserCircle, AlertTriangle, Calendar, FileText, ArrowRight, Lightbulb } from 'lucide-react';
 
 const Tyonhakuprofiili = ({ state, actions }) => {

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Compass, Search, Info, PlusCircle, CheckCircle, ExternalLink, Sparkles, FileText, Languages, Lock, AlertCircle, Calendar } from 'lucide-react';
-import { supabase } from '../../utils/supabaseClient';
+import { supabase } from '../../../utils/supabaseClient';
 
 const CEFR_SCORES = {
     'a1.1': 1, 'a1.2': 2, 'a1.3': 3,

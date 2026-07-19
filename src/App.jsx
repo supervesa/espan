@@ -24,7 +24,7 @@ import TyokykyOsio from './components/sections/tyokyky';
 import TyollistymisenEdellytykset from './components/sections/TyollistymisenEdellytykset';
 import PalkkatukiCalculator from "./components/sections/PalkkatukiCalculator";
 import Palveluunohjaus from './components/sections/Palveluunohjaus';
-import Suunnitelma from './components/sections/Suunnitelma';
+import Suunnitelma from './components/sections/Suunnitelma/index.jsx';
 import Tyonhakuvelvollisuus from './components/sections/Tyonhakuvelvollisuus';
 import AiAnalyysi from './components/AiAnalyysi';
 import Jalkimarkkinointi from './components/Jalkimarkkinointi';
