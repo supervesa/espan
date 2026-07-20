@@ -1,7 +1,7 @@
+// --- src/components/signals/SignalContext.jsx ---
 import React, { createContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 
-// 1. Viedään Context (jotta useSignal.js löytää sen)
 export const SignalContext = createContext(null);
 
 const normalize = (str) => {
@@ -10,23 +10,38 @@ const normalize = (str) => {
     return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 };
 
-// 2. Viedään Provider (jotta App.js löytää sen)
 export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) => {
-    const [dbData, setDbData] = useState({ signals: [], phrases: [], sections: [] });
+    // 1. LISÄTTY uudet taulut alkutilaan
+    const [dbData, setDbData] = useState({ 
+        signals: [], 
+        phrases: [], 
+        sections: [],
+        variables: [],
+        rules: [],
+        knowledgeBase: []
+    });
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchAll = async () => {
             try {
-                const [sig, phr, sec] = await Promise.all([
+                // 2. LISÄTTY kolme uutta Supabase-hakua samaan eräajoon
+                const [sig, phr, sec, vars, rulesData, kb] = await Promise.all([
                     supabase.from('system_signals').select('*'),
                     supabase.from('phrases').select('phrase_key, short_title, section_id'),
-                    supabase.from('sections').select('id, title')
+                    supabase.from('sections').select('id, title'),
+                    supabase.from('variables').select('*'),
+                    supabase.from('business_rules').select('*'),
+                    supabase.from('knowledge_base').select('*').eq('category', 'Vakiotekstit')
                 ]);
+                
                 setDbData({ 
                     signals: sig.data || [], 
                     phrases: phr.data || [], 
-                    sections: sec.data || [] 
+                    sections: sec.data || [],
+                    variables: vars.data || [],           // UUSI
+                    rules: rulesData.data || [],          // UUSI
+                    knowledgeBase: kb.data || []          // UUSI
                 });
             } catch (err) {
                 console.error("Virhe globaalissa signaalidatan haussa:", err);
@@ -38,6 +53,7 @@ export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) =
     }, []);
 
     const dictionary = useMemo(() => {
+        // TÄMÄ ON KOSKEMATON - Vanha logiikka toimii kuten ennenkin
         const dict = {};
         const sectionMap = {};
         dbData.sections.forEach(s => { sectionMap[s.id] = s.title; });
@@ -63,6 +79,7 @@ export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) =
     }, [dbData]);
 
     const getSignalInfo = useCallback((key) => {
+        // TÄMÄ ON KOSKEMATON
         if (key.startsWith('AI_')) {
             const parts = key.split('_');
             return { label: normalize(parts[parts.length - 1]), cat: 'Tekoäly', isAi: true };
@@ -79,8 +96,12 @@ export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) =
         getSignalInfo,
         activeSignals, 
         actions,       
-        loading
-    }), [dictionary, getSignalInfo, activeSignals, actions, loading]);
+        loading,
+        // 3. LISÄTTY: Viedään uudet globaalit datat ulos Contextista
+        variables: dbData.variables,
+        rules: dbData.rules,
+        knowledgeBase: dbData.knowledgeBase
+    }), [dictionary, getSignalInfo, activeSignals, actions, loading, dbData.variables, dbData.rules, dbData.knowledgeBase]);
 
     return (
         <SignalContext.Provider value={value}>

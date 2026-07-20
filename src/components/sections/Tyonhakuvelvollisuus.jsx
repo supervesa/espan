@@ -1,11 +1,32 @@
 // --- src/components/sections/Tyonhakuvelvollisuus.jsx ---
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../../utils/supabaseClient';
+import { useSignal } from '../signals/useSignal';
 import { PhraseOption } from '../PhraseOption';
 import THVSmartAnalysisBox from './THV-smart-analysis-box';
-import { ChevronDown, ChevronUp, Lock, AlertCircle, Info, FileText, CheckSquare } from 'lucide-react';
-import { planData } from '../../data/planData';
+import { ChevronDown, ChevronUp, FileText, CheckSquare, AlertCircle } from 'lucide-react';
+import { planData } from '../../data/planData'; 
+
+// Common-komponentit
+import Button from '../common/Button';
+import AlertBox from '../common/AlertBox';
+import Checkbox from '../common/Checkbox';
+import SmartTextPreview from '../common/SmartTextPreview';
+
+const AIKATAULU_FAKE_ID = 'aikataulu-fake-id-12345';
+
+const transformVariables = (varsArray) => {
+    if (!varsArray || varsArray.length === 0) return null;
+    return varsArray.reduce((acc, curr) => {
+        let cleanDefault = curr.default_value;
+        if (typeof cleanDefault === 'string' && cleanDefault.startsWith('"') && cleanDefault.endsWith('"')) {
+            cleanDefault = cleanDefault.slice(1, -1);
+        }
+        acc[curr.variable_key] = { tyyppi: curr.input_type, oletus: cleanDefault };
+        return acc;
+    }, {});
+};
 
 // --- 1. ALENNUSTYÖKALU ---
 const Alennustyokalu = ({ alennusPhrases, selection, onUpdate, onCancel }) => {
@@ -24,10 +45,20 @@ const Alennustyokalu = ({ alennusPhrases, selection, onUpdate, onCancel }) => {
                 return phrase ? phrase.base_text : key;
             });
 
-        let teksti = '';
-        if (valitutTekstit.length > 0) teksti += valitutTekstit.join(' ');
-        if (vapaaTeksti) teksti += ` ${vapaaTeksti}`;
-        return teksti.trim();
+        if (valitutTekstit.length === 0) return vapaaTeksti ? vapaaTeksti.trim() : '';
+
+        if (valitutTekstit.length === 1) {
+            return `${valitutTekstit[0]}${vapaaTeksti ? ` ${vapaaTeksti}` : ''}`.trim();
+        }
+
+        let teksti = 'Työnhakuvelvollisuuden alentamisen tai asettamatta jättämisen perusteet:\n';
+        teksti += valitutTekstit.map(t => `• ${t}`).join('\n');
+        
+        if (vapaaTeksti) {
+            teksti += `\n\nTarkemmat perustelut:\n${vapaaTeksti}`;
+        }
+        
+        return teksti;
     }, [perustelut, vapaaTeksti, alennusPhrases]);
 
     const handleSave = () => {
@@ -41,141 +72,114 @@ const Alennustyokalu = ({ alennusPhrases, selection, onUpdate, onCancel }) => {
 
     return (
         <div className="alennus-tyokalu">
-            <h4 className="alennus-header">
-                <Info size={18} color="var(--color-primary)" /> Alentamisen viralliset perustelut
+            <h4 className="alennus-header text-primary">
+                <AlertCircle size={18} /> Alentamisen viralliset perustelut
             </h4>
+            
             <div className="perustelut-valinnat">
                 {alennusPhrases.map(p => (
-                    <div key={p.id} className="checkbox-wrapper">
-                        <input 
-                            type="checkbox" 
-                            id={`perustelu-${p.phrase_key}`} 
-                            checked={!!perustelut[p.phrase_key]} 
-                            onChange={() => handlePerusteluChange(p.phrase_key)} 
-                            className="modern-checkbox"
-                        />
-                        <label htmlFor={`perustelu-${p.phrase_key}`} className="modern-checkbox-label" style={{ margin: 0 }}>
-                            {p.short_title}
-                        </label>
-                    </div>
+                    <Checkbox 
+                        key={p.id}
+                        label={p.short_title}
+                        checked={!!perustelut[p.phrase_key]}
+                        onChange={() => handlePerusteluChange(p.phrase_key)}
+                    />
                 ))}
             </div>
+            
             <div className="vapaa-teksti-container">
-                <label htmlFor="vapaa-teksti-alennus">Tarkemmat perustelut (vapaa sana):</label>
+                <label htmlFor="vapaa-teksti-alennus" className="text-sm fw-semibold block" style={{ marginBottom: '0.5rem' }}>Tarkemmat perustelut (vapaa sana):</label>
                 <textarea id="vapaa-teksti-alennus" className="form-input" rows="3" value={vapaaTeksti} onChange={(e) => setVapaaTeksti(e.target.value)} />
             </div>
-            <div className="esikatselu-laatikko">
-                <strong>Esikatselu valmiista tekstistä:</strong>
-                <p className="esikatselu-teksti">{esikatselu || "Ei perusteluja valittu."}</p>
+            
+            <div style={{ marginTop: '1.5rem' }}>
+                <SmartTextPreview 
+                    title="Esikatselu valmiista tekstistä" 
+                    text={esikatselu} 
+                    emptyText="Ei perusteluja valittu." 
+                />
             </div>
+            
             <div className="alennus-tyokalu-actions">
-                <button onClick={handleSave} className="btn">Tallenna perustelut</button>
-                <button onClick={onCancel} className="btn btn--secondary">Peruuta</button>
+                <Button variant="primary" onClick={handleSave}>Tallenna perustelut</Button>
+                <Button variant="secondary" onClick={onCancel}>Peruuta</Button>
             </div>
         </div>
     );
 };
 
-// --- 2. VAKIOTEKSTITYÖKALU ---
+// --- 2. VAKIOTEKSTITYÖKALU (Opt-in Aikataulu ja Vale-ID kytkentä) ---
 const VakiotekstiTyokalu = ({ vakiotekstit, selection, onUpdate, aikatauluTeksti }) => {
     const currentSelection = selection || {};
-    const prevLkmRef = useRef(currentSelection?.muuttujat?.LKM);
 
-    useEffect(() => {
-        if (vakiotekstit.length === 0) return;
+    const handleUpdate = (newSelectedVt, includeSchedule) => {
+        const finalSelectedVt = { ...newSelectedVt };
         
-        const currentLkm = currentSelection?.muuttujat?.LKM;
-        const currentSelected = currentSelection.valitutVakiotekstit || {};
-        let newSelected = { ...currentSelected };
-
-        // 1. Oletusvalintojen asettaminen ensimmäisellä kerralla
-        if (Object.keys(currentSelected).length === 0) {
-            vakiotekstit.forEach(vt => {
-                if (vt.title.includes('Oikeudet ja velvollisuudet') || vt.title.includes('Täydentävät- ja Työnhakukeskustelut')) {
-                    newSelected[vt.id] = true;
-                } else if (vt.title.includes('toteuttaminen ja seuranta')) {
-                    newSelected[vt.id] = Number(currentLkm) > 0;
-                } else {
-                    newSelected[vt.id] = false;
-                }
-            });
-        } 
-        // 2. Reagoi lukumäärän (LKM) muutoksiin lennosta
-        else if (currentLkm !== prevLkmRef.current) {
-             vakiotekstit.forEach(vt => {
-                 if (vt.title.includes('toteuttaminen ja seuranta')) {
-                     newSelected[vt.id] = Number(currentLkm) > 0;
-                 }
-             });
+        // Vale-ID:n lisääminen tai poistaminen valituista vakioteksteistä
+        if (includeSchedule) {
+            finalSelectedVt[AIKATAULU_FAKE_ID] = true;
+        } else {
+            delete finalSelectedVt[AIKATAULU_FAKE_ID];
         }
 
-        const combinedStandard = vakiotekstit.filter(vt => newSelected[vt.id]).map(vt => vt.content_text).join('\n\n');
-        const newFinalCombined = aikatauluTeksti ? `${aikatauluTeksti}\n\n${combinedStandard}` : combinedStandard;
-
-        // === IKILIIKKUJAN ESTO (Suojalukko) ===
-        // Tarkistetaan, onko teksti TAI valinnat oikeasti muuttuneet.
-        const valinnatSamat = JSON.stringify(currentSelected) === JSON.stringify(newSelected);
-        const tekstiSama = currentSelection.vakiotekstitYhdistetty === newFinalCombined;
-
-        // Lähetetään päivitys vain, jos jotain oikeasti muuttui
-        if (!valinnatSamat || !tekstiSama) {
-            onUpdate({ 
-                ...currentSelection, 
-                valitutVakiotekstit: newSelected, 
-                vakiotekstitYhdistetty: newFinalCombined 
-            });
-        }
+        const combinedStandard = vakiotekstit.filter(vt => finalSelectedVt[vt.id]).map(vt => vt.content_text).join('\n\n');
+        const aikatauluOsa = (includeSchedule && aikatauluTeksti) ? `${aikatauluTeksti}\n\n` : '';
+        const newFinalCombined = `${aikatauluOsa}${combinedStandard}`.trim();
         
-        prevLkmRef.current = currentLkm;
-    }, [currentSelection, vakiotekstit, onUpdate, aikatauluTeksti]);
+        onUpdate({ 
+            ...currentSelection, 
+            valitutVakiotekstit: finalSelectedVt, 
+            sisallytaAikataulu: includeSchedule,
+            vakiotekstitYhdistetty: newFinalCombined 
+        });
+    };
 
-    const handleToggle = (vtId, isChecked) => {
+    const handleToggleVt = (vtId, isChecked) => {
         const newSelected = { ...(currentSelection?.valitutVakiotekstit || {}), [vtId]: isChecked };
-        const combinedStandard = vakiotekstit.filter(vt => newSelected[vt.id]).map(vt => vt.content_text).join('\n\n');
-        const newFinalCombined = aikatauluTeksti ? `${aikatauluTeksti}\n\n${combinedStandard}` : combinedStandard;
-        
-        onUpdate({ ...currentSelection, valitutVakiotekstit: newSelected, vakiotekstitYhdistetty: newFinalCombined });
+        handleUpdate(newSelected, !!currentSelection?.sisallytaAikataulu);
+    };
+
+    const handleToggleSchedule = (isChecked) => {
+        handleUpdate(currentSelection?.valitutVakiotekstit || {}, isChecked);
     };
 
     return (
-        <div className="thv-locked-text-container">
-            <div className="thv-locked-text-header">
-                <Lock size={16} /> Aikataulu ja Lakisääteiset vakiotekstit
-            </div>
+        <div className="thv-locked-text-container" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <h4 className="thv-locked-text-header">
+                <CheckSquare size={18} style={{ color: 'var(--color-primary)' }} /> Aikataulu ja Lakisääteiset vakiotekstit
+            </h4>
             
             {aikatauluTeksti && (
-                <div style={{ padding: '0 0 1rem 0', marginBottom: '1rem', borderBottom: '1px solid var(--color-border)' }}>
-                    <strong style={{ fontSize: '0.85rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                        <CheckSquare size={14} /> Sovittu aikataulu (Tuotu automaattisesti)
-                    </strong>
-                    <div style={{ fontStyle: 'italic', color: 'var(--color-text-primary)' }}>
-                        {aikatauluTeksti}
-                    </div>
+                <div style={{ marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid var(--color-border)' }}>
+                    <Checkbox 
+                        label="Sisällytä tekoälyn generoima aikatauluehdotus suunnitelmaan"
+                        checked={!!currentSelection?.sisallytaAikataulu}
+                        onChange={(isChecked) => handleToggleSchedule(isChecked)}
+                    />
+                    {!!currentSelection?.sisallytaAikataulu && (
+                        <div className="text-sm font-italic text-secondary" style={{ marginTop: '0.75rem', paddingLeft: '1.75rem', borderLeft: '3px solid var(--color-primary)' }}>
+                            {aikatauluTeksti}
+                        </div>
+                    )}
                 </div>
             )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
                 {vakiotekstit.map(vt => (
-                    <div key={vt.id} className="checkbox-wrapper" style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                        <input 
-                            type="checkbox" 
-                            id={`vt-${vt.id}`}
-                            checked={!!currentSelection?.valitutVakiotekstit?.[vt.id]}
-                            onChange={(e) => handleToggle(vt.id, e.target.checked)}
-                            className="modern-checkbox"
-                            style={{ marginTop: '0.2rem' }}
-                        />
-                        <label htmlFor={`vt-${vt.id}`} className="modern-checkbox-label" style={{ margin: 0, fontWeight: '500' }}>
-                            {vt.title}
-                        </label>
-                    </div>
+                    <Checkbox 
+                        key={vt.id}
+                        label={vt.title}
+                        checked={!!currentSelection?.valitutVakiotekstit?.[vt.id]}
+                        onChange={(isChecked) => handleToggleVt(vt.id, isChecked)}
+                    />
                 ))}
             </div>
             
-            <strong style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>Esikatselu asiakirjaan tulostuvasta tekstistä:</strong>
-            <div className="thv-locked-text-body" style={{ backgroundColor: '#fff', padding: '1rem', border: '1px solid #dee2e6', borderRadius: '6px', marginTop: '0.5rem', whiteSpace: 'pre-line' }}>
-                {currentSelection?.vakiotekstitYhdistetty || 'Ei valittuja tekstejä.'}
-            </div>
+            <SmartTextPreview 
+                title="Esikatselu asiakirjaan tulostuvasta tekstistä" 
+                text={currentSelection?.vakiotekstitYhdistetty} 
+                emptyText="Ei valittuja tekstejä." 
+            />
         </div>
     );
 };
@@ -185,24 +189,22 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
     const UI_KEY = 'tyonhakuvelvollisuus';
     const { onSelect, onUpdateVariable, onUpdateCustomText } = actions;
     
+    const { variables, rules, knowledgeBase, loading: signalLoading } = useSignal();
+    
     const [phrases, setPhrases] = useState([]);
     const [alennusPhrases, setAlennusPhrases] = useState([]);
-    const [variables, setVariables] = useState([]);
-    const [rules, setRules] = useState([]);
-    const [vakiotekstit, setVakiotekstit] = useState([]); 
-    
     const [loading, setLoading] = useState(true);
-    const [alennusToolVisible, setAlennusToolVisible] = useState(false);
     
+    const [alennusToolVisible, setAlennusToolVisible] = useState(false);
     const [showAllOptions, setShowAllOptions] = useState(false);
 
     const selection = state[UI_KEY]; 
+    const aikatauluTeksti = state['custom-aikataulu_ehdotus'] || '';
 
-    // --- UUSI: THV-valinnan siivoustyökalu ---
     const handleClearPhrase = () => {
         onSelect('tyonhakuvelvollisuus', '', false, {
             ...selection,
-            avainsana: '', // Tuhoaa aktiivisen fraasin
+            avainsana: '',
             alentamisenPerustelut: null,
             alentamisenVapaaTeksti: ''
         });
@@ -212,83 +214,78 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
     const isPalvelussa = useMemo(() => {
         if (!state.tyotilanne) return false;
         const tt = JSON.stringify(state.tyotilanne).toLowerCase();
-        return tt.includes('tyokokeilu') || tt.includes('työkokeilu') || 
-               tt.includes('tyovoimakoulutus') || tt.includes('työvoimakoulutus') || 
-               tt.includes('palkkatuki') || tt.includes('palkkatuettu');
+        return tt.includes('tyokokeilu') || tt.includes('työvoimakoulutus') || tt.includes('palkkatuki') || tt.includes('palkkatuettu');
     }, [state.tyotilanne]);
 
-    const [aikatauluTeksti, setAikatauluTeksti] = useState(state.asiakas?.aikataulu_teksti || '');
-
+    // 1. Datan ja fraasien lataus
     useEffect(() => {
-        const handleRadio = (e) => setAikatauluTeksti(e.detail);
-        window.addEventListener('aikataulu_radio', handleRadio);
-        return () => window.removeEventListener('aikataulu_radio', handleRadio);
-    }, []);
-
-    const transformVariables = (varsArray) => {
-        if (!varsArray || !Array.isArray(varsArray) || varsArray.length === 0) return null;
-        const transformed = varsArray.reduce((acc, curr) => {
-            let parsedOptions = [];
-            try {
-                if (curr.options) {
-                    parsedOptions = JSON.parse(curr.options);
-                    if (typeof parsedOptions === 'string') parsedOptions = JSON.parse(parsedOptions);
-                }
-            } catch (e) { console.warn("Virhe:", curr.options); }
-            acc[curr.variable_key] = { tyyppi: curr.input_type, oletus: curr.default_value, vaihtoehdot: parsedOptions };
-            return acc;
-        }, {});
-        return Object.keys(transformed).length > 0 ? transformed : null;
-    };
-
-    useEffect(() => {
-        const fetchData = async () => {
+        const fetchLocalData = async () => {
             setLoading(true);
             try {
-                const [phrasesRes, alennusRes, varsRes, rulesRes, kbRes] = await Promise.all([
+                const [phrasesRes, alennusRes, varsRes] = await Promise.all([
                     supabase.from('phrases').select('*').eq('section_id', '5db6c713-639a-4124-8236-7f72a6f9e32e').order('priority_score', { ascending: true }),
                     supabase.from('phrases').select('*').eq('grouping_key', 'alennusperustelu').order('short_title'),
-                    supabase.from('variables').select('*'),
-                    supabase.from('business_rules').select('*'),
-                    supabase.from('knowledge_base').select('*').eq('category', 'Vakiotekstit')
+                    supabase.from('variables').select('*') 
                 ]);
 
                 if (phrasesRes.data) {
                     setPhrases(phrasesRes.data);
+                    
                     const sectionInPlanData = planData.aihealueet.find(s => s.id === UI_KEY);
                     if (sectionInPlanData) {
                         phrasesRes.data.forEach(dbPhrase => {
-                            const exists = sectionInPlanData.fraasit.find(f => f.avainsana === dbPhrase.phrase_key);
-                            if (!exists) {
+                            if (!sectionInPlanData.fraasit.find(f => f.avainsana === dbPhrase.phrase_key)) {
                                 const phraseVars = varsRes.data ? varsRes.data.filter(v => v.phrase_id === dbPhrase.id) : [];
                                 sectionInPlanData.fraasit.push({
-                                    avainsana: dbPhrase.phrase_key, teksti: dbPhrase.base_text,
-                                    lyhenne: dbPhrase.short_title, muuttujat: transformVariables(phraseVars)
+                                    avainsana: dbPhrase.phrase_key, 
+                                    teksti: dbPhrase.base_text,
+                                    lyhenne: dbPhrase.short_title,
+                                    muuttujat: transformVariables(phraseVars)
                                 });
                             }
                         });
                     }
                 }
-
-                if (alennusRes.data) setAlennusPhrases(alennusRes.data);
-                if (varsRes.data) setVariables(varsRes.data);
-                if (rulesRes.data) setRules(rulesRes.data);
                 
-                if (kbRes.data) {
-                    const filteredVt = kbRes.data.filter(kb => kb.title !== 'THV Lopputeksti');
-                    const order = ['Oikeudet ja velvollisuudet', 'Täydentävät- ja Työnhakukeskustelut', 'Työnhakuvelvollisuuden toteuttaminen ja seuranta (todennettava)'];
-                    filteredVt.sort((a, b) => {
-                        const indexA = order.indexOf(a.title);
-                        const indexB = order.indexOf(b.title);
-                        return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
-                    });
-                    setVakiotekstit(filteredVt);
-                }
+                if (alennusRes.data) setAlennusPhrases(alennusRes.data);
             } catch (error) { console.error("Virhe:", error); }
             setLoading(false);
         };
-        fetchData();
+        fetchLocalData();
     }, []);
+
+    // 2. TULOSTUKSEN SILTA: Aikataulun dynaaminen Vale-ID injektio
+    useEffect(() => {
+        const sectionInPlanData = planData.aihealueet.find(s => s.id === UI_KEY);
+        if (sectionInPlanData && aikatauluTeksti) {
+            // Varmistetaan, että vakiotekstit-taulukko on olemassa
+            if (!sectionInPlanData.vakiotekstit) sectionInPlanData.vakiotekstit = [];
+            
+            let fakeObj = sectionInPlanData.vakiotekstit.find(v => v.id === AIKATAULU_FAKE_ID);
+            if (!fakeObj) {
+                // Injektoidaan aikataulu tulostusmoottorin sanakirjaan
+                sectionInPlanData.vakiotekstit.push({
+                    id: AIKATAULU_FAKE_ID,
+                    title: 'Sovittu aikataulu',
+                    content_text: aikatauluTeksti
+                });
+            } else {
+                // Päivitetään teksti, jos tekoäly loi uuden ehdotuksen
+                fakeObj.content_text = aikatauluTeksti;
+            }
+        }
+    }, [aikatauluTeksti]);
+
+    const vakiotekstit = useMemo(() => {
+        if (!knowledgeBase) return [];
+        const filteredVt = knowledgeBase.filter(kb => kb.title !== 'THV Lopputeksti');
+        const order = ['Oikeudet ja velvollisuudet', 'Täydentävät- ja Työnhakukeskustelut', 'Työnhakuvelvollisuuden toteuttaminen ja seuranta (todennettava)'];
+        return filteredVt.sort((a, b) => {
+            const indexA = order.indexOf(a.title);
+            const indexB = order.indexOf(b.title);
+            return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+        });
+    }, [knowledgeBase]);
 
     const evaluateRule = (conditionStr, currentState) => {
         if (!conditionStr) return true;
@@ -314,7 +311,7 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
     };
 
     const { displayPhrases } = useMemo(() => {
-        if (loading) return { displayPhrases: [] };
+        if (loading || signalLoading) return { displayPhrases: [] };
         const visiblePhrases = [];
 
         for (const phrase of phrases) {
@@ -324,10 +321,30 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
             const isThisPhraseSelected = selection?.avainsana === phrase.phrase_key;
 
             phraseVars.forEach(v => { 
+                let parsedOptions = [];
+                try {
+                    if (Array.isArray(v.options)) {
+                        parsedOptions = v.options;
+                    } else if (typeof v.options === 'string') {
+                        let temp = JSON.parse(v.options);
+                        parsedOptions = typeof temp === 'string' ? JSON.parse(temp) : temp;
+                    }
+                } catch (e) { console.warn("Virhe JSON-parsinnassa:", v.options); }
+
+                let cleanDefault = v.default_value;
+                if (typeof cleanDefault === 'string' && cleanDefault.startsWith('"') && cleanDefault.endsWith('"')) {
+                    cleanDefault = cleanDefault.slice(1, -1);
+                }
+
                 const savedValue = isThisPhraseSelected && selection?.muuttujat ? selection.muuttujat[v.variable_key] : undefined;
+                const finalValue = savedValue !== undefined ? savedValue : cleanDefault;
+
                 muuttujatObj[v.variable_key] = { 
-                    oletus: v.default_value, arvo: savedValue !== undefined ? savedValue : v.default_value,
-                    value: savedValue !== undefined ? savedValue : v.default_value
+                    oletus: cleanDefault, 
+                    arvo: finalValue,
+                    value: finalValue,
+                    tyyppi: v.input_type,
+                    vaihtoehdot: parsedOptions
                 }; 
             });
             
@@ -343,7 +360,7 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
             visiblePhrases.push(enrichedPhrase);
         }
         return { displayPhrases: visiblePhrases };
-    }, [phrases, variables, rules, state, selection, loading]);
+    }, [phrases, variables, rules, state, selection, loading, signalLoading]);
 
     const primaryPhrase = useMemo(() => {
         if (displayPhrases.length === 0) return null;
@@ -355,61 +372,119 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
         ? (selection?.avainsana ? [displayPhrases.find(p => p.phrase_key === selection.avainsana)].filter(Boolean) : []) 
         : (showAllOptions ? displayPhrases : (primaryPhrase ? [primaryPhrase] : []));
 
+    const handlePhraseSelect = (sectionId, phraseKeyword, isToggle, payload) => {
+        if (payload) {
+            onSelect(sectionId, phraseKeyword, isToggle, payload);
+            return;
+        }
+        
+        const phrase = displayPhrases.find(p => p.phrase_key === phraseKeyword);
+        let defaultVars = {};
+        if (phrase && phrase.muuttujat) {
+            Object.keys(phrase.muuttujat).forEach(key => {
+                defaultVars[key] = phrase.muuttujat[key].oletus;
+            });
+        }
+
+        let currentSelectedVt = { ...(selection?.valitutVakiotekstit || {}) };
+        if (defaultVars.LKM && Number(defaultVars.LKM) > 0) {
+            vakiotekstit.forEach(vt => {
+                if (vt.title.includes('toteuttaminen ja seuranta')) {
+                    currentSelectedVt[vt.id] = true;
+                }
+            });
+        }
+        
+        const combinedStandard = vakiotekstit.filter(vt => currentSelectedVt[vt.id]).map(vt => vt.content_text).join('\n\n');
+        const aikatauluOsa = (selection?.sisallytaAikataulu && aikatauluTeksti) ? `${aikatauluTeksti}\n\n` : '';
+        const newFinalCombined = `${aikatauluOsa}${combinedStandard}`.trim();
+
+        onSelect(sectionId, phraseKeyword, isToggle, {
+            ...selection,
+            avainsana: phraseKeyword,
+            muuttujat: defaultVars,
+            valitutVakiotekstit: currentSelectedVt,
+            vakiotekstitYhdistetty: newFinalCombined
+        });
+        setAlennusToolVisible(false);
+    };
+
     const handleVariableUpdate = (sectionId, phraseKeyword, variableName, newValue) => {
         onUpdateVariable(sectionId, phraseKeyword, variableName, newValue);
         const phrase = displayPhrases.find(p => p.phrase_key === phraseKeyword);
+        
         if (phrase && variableName === 'LKM') {
             const defaultValue = phrase.muuttujat?.LKM?.oletus;
             if (defaultValue !== undefined && Number(newValue) < Number(defaultValue)) {
                 setAlennusToolVisible(true);
             }
+
+            if (vakiotekstit.length > 0) {
+                const currentSelected = { ...(selection?.valitutVakiotekstit || {}) };
+                let changed = false;
+                
+                vakiotekstit.forEach(vt => {
+                    if (vt.title.includes('toteuttaminen ja seuranta')) {
+                        const shouldBeChecked = Number(newValue) > 0;
+                        if (currentSelected[vt.id] !== shouldBeChecked) {
+                            currentSelected[vt.id] = shouldBeChecked;
+                            changed = true;
+                        }
+                    }
+                });
+
+                if (changed) {
+                    const combinedStandard = vakiotekstit.filter(vt => currentSelected[vt.id]).map(vt => vt.content_text).join('\n\n');
+                    const aikatauluOsa = (selection?.sisallytaAikataulu && aikatauluTeksti) ? `${aikatauluTeksti}\n\n` : '';
+                    const newFinalCombined = `${aikatauluOsa}${combinedStandard}`.trim();
+                    
+                    onSelect('tyonhakuvelvollisuus', phraseKeyword, false, {
+                        ...selection,
+                        muuttujat: { ...(selection?.muuttujat || {}), LKM: newValue },
+                        valitutVakiotekstit: currentSelected,
+                        vakiotekstitYhdistetty: newFinalCombined
+                    });
+                }
+            }
         }
     };
 
-    if (loading) return <div className="section-container"><p>Ladataan työnhakuvelvollisuuden aivoja...</p></div>;
+    if (loading || signalLoading) return <div className="section-container"><p className="text-secondary text-sm">Ladataan työnhakuvelvollisuuden aivoja...</p></div>;
 
     const dummySection = { id: 'tyonhakuvelvollisuus', otsikko: 'Työnhakuvelvollisuus' };
 
     return (
-        <section className="section-container" style={{ position: 'relative' }}>
-            <h2 className="section-title thv-section-title">
-                <FileText size={22} color="var(--color-primary)" /> Työnhakuvelvollisuus
+        <section className="section-container">
+            <h2 className="icon-heading text-primary">
+                <FileText size={22} /> Työnhakuvelvollisuus
             </h2>
             
-            <THVSmartAnalysisBox state={state} actions={actions} />
+            <THVSmartAnalysisBox actions={actions} />
             
-            {/* ÄLYKÄS BANNERI JOKA VAROITTAA JA SIIVOO HAAMUFRAASIT */}
             {isPalvelussa && (
-                <div className="guidance-box a-tmt-guidance" style={{ backgroundColor: 'var(--color-background-success)', borderLeft: '4px solid var(--color-success)', marginBottom: '1rem' }}>
-                    <p style={{ margin: 0 }}>
-                        <Info size={18} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '0.5rem', color: 'var(--color-success)' }} />
+                <div style={{ marginBottom: '1.5rem' }}>
+                    <AlertBox type="success" customStyle={{ marginBottom: selection?.avainsana ? '0.75rem' : '0' }}>
                         <strong>Palvelu tunnistettu.</strong> Asiakas on työkokeilussa, työvoimakoulutuksessa tai palkkatuella. 
                         Numeerista hakuvelvollisuutta ei vaadita. Suunnitelmaan tulostuu automaattisesti sivun alaosan <strong>Aikatauluehdotus ja lakisääteiset vakiotekstit.</strong>
-                    </p>
+                    </AlertBox>
                     
-                    {/* VAROITUS: Jos taustalla kummittelee jokin muu fraasi */}
                     {selection?.avainsana && (
-                        <div style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: '#fff', borderRadius: '4px', border: '1px solid var(--color-danger)' }}>
-                            <p style={{ margin: '0 0 0.5rem 0', color: 'var(--color-danger)', fontWeight: 'bold', fontSize: '0.85rem' }}>
-                                <AlertCircle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '0.3rem' }}/>
-                                Huomio: Sinulla on yhä aiemmin valittu virheellinen THV-fraasi muistissa (näkyy alla).
-                            </p>
-                            <button onClick={handleClearPhrase} className="btn btn--secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}>
-                                Poista turha THV-lauseke asiakirjasta
-                            </button>
-                        </div>
+                        <AlertBox type="danger" customStyle={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>Huomio: Sinulla on yhä aiemmin valittu virheellinen THV-fraasi muistissa.</span>
+                            <Button variant="danger" size="sm" onClick={handleClearPhrase}>Poista asiakirjasta</Button>
+                        </AlertBox>
                     )}
                 </div>
             )}
 
-            <div className="options-container" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {phrasesToRender.map(phrase => (
                     <PhraseOption 
                         key={phrase.id}
                         phrase={phrase} 
                         section={dummySection} 
                         isSelected={selection?.avainsana === phrase.phrase_key} 
-                        onSelect={onSelect} 
+                        onSelect={handlePhraseSelect} 
                         onUpdateVariable={handleVariableUpdate} 
                     />
                 ))}
@@ -417,34 +492,25 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
                 {displayPhrases.length > 1 && (
-                    <div className="thv-show-more-container" style={{ margin: 0 }}>
-                        <button 
-                            onClick={() => setShowAllOptions(!showAllOptions)} 
-                            className="btn btn--secondary thv-show-more-btn"
-                        >
-                            {showAllOptions ? <><ChevronUp size={16} /> Piilota ylimääräiset vaihtoehdot</> : <><ChevronDown size={16} /> {isPalvelussa ? 'Näytä silti numeeriset vaihtoehdot' : `Näytä muut vaihtoehdot (${displayPhrases.length - 1} kpl)`}</>}
-                        </button>
-                    </div>
+                    <Button variant="secondary" onClick={() => setShowAllOptions(!showAllOptions)}>
+                        {showAllOptions ? <><ChevronUp size={16} /> Piilota ylimääräiset vaihtoehdot</> : <><ChevronDown size={16} /> {isPalvelussa ? 'Näytä silti numeeriset vaihtoehdot' : `Näytä muut vaihtoehdot (${displayPhrases.length - 1} kpl)`}</>}
+                    </Button>
                 )}
                 
-                {/* SIIVOUSNAPPI MYÖS NORMAALITILANTEESEEN (Ei-palvelussa oleville) */}
                 {selection?.avainsana && !isPalvelussa && (
-                    <button onClick={handleClearPhrase} className="btn btn--secondary" style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem', color: 'var(--color-text-secondary)' }}>
-                        Poista nykyinen valinta
-                    </button>
+                    <Button variant="ghost" onClick={handleClearPhrase}>Poista nykyinen valinta</Button>
                 )}
             </div>
             
             {selection?.avainsana && (
-                 <div className="alennus-nappi-container" style={{ marginTop: '1rem' }}>
-                    <button 
+                 <div className="alennus-nappi-container">
+                    <Button 
+                        variant="secondary"
+                        icon={alennusToolVisible ? ChevronUp : AlertCircle}
                         onClick={() => setAlennusToolVisible(!alennusToolVisible)}
-                        className="btn btn--secondary"
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                     >
-                        {alennusToolVisible ? <ChevronUp size={16}/> : <AlertCircle size={16}/>}
                         {alennusToolVisible ? 'Piilota alennusperustelut' : 'Alenna velvollisuutta / Kirjaa perustelut lakia varten'}
-                    </button>
+                    </Button>
                  </div>
             )}
             
@@ -460,10 +526,10 @@ const Tyonhakuvelvollisuus = ({ state, actions }) => {
                 />
             )}
 
-            <div className="custom-text-container" style={{ marginBottom: '1.5rem', marginTop: '1rem' }}>
-                <label htmlFor={`custom-text-tyonhakuvelvollisuus`} className="custom-text-label">Lisätiedot tai omat muotoilut:</label>
+            <div className="custom-text-container">
+                <label htmlFor="custom-text-tyonhakuvelvollisuus" className="custom-text-label text-sm fw-semibold block" style={{ marginBottom: '0.5rem' }}>Lisätiedot tai omat muotoilut:</label>
                 <textarea 
-                    id={`custom-text-tyonhakuvelvollisuus`} 
+                    id="custom-text-tyonhakuvelvollisuus" 
                     className="form-input"
                     rows="3" 
                     placeholder="Kirjoita tähän vapaata tekstiä..." 
