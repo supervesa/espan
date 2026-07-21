@@ -17,7 +17,7 @@ export const useSentinelAnalytics = () => {
     // KEHITTÄJÄN KYTKIN
     // Vaihda 'false' kun sovellus menee tuotantoon.
     // ==========================================
-    const IS_TEST_MODE = true; 
+    const IS_TEST_MODE = false; 
 
     const logPlanCopied = async (state, asiantuntijaId) => {
         if (!asiantuntijaId) {
