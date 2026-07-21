@@ -101,11 +101,11 @@ export const useSentinelAnalytics = () => {
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
             const validUuids = selectedServiceIds.filter(id => uuidRegex.test(id));
 
-            if (validUuids.length > 0) {
-                const { data: services, error: serviceError } = await supabase
-                    .from('services')
-                    .select('category, requires_referral, hard_service')
-                    .in('id', validUuids);
+           if (validUuids.length > 0) {
+        const { data: services, error: serviceError } = await supabase
+            .from('services')
+            .select('category, requires_referral, hard_service')
+            .in('id', validUuids);
                 
                 if (serviceError) console.error("Sentinel: Virhe palveluhaussa", serviceError);
 

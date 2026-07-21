@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Copy, Calendar, MessageSquare, AlertTriangle, ExternalLink, MapPin, ShieldCheck } from 'lucide-react';
+// UUSI IMPORTTI LISÄTTY (Tarkista tarvittaessa kansiopolku oikeaksi)
+import AutocompleteInterpreterInput from '../common/AutocompleteInterpreterInput';
 
 function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiICS, smsTeksti, selectedRule, expertLocations = [], resolvedAddress = '', interpreterState = {} }) {
   const activeSlot = basket && basket.length > 0 ? basket[0] : null;
@@ -94,7 +96,6 @@ function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiIC
       const loopTimeFi = startObj.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' }).replace('.', ':');
       const loopMode = slotItem.mode || 'puhelu';
 
-      // Ratkaistaan dynaaminen lokaatio tätä spesifiä päivää kohden
       const loopDayRow = expertLocations.find(l => l.date === `${loopYyyy}-${loopMm}-${loopDd}`);
       const loopLocType = loopDayRow?.location_type || 'toimisto';
       
@@ -105,7 +106,6 @@ function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiIC
         loopLocationStr = 'Etäyhteys / Puhelin';
       }
 
-      // Luodaan uniikki tilausviite (tunniste) tätä tiettyä aikaa kohden
       let loopTunniste = '';
       if (interpreterState.needsInterpreter) {
         const langCode = interpreterState.displayLanguage && interpreterState.displayLanguage !== 'Määrittelemätön kieli' ? interpreterState.displayLanguage.substring(0, 3).toUpperCase() : 'TUL';
@@ -115,7 +115,6 @@ function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiIC
         loopTunniste = `${langCode}-${dateKoodi}-${timeKoodi}-${modeLetter}`;
       }
 
-      // Korjataan tekstipohjista automaattisesti oikea pvm ja aika (koska hook latasi ne ekan ajan mukaan)
       let actualICSDescriptionText = (virallinenTekstiICS || virallinenTeksti || '');
       actualICSDescriptionText = actualICSDescriptionText.split(baseDateFi).join(loopDateFi).split(baseTimeFi).join(loopTimeFi);
       
@@ -137,7 +136,6 @@ function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiIC
 
       const locationLine = loopLocationStr ? `LOCATION:${loopLocationStr.replace(/\n/g, ' ')}\n` : '';
       
-      // Lisätään jokaiselle eventille uniikki UID indexin avulla
       icsContent += `BEGIN:VEVENT
 UID:${Math.random().toString(36).substr(2, 9)}_${index}@espan.hel.fi
 DTSTAMP:${formatDateForICS(new Date())}
@@ -210,13 +208,14 @@ ${alarmBlock}END:VEVENT\n`;
             <ExternalLink size={14} /> Tulkkipalvelun tilaus ({interpreterState.displayLanguage})
           </div>
 
-          <input 
-            type="text" 
-            placeholder="Toivottu vakiotulkki (esim. Ali)" 
-            value={tulkkiName} 
-            onChange={(e) => setTulkkiName(e.target.value)}
-            style={{ width: '100%', padding: '0.4rem', fontSize: '0.8rem', border: '1px solid #86efac', borderRadius: '4px', boxSizing: 'border-box' }}
-          />
+          {/* ÄLYKÄS UUSI TULKKI-INPUT YHDISTETTY TÄHÄN */}
+          <div style={{ paddingBottom: '0.2rem' }}>
+            <AutocompleteInterpreterInput 
+              language={interpreterState?.displayLanguage} 
+              value={tulkkiName} 
+              onChange={setTulkkiName} 
+            />
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '0.4rem', borderRadius: '4px', border: '1px solid #dcfce3' }}>
