@@ -121,7 +121,13 @@ function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiIC
       let actualVirallinenTeksti = (virallinenTeksti || '').replace(/\n/g, '\\n');
       actualVirallinenTeksti = actualVirallinenTeksti.split(baseDateFi).join(loopDateFi).split(baseTimeFi).join(loopTimeFi);
 
-      let description = `--- 1. VIRALLINEN ILMOITUSTEKSTI (Kopioitavaksi) ---\\n${actualVirallinenTeksti}\\n\\n--- 2. VIRALLINEN ILMOITUSTEKSTI (Kalenteriin) ---\\n${actualICSDescriptionText.replace(/\n/g, '\\n')}`;
+      // ---- STEALTH TOKENIN LISÄYS ----
+      // Napataan token korista (tai hätävara)
+      const greetingToken = slotItem.sync_token || 'Mukavaa päivää';
+      // Lisätään token *vain* kalenteriin menevän tekstin loppuun uutena rivinä
+      const finalIcsDescription = `${actualICSDescriptionText}\\n${greetingToken}`.replace(/\n/g, '\\n');
+
+      let description = `--- 1. VIRALLINEN ILMOITUSTEKSTI (Kopioitavaksi) ---\\n${actualVirallinenTeksti}\\n\\n--- 2. VIRALLINEN ILMOITUSTEKSTI (Kalenteriin) ---\\n${finalIcsDescription}`;
       let alarmBlock = '';
 
       const modeText = loopMode === 'kaynti' ? 'läsnä' : 'soitto';
@@ -157,14 +163,6 @@ ${alarmBlock}END:VEVENT\n`;
     link.click();
     document.body.removeChild(link);
   };
-
-  if (!activeSlot || !selectedRule) {
-    return (
-      <div style={{ padding: '1rem', textAlign: 'center', backgroundColor: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '8px', color: '#64748b', fontSize: '0.85rem' }}>
-        Valitse sääntö ja kalenteriaika aktivoidaksesi viestintätyökalut.
-      </div>
-    );
-  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontFamily: 'system-ui, sans-serif', width: '100%', maxWidth: '400px', margin: '0 auto', border: '1px solid #cbd5e1', padding: '1rem', borderRadius: '8px', backgroundColor: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>

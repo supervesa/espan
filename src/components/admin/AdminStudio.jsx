@@ -1,7 +1,5 @@
-// --- src/components/admin/AdminStudio.jsx ---
 import React, { useState } from 'react';
-import { FileText, List, Activity, Sparkles, Database, MessageSquare, AlertCircle, Target } from 'lucide-react'; // <-- Target lisätty ikoneihin
-import { Calendar as CalendarIcon } from 'lucide-react';
+import { FileText, List, Activity, Sparkles, Database, MessageSquare, AlertCircle, Target, CalendarDays, Calendar as CalendarIcon } from 'lucide-react'; 
 import AvailabilityManager from './AvailabilityManager';
 
 // Modernit hallintapaneelit
@@ -10,6 +8,9 @@ import SignalsManager from './SignalsManager';
 import PhrasesManager from './PhrasesManager'; 
 import TyottomyysturvaManager from './TyottomyysturvaManager';
 import PlanCalculator from "./PlanCalculator/PlanCalculator";
+
+// Uusi Työkalenteri
+import CalendarManager from './Calendar/CalendarManager';
 
 // Vanhat paneelit (Legacy)
 import AdminWorkspace from './AdminWorkspace'; 
@@ -25,8 +26,9 @@ const AdminStudio = () => {
         { id: 'phrases', label: 'Fraasit (Teemat)', icon: MessageSquare }, 
         { id: 'sections', label: 'Lomakerakenne', icon: List },
         { id: 'tyottomyysturva', label: 'Työttömyysturva', icon: AlertCircle },
-        { id: 'availability', label: 'Ajanvaraus', icon: CalendarIcon }, 
-        { id: 'plan_calculator', label: 'Kapasiteetti', icon: Target }, // <-- UUSI NAPPULA LISÄTTY
+        { id: 'availability', label: 'Ajanvaraus (Vanha)', icon: CalendarIcon }, 
+        { id: 'new_calendar', label: 'Työkalenteri', icon: CalendarDays },
+        { id: 'plan_calculator', label: 'Kapasiteetti', icon: Target }, 
         { id: 'signals', label: 'Signaalikirjasto', icon: Activity },
         { id: 'ai_rules', label: 'Palveluohjaukset', icon: Sparkles },
         { id: 'import', label: 'Massatuonti', icon: Database }
@@ -94,7 +96,8 @@ const AdminStudio = () => {
                 {activeTab === 'sections' && <SectionsManager />}
                 {activeTab === 'signals' && <SignalsManager />}
                 {activeTab === 'tyottomyysturva' && <TyottomyysturvaManager />} 
-                {activeTab === 'plan_calculator' && <PlanCalculator asiantuntijaId="85a812b3-5956-42ad-8e49-e1e673ba5f7d" />} {/* <-- RENDERÖINTI LISÄTTY */}
+                {activeTab === 'new_calendar' && <CalendarManager />}
+                {activeTab === 'plan_calculator' && <PlanCalculator asiantuntijaId="85a812b3-5956-42ad-8e49-e1e673ba5f7d" />}
                 
                 {/* VANHAT KOMPONENTIT PAIKOILLAAN */}
                 {activeTab === 'ai_rules' && <div className="animation-fade-in"><ServicesAdmin /></div>}

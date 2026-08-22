@@ -9,20 +9,25 @@ import CopyButton from '../common/CopyButton';
 import BasketSlotPicker from './BasketSlotPicker';
 import SmartSuggestionBox from './SmartSuggestionBox';
 import { analyzeSchedule } from './schedulePriorityEngine';
-import { findAvailableSlots } from './schedulingUtils';
+
+import { generateGreetingToken } from '../../utils/tokenGenerator';
+import { findAvailableSlots } from './schedulingUtils'; 
+
 import { generateSmartDraft } from './draftingEngine';
 import { getAlueJaToimipiste } from '../../hooks/usePostinumero';
 import { FlaskConical, Calendar, User, Activity, CheckCircle2, Phone, Database, Link, AlertCircle, History, Download } from 'lucide-react';
 
 import { useViestiKokoamo } from '../../hooks/useViestiKokoamo';
 import TilausAssistenttiPaneeli from './TilausAssistenttiPaneeli';
-
 import { getInterpretedWeekSlots } from './locationInterpreter';
 
-const EXPERT_ID = '00000000-0000-0000-0000-000000000000';
+// Pehmeän migraation vanha ID
+const LEGACY_ID = '00000000-0000-0000-0000-000000000000';
 
 const AikatauluEhdotus = ({ state, actions }) => {
     const { activeSignals, getSignalInfo } = useSignal();
+
+    const [expertId, setExpertId] = useState(null);
 
     const [rules, setRules] = useState([]);
     const [expertRules, setExpertRules] = useState([]);
@@ -87,17 +92,31 @@ const AikatauluEhdotus = ({ state, actions }) => {
         const loadData = async () => {
             setLoading(true);
             try {
+                // 1. Haetaan oikea, sisäänkirjautunut käyttäjä
+                const { data: { user } } = await supabase.auth.getUser();
+                
+                // Jos testiympäristössä ei ole auth-sessiota, käytetään oikeaa ID:tä varotoimena
+                const currentExpertId = user?.id || '85a812b3-5956-42ad-8e49-e1e673ba5f7d';
+                setExpertId(currentExpertId);
+
+                // Määritellään ID:t joilla dataa haetaan (Oikea + Vanha nollasarja)
+                const queryIds = [currentExpertId, LEGACY_ID];
+
+                // 2. Haetaan data .in() metodilla molemmilla ID:illä
                 const [kb, er, av, locs] = await Promise.all([
                     supabase.schema('espan').from('knowledge_base').select('*'),
-                    supabase.schema('espan').from('expert_availability_rules').select('*').eq('expert_id', EXPERT_ID),
-                    supabase.schema('espan').from('availability').select('*').eq('expert_id', EXPERT_ID),
-                    supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', EXPERT_ID)
+                    supabase.schema('espan').from('expert_availability_rules').select('*').in('expert_id', queryIds),
+                    supabase.schema('espan').from('availability').select('*').in('expert_id', queryIds),
+                    supabase.schema('espan').from('expert_daily_locations').select('*').in('expert_id', queryIds)
                 ]);
+                
                 setRules(kb.data || []);
                 setExpertRules(er.data || []);
                 setBookedSlots(av.data || []);
                 setExpertLocations(locs.data || []); 
-            } catch (err) { console.error("Tietokantavirhe:", err); }
+            } catch (err) { 
+                console.error("Tietokantavirhe:", err); 
+            }
             setLoading(false);
         };
         loadData();
@@ -111,18 +130,17 @@ const AikatauluEhdotus = ({ state, actions }) => {
         }, {});
     }, [state.suunnitelman_perustiedot]);
 
- const { suggestion: activeSuggestion, diagnostics } = useMemo(() => {
+    const { suggestion: activeSuggestion, diagnostics } = useMemo(() => {
         const services = Array.isArray(state.sessionServices) ? state.sessionServices : [];
         const result = analyzeSchedule(rules, activeSignals, services, perustiedotVars);
 
-        // Lisätään ehdotukseen lähin toimipiste postinumeron perusteella
         if (result.suggestion) {
             const postinro = state?.asiakas?.postinumero;
             if (postinro) {
                 const { toimipiste } = getAlueJaToimipiste(postinro);
                 result.suggestion.toimipiste = toimipiste;
             } else {
-                result.suggestion.toimipiste = 'Malminkatu (Oletus)'; // Jos postinumeroa ei ole vielä syötetty
+                result.suggestion.toimipiste = 'Malminkatu (Oletus)';
             }
         }
 
@@ -141,6 +159,50 @@ const AikatauluEhdotus = ({ state, actions }) => {
         const slots = getInterpretedWeekSlots(type, expertRules, bookedSlots, searchStart, expertLocations, viewMode);
         setProposedSlots(slots);
     }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion, expertLocations, viewMode]);
+
+    // ==========================================
+    // UUSI: Älykäs korin päivitys, joka arpoo sync_tokenin reaaliajassa!
+    // ==========================================
+    const handleBasketUpdate = (newBasketAction) => {
+        setBasket(prevBasket => {
+            const newBasket = typeof newBasketAction === 'function' ? newBasketAction(prevBasket) : newBasketAction;
+            
+            const updatedBasket = [];
+            const newlyUsedTokens = []; // Tämän silmukan aikana generoidut tokenit
+
+            for (const item of newBasket) {
+                // Jos token on jo arvottu (esim. poistettiin jotain muuta korista), säilytetään se!
+                if (item.sync_token) {
+                    updatedBasket.push(item);
+                    newlyUsedTokens.push({ dateStr: new Date(item.time).toISOString().split('T')[0], token: item.sync_token });
+                    continue;
+                }
+
+                // Luodaan uusi token tälle uudelle varaukselle
+                const dateStr = new Date(item.time).toISOString().split('T')[0];
+                
+                // 1. Katsotaan tietokannasta (bookedSlots) jo löytyvät tokenit tälle päivälle
+                const existingForDay = bookedSlots
+                    .filter(b => b.start_time && b.start_time.startsWith(dateStr) && b.sync_token)
+                    .map(b => b.sync_token);
+
+                // 2. Katsotaan tässä samassa silmukassa aiemmin generoidut (jottei koriin tule duplikaatteja)
+                const newlyGeneratedForDay = newlyUsedTokens
+                    .filter(t => t.dateStr === dateStr)
+                    .map(t => t.token);
+
+                const allUsed = [...existingForDay, ...newlyGeneratedForDay];
+                
+                // 3. Arvotaan token turvallisesti!
+                const safeToken = generateGreetingToken(item.time, allUsed);
+                
+                updatedBasket.push({ ...item, sync_token: safeToken });
+                newlyUsedTokens.push({ dateStr, token: safeToken });
+            }
+
+            return updatedBasket;
+        });
+    };
 
     const handleRuleChange = (ruleId, suggestedCount = 1, suggestedPeriod = 3, forcedMode = null) => {
         const rule = rules.find(r => r.id === ruleId);
@@ -169,11 +231,10 @@ const AikatauluEhdotus = ({ state, actions }) => {
             }
             setWeekOffset(newOffset);
             
-            // Moottori palauttaa nyt täydellisen ja virheettömän korin suoraan!
             const finalBasket = generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod, passedTargetDate, expertLocations);
-            setBasket(finalBasket);
+            handleBasketUpdate(finalBasket);
         } else {
-            setBasket([]);
+            handleBasketUpdate([]);
             setActiveForcedMode(null);
             setWeekOffset(0);
         }
@@ -182,33 +243,47 @@ const AikatauluEhdotus = ({ state, actions }) => {
     const handleCountChange = (newCount) => {
         setCount(newCount);
         const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
-        
         const finalBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, newCount, period, passedTargetDate, expertLocations);
-        setBasket(finalBasket);
+        handleBasketUpdate(finalBasket);
     };
 
     const handlePeriodChange = (newPeriod) => {
         setPeriod(newPeriod);
         const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
-        
         const finalBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod, passedTargetDate, expertLocations);
-        setBasket(finalBasket);
+        handleBasketUpdate(finalBasket);
     };
 
     const handleBooking = async () => {
-        if (basket.length === 0) return;
+        if (basket.length === 0 || !expertId) return; 
+        
         let type = 'normi';
         if (selectedRule.metadata?.triggers?.require_yleistuki) type = 'aktivointi';
         else if (selectedRule.title.toLowerCase().includes('täydentävä')) type = 'taydentava';
         
-        const inserts = basket.map(item => ({ expert_id: EXPERT_ID, start_time: item.time.toISOString(), meeting_type: type, contact_method: item.mode, is_blocked: true }));
+        // Tallennus on nyt täysin triviaali, koska korissa on JO tokenit!
+        const inserts = basket.map(item => ({ 
+            expert_id: expertId, 
+            start_time: item.time.toISOString(), 
+            meeting_type: type, 
+            contact_method: item.mode, 
+            is_blocked: true,
+            sync_token: item.sync_token // Otetaan valmis token korista
+        }));
+        
         try {
-            const { error } = await supabase.schema('espan').from('availability').insert(inserts);
-            if (!error) {
+            const { error: insertError } = await supabase.schema('espan').from('availability').insert(inserts);
+            
+            if (!insertError) {
                 setConfirmedSlots(basket);
                 setBookedSlots([...bookedSlots, ...inserts]);
+            } else {
+                throw insertError;
             }
-        } catch (err) { alert("Varaus epäonnistui."); }
+        } catch (err) { 
+            console.error(err);
+            alert("Varaus epäonnistui."); 
+        }
     };
 
     const generatePhrase = () => {
@@ -285,11 +360,12 @@ const AikatauluEhdotus = ({ state, actions }) => {
                         </div>
                     )}
 
+                    {/* Viedään uusi älykäs handleBasketUpdate koriin! */}
                     <BasketSlotPicker 
                         slots={proposedSlots} 
                         basket={basket}
                         bookedSlots={bookedSlots}
-                        setBasket={setBasket}
+                        setBasket={handleBasketUpdate} 
                         onBook={handleBooking} 
                         isAktivointi={selectedRule.metadata?.triggers?.require_yleistuki} 
                         forcedMode={activeForcedMode}

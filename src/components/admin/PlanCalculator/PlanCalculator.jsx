@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { usePlanCalculator } from './usePlanCalculator';
 import { useTargetCalculator } from './useTargetCalculator'; 
 import ProjectionChart from './ProjectionChart';
+import IcsImport from './IcsImport';
 import Card from '../../common/Card';
 import MetricBox from '../../common/MetricBox';
 import SmartInput from '../../common/SmartInput';
@@ -39,6 +40,12 @@ const PlanCalculator = ({ asiantuntijaId }) => {
             setFormData(prev => ({ ...prev, asiakkaat_yht: '', voimassa_prosentti: '', huomioita: '' }));
         }
         setIsSaving(false);
+    };
+
+   const handleImportComplete = () => {
+        // Otetaan automaattinen reload pois, jotta käyttäjä ehtii nähdä tulokset
+        // ja siirtyä Ratkaisukeskukseen.
+        // window.location.reload(); 
     };
 
     const tableColumns = [
@@ -119,7 +126,7 @@ const PlanCalculator = ({ asiantuntijaId }) => {
                     </div>
                 </MetricBox>
 
-                {/* UUSI MITTARI 2: Alueet */}
+                {/* MITTARI 2: Alueet */}
                 <MetricBox title="Alueet (Tehdyt)" icon={MapPin} variant="default">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
                         {areaDistribution?.length > 0 ? areaDistribution.map((item, index) => {
@@ -134,7 +141,7 @@ const PlanCalculator = ({ asiantuntijaId }) => {
                                     <div style={{ width: '100%', backgroundColor: '#e2e8f0', borderRadius: '4px', height: '6px' }}>
                                         <div style={{ 
                                             width: `${widthPercent}%`, 
-                                            backgroundColor: index === 0 ? '#10b981' : '#94a3b8', // Smaragdinvihreä väriteema tähän
+                                            backgroundColor: index === 0 ? '#10b981' : '#94a3b8',
                                             height: '100%', 
                                             borderRadius: '4px',
                                             transition: 'width 0.5s ease-in-out'
@@ -163,7 +170,7 @@ const PlanCalculator = ({ asiantuntijaId }) => {
                     <div className="text-2xl fw-bold font-mono text-primary">+{unreportedPlans}</div>
                     <div className="text-sm text-slate-500 mt-1">Uusia tehty (ei vielä Power BI:ssä)</div>
                     
-                    {/* TÄNNE LISÄTTY VIIKON SALDO */}
+                    {/* VIIKON SALDO */}
                     <div className="text-sm fw-semibold text-slate-700 mt-3 pt-3" style={{ borderTop: '1px solid #e2e8f0' }}>
                         Koko viikon saldo: <span className="font-mono text-success text-base">{currentWeekTotal} kpl</span>
                     </div>
@@ -236,6 +243,12 @@ const PlanCalculator = ({ asiantuntijaId }) => {
                 )}
             </div>
 
+            {/* ICS Kalenterituonti */}
+            <IcsImport 
+                asiantuntijaId={asiantuntijaId} 
+                onImportComplete={handleImportComplete} 
+            />
+
             {/* SYÖTTÖLOMAKE */}
             <Card title="Uusi Power BI -raportti" icon={Target} variant="default">
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
@@ -264,7 +277,7 @@ const PlanCalculator = ({ asiantuntijaId }) => {
                 <DataTable columns={tableColumns} data={snapshots} emptyMessage="Ei tallennettuja Power BI -raportteja." />
             </Card>
 
-            {/* --- UUSI LISÄYS: TYÖTTÖMYYSTURVAN 16 VIIKON HORISONTTI --- */}
+            {/* TYÖTTÖMYYSTURVAN 16 VIIKON HORISONTTI */}
             <ProjectionChart asiantuntijaId={asiantuntijaId} />
 
         </div>

@@ -1,4 +1,3 @@
-// --- src/components/admin/AvailabilityManager/ExpertCalendar.jsx ---
 import React, { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../../../utils/supabaseClient';
 import Card from '../../common/Card';
@@ -8,7 +7,6 @@ import {
     Home, Building, Send, Landmark, Lock, Flag, Hourglass
 } from 'lucide-react';
 
-// Apufunktiot päivämäärien käsittelyyn
 const addDays = (date, days) => {
     const result = new Date(date);
     result.setDate(result.getDate() + days);
@@ -35,6 +33,7 @@ const parseDBDateLocal = (dbString) => {
 
 const ExpertCalendar = ({
     expertId,
+    queryExpertIds = [], // Otetaan vastaan molemmat ID:t (Migraatiota varten)
     currentWeekStart,
     dailyLocations,
     exceptions,
@@ -42,7 +41,7 @@ const ExpertCalendar = ({
     nationalHolidays,
     settings,
     ledgerBalance,
-    availableBankDays = [], // UUSI: Otetaan vastaan vapaat päivät linkitystä varten
+    availableBankDays = [], 
     fetchData
 }) => {
     const [saving, setSaving] = useState(false); 
@@ -77,7 +76,7 @@ const ExpertCalendar = ({
         });
 
         let presenceIndices = [];
-        const isThursdayIncluded = settings.thursday_office_rate > 0; 
+        const isThursdayIncluded = settings?.thursday_office_rate > 0; 
         if (isThursdayIncluded && !dayAvailability[3].isBlockedDay) presenceIndices.push(4); 
         if (presenceIndices.includes(4) && !dayAvailability[2].isBlockedDay && presenceIndices.length < 2) presenceIndices.push(3); 
         if (!dayAvailability[1].isBlockedDay && presenceIndices.length < 2) presenceIndices.push(2); 
@@ -90,9 +89,9 @@ const ExpertCalendar = ({
 
             if (presenceIndices.includes(currentDayNum)) {
                 const isFirstPresenceDay = presenceIndices[0] === currentDayNum;
-                if (isFirstPresenceDay) suggestions[day.dateStr] = { type: 'lahityo', name: settings.primary_office_name, label: `Matkapäivä: ${settings.primary_office_name}` };
-                else if (currentDayNum === 4) suggestions[day.dateStr] = { type: 'lahityo', name: settings.thursday_office_name, label: `Kokous: ${settings.thursday_office_name}` };
-                else suggestions[day.dateStr] = { type: 'lahityo', name: settings.primary_office_name, label: 'Lähityö' };
+                if (isFirstPresenceDay) suggestions[day.dateStr] = { type: 'lahityo', name: settings?.primary_office_name || 'Toimisto', label: `Matkapäivä: ${settings?.primary_office_name || 'Toimisto'}` };
+                else if (currentDayNum === 4) suggestions[day.dateStr] = { type: 'lahityo', name: settings?.thursday_office_name || 'Toimisto', label: `Kokous: ${settings?.thursday_office_name || 'Toimisto'}` };
+                else suggestions[day.dateStr] = { type: 'lahityo', name: settings?.primary_office_name || 'Toimisto', label: 'Lähityö' };
             } else {
                 suggestions[day.dateStr] = { type: 'eta', name: 'Etätyö', label: 'Ehdotus: Etätyö' };
             }
@@ -129,6 +128,7 @@ const ExpertCalendar = ({
         return { gridColumn: dayIndex + 2, gridRow: `${startRow} / ${Math.min(50, endRow)}` };
     };
 
+    // MUUTETTU: Tuhoaa olemassa olevan rivin (oli se sitten Uusi tai Legacy ID) ennen uuden tallentamista uudella ID:llä
     const handleSaveLocation = async (dateStr, type, name) => {
         const finalName = name || customLocationText;
         if (!finalName.trim()) return alert("Kirjoita tai valitse toimipiste!");
@@ -137,52 +137,49 @@ const ExpertCalendar = ({
         const isCurrentlyRemote = existingLoc?.location_type === 'eta' || (!existingLoc && smartSuggestions[dateStr]?.type === 'eta');
 
         try {
-            if (type === 'eta_pankki') {
-                // FIFO-LOGIIKKA: Haetaan vanhin vapaa ansaintarivi taulukosta
-                const oldestAvailable = availableBankDays[0];
-                if (!oldestAvailable) {
-                    alert("Virhe: Ei vapaita ansaittuja päiviä pankissa!");
-                    return;
-                }
+            // Migraatio-siivous: Tuhotaan vanha sijoitus alta pois rivi-ID:llä
+            if (existingLoc) {
+                await supabase.schema('espan').from('expert_daily_locations').delete().eq('id', existingLoc.id);
+            }
 
-                // Tallennetaan uusi miinusrivi ja linkitetään se suoraan plussarivin ID:hen
-                await supabase.schema('espan').from('expert_remote_bank_ledger').insert([{ 
-                    expert_id: expertId, 
-                    transaction_type: -1, 
-                    used_date: dateStr, 
-                    expiration_date: '2099-12-31', 
-                    description: `Käytetty pankkipäivä (Korvaa ansion: ${oldestAvailable.earned_date})`,
-                    linked_earned_id: oldestAvailable.id // SUORA KYTKENTÄ (VAIHTOEHTO A)
-                }]);
+            if (type === 'eta_pankki') {
+                const oldestAvailable = availableBankDays[0];
+                if (!oldestAvailable) { alert("Virhe: Ei vapaita ansaittuja päiviä pankissa!"); return; }
+                await supabase.schema('espan').from('expert_remote_bank_ledger').insert([{ expert_id: expertId, transaction_type: -1, used_date: dateStr, expiration_date: '2099-12-31', description: `Käytetty pankkipäivä (Korvaa ansion: ${oldestAvailable.earned_date})`, linked_earned_id: oldestAvailable.id }]);
                 type = 'eta_pankki'; 
             } else if (type.includes('lahityo') && isCurrentlyRemote) {
-                const wantToBank = window.confirm("Muutit sääntömääräisen etäpäivän lähityöksi. Haluatko tallettaa tämän uhratun etäpäivän pankkiin myöhempää käyttöä varten?");
-                if (wantToBank) {
+                if (window.confirm("Muutit sääntömääräisen etäpäivän lähityöksi. Haluatko tallettaa tämän uhratun etäpäivän pankkiin myöhempää käyttöä varten?")) {
                     const expDate = addDays(new Date(), 28);
                     await supabase.schema('espan').from('expert_remote_bank_ledger').insert([{ expert_id: expertId, transaction_type: 1, earned_date: dateStr, expiration_date: formatDateLocal(expDate), description: `Uhrattu etäpäivä (${finalName})` }]);
                 }
             }
 
-            await supabase.schema('espan').from('expert_daily_locations').upsert({ expert_id: expertId, date: dateStr, location_type: type, location_name: finalName.trim(), is_auto_generated: false }, { onConflict: 'expert_id, date' });
+            // Tallennetaan UUSI sijainti suoraan uudelle oikealle asiantuntija ID:lle (Insert, ei Upsert)
+            await supabase.schema('espan').from('expert_daily_locations').insert({ expert_id: expertId, date: dateStr, location_type: type, location_name: finalName.trim(), is_auto_generated: false });
+            
             setCustomLocationText('');
             setActiveLocationPopover(null);
             fetchData();
         } catch (e) { console.error(e); }
     };
 
+    // MUUTETTU: Kohdistettu poisto rivi-ID:llä, jotta myös Legacy poistuu
     const handleRemoveLocation = async (dateStr) => {
         const existingLoc = dailyLocations.find(l => l.date === dateStr);
         try { 
-            // Jos asiantuntija vapauttaa pankkipäivän, tuhotaan vastaava miinusrivi ledgeristä, jolloin sidottu plusrivi vapautuu
-            if (existingLoc?.location_type === 'eta_pankki') {
-                await supabase.schema('espan').from('expert_remote_bank_ledger').delete().eq('expert_id', expertId).eq('used_date', dateStr);
+            if (existingLoc) {
+                if (existingLoc.location_type === 'eta_pankki') {
+                    // Poistetaan ledgeristä sen mukaan kummalle ID:lle se kuului
+                    await supabase.schema('espan').from('expert_remote_bank_ledger').delete().eq('expert_id', existingLoc.expert_id).eq('used_date', dateStr);
+                }
+                await supabase.schema('espan').from('expert_daily_locations').delete().eq('id', existingLoc.id); 
             }
-            await supabase.schema('espan').from('expert_daily_locations').delete().eq('expert_id', expertId).eq('date', dateStr); 
             setActiveLocationPopover(null); 
             fetchData(); 
         } catch (e) { console.error(e); }
     };
 
+    // MUUTETTU: Puhdistaa koko päivän molemmilta ID:iltä ennen kuin lyö uuden eston uudelle ID:lle
     const executeBlockSave = async (startDate, endDate) => {
         let currentD = new Date(startDate);
         const endD = new Date(endDate || startDate);
@@ -191,7 +188,9 @@ const ExpertCalendar = ({
             if (dayOfWeek !== 0 && dayOfWeek !== 6) {
                 const dStr = formatDateLocal(currentD);
                 const startOfDay = `${dStr} 00:00:00`;
-                await supabase.schema('espan').from('availability').delete().eq('expert_id', expertId).gte('start_time', startOfDay).lte('start_time', `${dStr} 23:59:59`);
+                // Puhdistetaan haamut
+                await supabase.schema('espan').from('availability').delete().in('expert_id', queryExpertIds).gte('start_time', startOfDay).lte('start_time', `${dStr} 23:59:59`);
+                // Lisätään uusi
                 await supabase.schema('espan').from('availability').insert([{ expert_id: expertId, start_time: startOfDay, meeting_type: 'estetty', is_blocked: true, contact_method: 'kaynti' }]);
             }
             currentD.setDate(currentD.getDate() + 1);
@@ -203,11 +202,14 @@ const ExpertCalendar = ({
         try { await executeBlockSave(quickModal.startDate, quickModal.endDate); setQuickModal({ isOpen: false, startDate: '', endDate: '' }); fetchData(); } catch (error) { console.error(error); } finally { setSaving(false); }
     };
 
+    // Rivi-ID poisto toimii suoraan riippumatta kuka sen omistaa
     const handleProcessBlockAction = async () => {
         if (!selectedBlock) return;
         setSaving(true);
         try {
-            if (selectedBlock.actionType === 'delete_rule') { await supabase.schema('espan').from('expert_availability_rules').delete().eq('id', selectedBlock.data.id); } else if (selectedBlock.actionType === 'delete_exception') { await supabase.schema('espan').from('availability').delete().eq('id', selectedBlock.data.id); } else if (selectedBlock.actionType === 'cancel_booking') { await supabase.schema('espan').from('availability').update({ is_blocked: false }).eq('id', selectedBlock.data.id); }
+            if (selectedBlock.actionType === 'delete_rule') { await supabase.schema('espan').from('expert_availability_rules').delete().eq('id', selectedBlock.data.id); } 
+            else if (selectedBlock.actionType === 'delete_exception') { await supabase.schema('espan').from('availability').delete().eq('id', selectedBlock.data.id); } 
+            else if (selectedBlock.actionType === 'cancel_booking') { await supabase.schema('espan').from('availability').update({ is_blocked: false }).eq('id', selectedBlock.data.id); }
             setSelectedBlock(null); fetchData();
         } catch (e) { console.error(e); } finally { setSaving(false); }
     };
@@ -286,7 +288,7 @@ const ExpertCalendar = ({
 
                             const isUserLocked = loc && !loc.is_auto_generated;
                             const isBankDay = loc?.location_type === 'eta_pankki';
-                            const isInternalWork = loc?.location_type.startsWith('sisatyot_');
+                            const isInternalWork = loc?.location_type?.startsWith('sisatyot_');
 
                             return (
                                 <div key={index} className="text-center" style={{ backgroundColor: isBlocked ? '#fef2f2' : (isHoliday ? '#fdf4ff' : 'var(--color-surface)'), padding: '0.5rem 0', position: 'relative', borderBottom: '1px solid var(--color-border)' }}>
@@ -299,7 +301,7 @@ const ExpertCalendar = ({
                                             style={{
                                                 border: isUserLocked ? (isBankDay ? '1px solid var(--color-success)' : (isInternalWork ? '1px solid #64748b' : '1px solid var(--color-primary)')) : 'none', 
                                                 background: loc ? (isBankDay ? 'rgba(30,154,90,0.1)' : (isInternalWork ? '#f1f5f9' : 'var(--color-background)')) : 'none', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer',
-                                                color: loc ? (isBankDay ? 'var(--color-success)' : (isInternalWork ? '#475569' : (loc.location_type === 'eta' ? '#2563eb' : 'var(--color-primary)'))) : 'var(--color-text-secondary)',
+                                                color: loc ? (isBankDay ? 'var(--color-success)' : (isInternalWork ? '#475569' : (loc?.location_type === 'eta' ? '#2563eb' : 'var(--color-primary)'))) : 'var(--color-text-secondary)',
                                                 fontSize: '0.75rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '3px'
                                             }}
                                         >
@@ -424,7 +426,7 @@ const ExpertCalendar = ({
                             const isTranslatedToRemote = dayLoc && !dayLoc.is_auto_generated && dayLoc.location_type === 'eta' && rule.contact_method === 'kaynti';
                             const isTranslatedToOffice = dayLoc && !dayLoc.is_auto_generated && dayLoc.location_type === 'lahityo' && rule.contact_method === 'puhelu';
                             const isTranslated = isTranslatedToRemote || isTranslatedToOffice;
-                            const isInternalWork = dayLoc && dayLoc.location_type.startsWith('sisatyot_'); 
+                            const isInternalWork = dayLoc && dayLoc.location_type?.startsWith('sisatyot_'); 
                             const effectiveMethod = isTranslatedToRemote ? 'puhelu' : (isTranslatedToOffice ? 'kaynti' : rule.contact_method);
 
                             const baseStyle = getMeetingStyle(rule.meeting_type, false);

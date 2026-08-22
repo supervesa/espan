@@ -20,6 +20,21 @@ export const ENTITY_DEFINITIONS = {
         fields: { alku: "date", loppu: "date", koulutus: "text" },
         isLawCritical: true
     },
+
+    kuntouttava_tyotoiminta: {
+        label: "Kuntouttava työtoiminta",
+        category: "palvelu",
+        icon: "HeartHandshake", // Visuaalisesti sopiva ikoni
+        fields: { 
+            alku: "date", 
+            loppu: "date", 
+            jarjestaja: "text",
+            paivatViikossa: "number", // Lisätieto (Vapaaehtoinen)
+            tunnitPaivassa: "number"  // Lisätieto (Vapaaehtoinen)
+        },
+        isLawCritical: true
+    },
+    
     // VALMIUS TULEVAISUUDELLE (Opinnot)
     opiskelu_omaehtoinen: {
         label: "Omaehtoinen opiskelu",

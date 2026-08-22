@@ -96,7 +96,8 @@ export const processTextChunk = (chunkText, dbPhrases = [], flatDbVariables = []
             
             // 3. Vaihdetaan [MUUTTUJAT] laiskoiksi kaappareiksi
             allVarsInText.forEach(v => {
-                regexStr = regexStr.replace(`[${v}]`, '(.+?)');
+                // KORJAUS: Rajoitetaan ahneutta! Maksimissaan 60 merkkiä muuttujaan, jottei imaista koko työhistoriaa.
+                regexStr = regexStr.replace(`[${v}]`, '(.{1,60}?)');
             });
             
             // 4. KRIITTINEN KORJAUS: Vahva ankkuri lauseen loppuun! 

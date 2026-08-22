@@ -1,14 +1,11 @@
-// --- src/components/sections/Tyotilanne/UraAnalyzer/Step1Input.jsx ---
 import React, { useRef } from 'react';
 import { Eye, ShieldAlert, ShieldCheck, FileText } from 'lucide-react';
-
-// UUSI IMPORT POLKU
 import { COMPANY_PATTERN, SCHOOL_PATTERN, HETU_PATTERN, SINGLE_DATE_PATTERN } from '../../../../utils/regex/core';
 
-const Step1Input = ({ rawData, setRawData, hasRisks, onAutoAnonymize, isAnalyzing }) => {
+// UUSI: Osaa ottaa vastaan protectedDates-listan propseista
+const Step1Input = ({ rawData, setRawData, hasRisks, onAutoAnonymize, isAnalyzing, protectedDates = [] }) => {
     const textareaRef = useRef(null);
 
-    // Siirsin tämän tähän sisälle, koska tämä komponentti tarvitsee vain tämän visuaalisen funktion
     const getHighlightedAnonymizationHTML = (text) => {
         if (!text) return '<span style="color: var(--color-text-muted); font-style: italic;">Liitä teksti alla olevaan kenttään nähdäksesi esikatselun...</span>';
         let html = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -17,11 +14,23 @@ const Step1Input = ({ rawData, setRawData, hasRisks, onAutoAnonymize, isAnalyzin
         const redStyle = 'background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 4px; font-weight: 600; border: 1px dashed #f87171; font-size: 0.85em; margin: 0 2px; cursor: help;';
         const warningStyle = 'background-color: #fffbeb; color: #b45309; padding: 2px 4px; border-radius: 4px; font-weight: 600; border: 1px dashed #fbbf24; font-size: 0.85em; margin: 0 2px; cursor: help;';
 
+        // 1. Suojataan tärkeät päivät HTML-muotoilulta
+        protectedDates.forEach((date, i) => {
+            const regex = new RegExp(`\\b${date.replace(/\./g, '\\.')}\\b`, 'g');
+            html = html.replace(regex, `__PROTECTED_HTML_${i}__`);
+        });
+
+        // 2. Värjätään muut riskit
         html = html.replace(/(\[ORGANISAATIO\]|\[OPPILAITOS\]|\[HETU\]|\[PVM: \d{2}\/\d{4}\])/g, `<span style="${greenStyle}">$1</span>`);
         html = html.replace(COMPANY_PATTERN, `<span style="${redStyle}">$&</span>`);
         html = html.replace(SCHOOL_PATTERN, `<span style="${redStyle}">$&</span>`);
         html = html.replace(HETU_PATTERN, `<span style="${redStyle}">$&</span>`);
         html = html.replace(SINGLE_DATE_PATTERN, `<span style="${warningStyle}" title="Päivämäärä yksinkertaistetaan muotoon KK/VVVV">$&</span>`);
+
+        // 3. Palautetaan tärkeät päivät normaalina mustana tekstinä
+        protectedDates.forEach((date, i) => {
+            html = html.replace(new RegExp(`__PROTECTED_HTML_${i}__`, 'g'), date);
+        });
 
         return html.replace(/\n/g, '<br />');
     };

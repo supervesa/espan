@@ -191,7 +191,9 @@ export const parsePlanText = (rawText, dbSections = [], dbPhrases = [], dbSignal
         // --- UUSI SIJAINTI TUHOAVILLE UUTTAJILLE ---
         // Vasta kun kaikki muu logiikka on ajettu, leikataan Golden Master ja Koulutus pois.
         const gmResult = extractGMServices(chunkText);
-        chunkText = gmResult.remainingText;
+        
+        // KORJAUS B: chunkText = gmResult.remainingText; on poistettu tästä välistä!
+        
         if (gmResult.foundServices) {
             gmResult.foundServices.forEach(s => {
                 if (!result.sessionServices.some(es => es.id === s.id)) {
