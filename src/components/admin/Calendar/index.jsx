@@ -12,11 +12,11 @@ import {
     getMeetingStyle, getMeetingLabel, renderContactIcon, getGridPlacement 
 } from './utils/calendarUtils.jsx';
 
-import { Calendar as CalendarIcon, Palmtree, Info, X, UserX, Trash2, ExternalLink, Flag, Lock } from 'lucide-react';
+import { Calendar as CalendarIcon, Palmtree, Info, X, UserX, Trash2, ExternalLink, Flag, Lock, Link as LinkIcon, AlertCircle } from 'lucide-react';
 
 const Calendar = ({
     expertId,
-    queryExpertIds = [], // Vastaanotetaan lista ID:istä (Uusi + Legacy) poistoja varten
+    queryExpertIds = [], 
     initialDate = new Date(),
     dailyLocations = [],
     exceptions = [],
@@ -60,6 +60,11 @@ const Calendar = ({
     const blockedDaysStrs = useMemo(() => exceptions.filter(e => e.is_blocked && parseDBDateLocal(e.start_time).timeStr === '00:00').map(e => parseDBDateLocal(e.start_time).datePart), [exceptions]);
     const holidayStrs = useMemo(() => nationalHolidays.map(h => h.date), [nationalHolidays]);
 
+    // Apulista: Mitkä tokenit on tuotu takaisin ICS-tiedostosta?
+    const successfullySyncedTokens = useMemo(() => {
+        return icsEvents.map(e => e.sync_token).filter(Boolean);
+    }, [icsEvents]);
+
     const dynamicTimeRange = useMemo(() => {
         let minTime = 19;
         let maxTime = 7;
@@ -88,7 +93,8 @@ const Calendar = ({
         }
         if (filters.ics) {
             icsEvents.forEach(e => {
-                if (e.is_all_day || e.start_time.includes('00:00:00')) return;
+                // Estetään haamutuntien laajentaminen (Omat varaukset ohitetaan tässä)
+                if (e.is_all_day || e.start_time.includes('00:00:00') || e.sync_token) return;
                 checkTime(parseDBDateLocal(e.start_time).timeStr);
                 checkTime(parseDBDateLocal(e.end_time).timeStr, true);
             });
@@ -132,7 +138,6 @@ const Calendar = ({
         return suggestions;
     }, [weekDays, exceptions, settings, nationalHolidays]);
 
-    // MUUTETTU: Käsittelee myös Legacy ID:n siivoamisen
     const handleSaveLocation = async (dateStr, type, name) => {
         const finalName = name || customLocationText;
         if (!finalName.trim()) return alert("Kirjoita tai valitse toimipiste!");
@@ -141,11 +146,7 @@ const Calendar = ({
         const isCurrentlyRemote = existingLoc?.location_type === 'eta' || (!existingLoc && smartSuggestions[dateStr]?.type === 'eta');
         
         try {
-            // Jos päivällä on jo sijainti (oli se sitten uusi tai vanha ID), tuhotaan se ensin,
-            // jotta ei synny kahta päällekkäistä sijaintia tietokantaan.
-            if (existingLoc) {
-                await supabase.schema('espan').from('expert_daily_locations').delete().eq('id', existingLoc.id);
-            }
+            if (existingLoc) await supabase.schema('espan').from('expert_daily_locations').delete().eq('id', existingLoc.id);
 
             if (type === 'eta_pankki') {
                 const oldestAvailable = availableBankDays[0];
@@ -157,7 +158,6 @@ const Calendar = ({
                 }
             }
             
-            // Tallennetaan uusi aina OIKEALLA (uudella) expertId:llä
             await supabase.schema('espan').from('expert_daily_locations').insert({ expert_id: expertId, date: dateStr, location_type: type, location_name: finalName.trim(), is_auto_generated: false });
             
             setCustomLocationText('');
@@ -170,9 +170,7 @@ const Calendar = ({
         try { 
             const existingLoc = dailyLocations.find(l => l.date === dateStr);
             if (existingLoc) {
-                if (existingLoc.location_type === 'eta_pankki') {
-                    await supabase.schema('espan').from('expert_remote_bank_ledger').delete().eq('expert_id', existingLoc.expert_id).eq('used_date', dateStr);
-                }
+                if (existingLoc.location_type === 'eta_pankki') await supabase.schema('espan').from('expert_remote_bank_ledger').delete().eq('expert_id', existingLoc.expert_id).eq('used_date', dateStr);
                 await supabase.schema('espan').from('expert_daily_locations').delete().eq('id', existingLoc.id); 
             }
             setActiveLocationPopover(null); 
@@ -189,10 +187,7 @@ const Calendar = ({
                 const dayOfWeek = currentD.getDay();
                 if (dayOfWeek !== 0 && dayOfWeek !== 6) {
                     const dStr = formatDateLocal(currentD);
-                    // Poistetaan edelliset estot MOLEMMILTA ID:iltä jotta kalenteri tyhjenee varmasti
                     await supabase.schema('espan').from('availability').delete().in('expert_id', queryExpertIds).gte('start_time', `${dStr} 00:00:00`).lte('start_time', `${dStr} 23:59:59`);
-                    
-                    // Lisätään uusi esto uudelle ID:lle
                     await supabase.schema('espan').from('availability').insert([{ expert_id: expertId, start_time: `${dStr} 00:00:00`, meeting_type: 'estetty', is_blocked: true, contact_method: 'kaynti' }]);
                 }
                 currentD.setDate(currentD.getDate() + 1);
@@ -206,11 +201,9 @@ const Calendar = ({
         if (!selectedBlock) return;
         setSaving(true);
         try {
-            // Kohdistetaan toimenpiteet suoraan kyseisen rivin ID:hen (välittämättä onko se uuden vai vanhan omistajan)
             if (selectedBlock.actionType === 'delete_rule') await supabase.schema('espan').from('expert_availability_rules').delete().eq('id', selectedBlock.data.id);
             else if (selectedBlock.actionType === 'delete_exception') await supabase.schema('espan').from('availability').delete().eq('id', selectedBlock.data.id);
             else if (selectedBlock.actionType === 'cancel_booking') await supabase.schema('espan').from('availability').update({ is_blocked: false }).eq('id', selectedBlock.data.id);
-            
             setSelectedBlock(null);
             if (fetchData) fetchData(currentWeekStart);
         } catch (e) { console.error(e); } finally { setSaving(false); }
@@ -247,19 +240,34 @@ const Calendar = ({
                 </div>
             )}
 
+            {/* VARAUKSEN/MERKINNÄN INFO-MODAALI */}
             {selectedBlock && (
                 <div onClick={() => setSelectedBlock(null)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: 'var(--color-surface)', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '380px' }}>
+                        
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-primary)' }}><Info size={24} /><h3 className="text-lg fw-bold m-0">Merkinnän tiedot</h3></div>
                             <button onClick={() => setSelectedBlock(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}><X size={20} /></button>
                         </div>
+
                         <div style={{ backgroundColor: 'var(--color-background)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', border: '1px solid var(--color-border)' }}>
                             <div className="fw-bold mb-1" style={{ fontSize: '1.1rem' }}>{selectedBlock.title}</div>
                             <div className="text-secondary font-mono text-sm mb-2">{selectedBlock.timeInfo}</div>
                             {selectedBlock.contact_method && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>{renderContactIcon(selectedBlock.contact_method, 16)}<span>{selectedBlock.contact_method === 'puhelu' ? 'Etä/Puhelu' : 'Lähitapaaminen'}</span></div>}
+                            
+                            {/* SYNKRONOINTI-INFO (Näytetään vain alkuperäisille varauksille) */}
+                            {selectedBlock.syncInfo && (
+                                <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--color-border)', display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.8rem' }}>
+                                    {selectedBlock.syncInfo.isSynced ? (
+                                        <><LinkIcon size={14} color="var(--color-success)" style={{ marginTop: '2px' }} /><span style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>Synkronoitu ulkoiseen kalenteriin</span></>
+                                    ) : (
+                                        <><AlertCircle size={14} color="#854d0e" style={{ marginTop: '2px' }} /><span style={{ color: '#854d0e' }}>Odottaa synkronointia / Ei tuotu</span></>
+                                    )}
+                                </div>
+                            )}
                         </div>
-                        {selectedBlock.actionType === 'ics_info' ? <Button variant="secondary" onClick={() => setSelectedBlock(null)} fullWidth>Sulje (Synkronoitu tieto)</Button> : selectedBlock.actionType === 'cancel_booking' ? <Button variant="warning" icon={UserX} onClick={handleProcessBlockAction} disabled={saving} fullWidth>Peruuta varaus</Button> : <Button variant="danger" icon={Trash2} onClick={handleProcessBlockAction} disabled={saving} fullWidth>Poista kalenterista</Button>}
+
+                        {selectedBlock.actionType === 'ics_info' ? <Button variant="secondary" onClick={() => setSelectedBlock(null)} fullWidth>Sulje (Vain Luku)</Button> : selectedBlock.actionType === 'cancel_booking' ? <Button variant="warning" icon={UserX} onClick={handleProcessBlockAction} disabled={saving} fullWidth>Peruuta varaus</Button> : <Button variant="danger" icon={Trash2} onClick={handleProcessBlockAction} disabled={saving} fullWidth>Poista kalenterista</Button>}
                     </div>
                 </div>
             )}
@@ -302,7 +310,7 @@ const Calendar = ({
                     );
                 })}
 
-                {/* Varaukset ja Avoimet poikkeukset */}
+                {/* Varaukset ja Avoimet poikkeukset (ENSISIJAINEN) */}
                 {filters.exceptions && exceptions.filter(e => parseDBDateLocal(e.start_time).timeStr !== '00:00').map(exc => {
                     const { datePart, timeStr } = parseDBDateLocal(exc.start_time);
                     const dayIndex = weekDays.findIndex(d => formatDateLocal(d) === datePart);
@@ -311,16 +319,31 @@ const Calendar = ({
                     const isBooked = exc.is_blocked && exc.meeting_type !== 'estetty';
                     const excStyle = isBooked ? { backgroundColor: getMeetingStyle(exc.meeting_type).color, color: '#ffffff', width: 'calc(100% - 12px)', margin: '2px auto', boxShadow: '0 3px 6px rgba(0, 0, 0, 0.16)', border: 'none' } : { ...getMeetingStyle(exc.meeting_type, exc.is_blocked), margin: '2px 4px' };
 
+                    // SYNKRONOINTI TARKISTUS
+                    const hasSyncToken = Boolean(exc.sync_token);
+                    const isSuccessfullySynced = hasSyncToken && successfullySyncedTokens.includes(exc.sync_token);
+
                     return (
-                        <div key={`exc-${exc.id}`} onClick={() => setSelectedBlock({ data: exc, actionType: isBooked ? 'cancel_booking' : 'delete_exception', title: isBooked ? `VARATTU: ${getMeetingLabel(exc.meeting_type)}` : `Avoin: ${getMeetingLabel(exc.meeting_type)}`, timeInfo: `${datePart.split('-').reverse().join('.')} klo ${timeStr}`, contact_method: exc.contact_method })} style={{ ...getGridPlacement(dayIndex, timeStr, null), ...excStyle, borderRadius: '4px', padding: '0.25rem 0.5rem', zIndex: 10, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}><span className="text-xs fw-bold" style={{ lineHeight: 1.1 }}>{isBooked ? `VARATTU: ${getMeetingLabel(exc.meeting_type)}` : `Avoin: ${getMeetingLabel(exc.meeting_type)}`}</span>{renderContactIcon(exc.contact_method, 12)}</div>
-                            <span className="text-xs font-mono" style={{ marginTop: 'auto', opacity: 0.9 }}>{timeStr}</span>
+                        <div key={`exc-${exc.id}`} onClick={() => setSelectedBlock({ data: exc, actionType: isBooked ? 'cancel_booking' : 'delete_exception', title: isBooked ? `VARATTU: ${getMeetingLabel(exc.meeting_type)}` : `Avoin: ${getMeetingLabel(exc.meeting_type)}`, timeInfo: `${datePart.split('-').reverse().join('.')} klo ${timeStr}`, contact_method: exc.contact_method, syncInfo: hasSyncToken ? { isSynced: isSuccessfullySynced } : null })} style={{ ...getGridPlacement(dayIndex, timeStr, null), ...excStyle, borderRadius: '4px', padding: '0.25rem 0.5rem', zIndex: 10, display: 'flex', flexDirection: 'column', cursor: 'pointer' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <span className="text-xs fw-bold" style={{ lineHeight: 1.1 }}>{isBooked ? `VARATTU: ${getMeetingLabel(exc.meeting_type)}` : `Avoin: ${getMeetingLabel(exc.meeting_type)}`}</span>
+                                {renderContactIcon(exc.contact_method, 12)}
+                            </div>
+                            
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 'auto' }}>
+                                <span className="text-xs font-mono" style={{ opacity: 0.9 }}>{timeStr}</span>
+                                {/* PIENI LINKKI IKONI, JOS ON SYNKASSA */}
+                                {isSuccessfullySynced && <LinkIcon size={12} color="#ffffff" style={{ opacity: 0.8 }} title="Synkronoitu ulkoiseen kalenteriin" />}
+                            </div>
                         </div>
                     );
                 })}
 
-                {/* Kellotetut ICS-tapahtumat */}
+                {/* Kellotetut ICS-tapahtumat (ULKOISET) */}
                 {filters.ics && icsEvents.filter(e => !(e.is_all_day || e.start_time.includes('00:00:00'))).map(exc => {
+                    // PIILOTUS: Jos tällä on meidän token, järjestelmä piirtää sen jo värikkäänä laatikkona yllä!
+                    if (exc.sync_token) return null;
+
                     const startInfo = parseDBDateLocal(exc.start_time);
                     const endInfo = parseDBDateLocal(exc.end_time);
                     const dayIndex = weekDays.findIndex(d => formatDateLocal(d) === startInfo.datePart);

@@ -59,3 +59,4 @@ const parseSafeDate = (dateStr) => {
 };
 Summa summarum: Jos se hajoaa, katso lokia. Se kertoo tasan, onko kyseessä undefined (tieto ei kulje) vai Invalid Date (tieto kulkee, mutta muoto on väärä). Älä koodaa mitään monimutkaista, ennen kuin tiedät kumpi noista se on.
 
+..
