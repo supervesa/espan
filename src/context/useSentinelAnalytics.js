@@ -1,6 +1,8 @@
 import { supabase } from '../utils/supabaseClient';
 import { STATE_MUUTTUJAT } from '../data/constants';
 import { getAlueJaToimipiste } from '../hooks/usePostinumero';
+// 1. TUODAAN HOOK TAKAISIN
+import { useTyotilanneAnalytiikka } from '../hooks/analyticsSentinel/useTyotilanneAnalytiikka';
 
 const getWeekData = (date) => {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -11,21 +13,24 @@ const getWeekData = (date) => {
     return { year: d.getUTCFullYear(), week };
 };
 
-export const useSentinelAnalytics = () => {
+export const useSentinelAnalytics = (lomakeState = {}) => {
 
-    // ==========================================
-    // KEHITTÄJÄN KYTKIN
-    // Vaihda 'false' kun sovellus menee tuotantoon.
-    // ==========================================
-    const IS_TEST_MODE = false; 
+    // 2. 🎯 TÄSSÄ ON RATKAISU: Osoitetaan suoraan oikeisiin kansioihin!
+    // Tyotilanne.jsx tallentaa ruksit kansioon 'tyotilanne', ei minnekään muualle.
+    const tyotilanneRuksit = lomakeState?.tyotilanne || {};
+    const tyotilannePalvelut = lomakeState?.sessionServices || lomakeState?.services || [];
 
-    const logPlanCopied = async (state, asiantuntijaId) => {
+    // Annetaan hookin tehdä laskenta lennosta puhtaalla datalla
+    const profiiliData = useTyotilanneAnalytiikka(tyotilanneRuksit, tyotilannePalvelut);
+
+    const logPlanCopied = async (state, asiantuntijaId, isTestMode = false) => {
+        
         if (!asiantuntijaId) {
-            console.warn("Sentinel Analytics: Ei asiantuntija-ID:tä, ohitetaan tilastointi.");
+            console.error("❌ Sentinel Analytics: Asiantuntija-ID puuttuu propseista! Tilastointi peruttu.");
             return;
         }
 
-        // --- 1. SORMENJÄLKI JA ANTI-SPAM ---
+        // --- SORMENJÄLKI JA ANTI-SPAM ---
         let sigBirth = "xx";
         const syntymaVuosiRaa = state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.[STATE_MUUTTUJAT.SYNTYMAVUOSI]
                              || state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.['[SYNTYMÄVUOSI]']
@@ -46,24 +51,20 @@ export const useSentinelAnalytics = () => {
         const dateMatch = String(rawStartStr).match(/\b(\d{1,2})\.\d{1,2}\.\d{4}\b/);
         if (dateMatch && dateMatch[1]) sigStartDay = dateMatch[1].padStart(2, '0'); 
 
-        // Annetaan sormenjäljelle vain staattinen testiliite.
-        // Nyt tuplaklikkauksen esto poimii mikrosekuntitason re-renderit kiinni myös testitilassa!
-        const planSignature = IS_TEST_MODE 
-            ? `TEST-${sigBirth}${sigStartDay}`
-            : `${sigBirth}${sigStartDay}`;
-            
+        const planSignature = `${sigBirth}${sigStartDay}`;
         const lastSignature = sessionStorage.getItem('espan_last_logged_signature');
 
-        if (lastSignature === planSignature) {
+        if (lastSignature === planSignature && !isTestMode) {
             console.log(`ℹ️ Sentinel: Sormenjälki [${planSignature}] jo tilastoitu sessiossa. Estetty tuplakutsu.`);
             return; 
         }
 
         try {
-            // Lukitaan heti sormenjälki tähän hetkeen (estää samanaikaiset kilpapyynnöt)
-            sessionStorage.setItem('espan_last_logged_signature', planSignature);
+            if (!isTestMode) {
+                sessionStorage.setItem('espan_last_logged_signature', planSignature);
+            }
 
-            // --- 2. PERUSTIEDOT ---
+            // --- PERUSTIEDOT ---
             let ikaryhma = 'Tuntematon';
             if (syntymaVuosiRaa) {
                 const vuosiNum = parseInt(String(syntymaVuosiRaa).replace(/\D/g, ''), 10);
@@ -86,7 +87,7 @@ export const useSentinelAnalytics = () => {
             future.setDate(future.getDate() + (13 * 7));
             const futureWeek = getWeekData(future);
 
-            // --- 3. PALVELUOHJAUSTEN ANALYTIIKKA ---
+            // --- PALVELUOHJAUSTEN ANALYTIIKKA ---
             let extraPayload = {
                 yhteensa: 0,
                 lahetteet: 0,
@@ -95,17 +96,26 @@ export const useSentinelAnalytics = () => {
                 historiaTilat: {}
             };
 
-            const selectedServiceIds = state?.asiakas?.valitut_palvelut_id || [];
-            
-            // KORJAUS 1: Suodatetaan pois Käsiohjauksen lyhyet tekstiavaimet (jätetään vain UUID-muotoiset)
-            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-            const validUuids = selectedServiceIds.filter(id => uuidRegex.test(id));
+            let rawServiceIds = [];
+            if (Array.isArray(state?.asiakas?.valitut_palvelut_id)) {
+                rawServiceIds = [...state?.asiakas?.valitut_palvelut_id];
+            }
+            const suunnitelmaValinnat = state?.suunnitelma;
+            if (Array.isArray(suunnitelmaValinnat)) {
+                rawServiceIds = [...rawServiceIds, ...suunnitelmaValinnat];
+            } else if (typeof suunnitelmaValinnat === 'object' && suunnitelmaValinnat !== null) {
+                rawServiceIds = [...rawServiceIds, ...Object.keys(suunnitelmaValinnat)];
+            }
 
-           if (validUuids.length > 0) {
-        const { data: services, error: serviceError } = await supabase
-            .from('services')
-            .select('category, requires_referral, hard_service')
-            .in('id', validUuids);
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+            const validUuids = [...new Set(rawServiceIds.filter(id => typeof id === 'string' && uuidRegex.test(id)))];
+
+            if (validUuids.length > 0) {
+                const { data: services, error: serviceError } = await supabase
+                    .schema('public') 
+                    .from('services')
+                    .select('category, requires_referral, hard_service')
+                    .in('id', validUuids);
                 
                 if (serviceError) console.error("Sentinel: Virhe palveluhaussa", serviceError);
 
@@ -132,7 +142,7 @@ export const useSentinelAnalytics = () => {
                 }
             });
 
-            // --- 4. TALLENNUS TIETOKANTAAN ---
+            // --- TALLENNUS TIETOKANTAAN (UPSERT) ---
             const upsertCounter = async (year, week, isEraantyva, stats) => {
                 const { data: existing, error: findError } = await supabase
                     .schema('espan')
@@ -143,7 +153,7 @@ export const useSentinelAnalytics = () => {
                     .eq('asiantuntija_id', asiantuntijaId)
                     .eq('ikaryhma', ikaryhma)
                     .eq('alue', alue)
-                    .eq('testi', IS_TEST_MODE) 
+                    .eq('testi', isTestMode) 
                     .maybeSingle();
 
                 if (findError) {
@@ -165,21 +175,36 @@ export const useSentinelAnalytics = () => {
                             updates.ohjaukset_velvoittava = (existing.ohjaukset_velvoittava || 0) + stats.velvoittavat;
                             
                             const mergedCats = { ...(existing.kategoriat_tilasto || {}) };
-                            Object.entries(stats.kategoriat).forEach(([cat, count]) => {
-                                mergedCats[cat] = (mergedCats[cat] || 0) + count;
-                            });
+                            Object.entries(stats.kategoriat).forEach(([cat, count]) => mergedCats[cat] = (mergedCats[cat] || 0) + count);
                             updates.kategoriat_tilasto = mergedCats;
 
                             const mergedTilat = { ...(existing.palvelu_tilat_tilasto || {}) };
-                            Object.entries(stats.historiaTilat).forEach(([tila, count]) => {
-                                mergedTilat[tila] = (mergedTilat[tila] || 0) + count;
-                            });
+                            Object.entries(stats.historiaTilat).forEach(([tila, count]) => mergedTilat[tila] = (mergedTilat[tila] || 0) + count);
                             updates.palvelu_tilat_tilasto = mergedTilat;
+
+                            // 🎯 PROFIILIDATAN YHDISTÄMINEN 
+                            const mergedProfiili = { ...(existing.asiakas_profiilit_tilasto || {}) };
+                            
+                            if (!mergedProfiili.paastatus) mergedProfiili.paastatus = {};
+                            const validStatus = profiiliData?.paastatus || 'tuntematon';
+                            mergedProfiili.paastatus[validStatus] = (mergedProfiili.paastatus[validStatus] || 0) + 1;
+
+                            if (!mergedProfiili.historia_vuodet) mergedProfiili.historia_vuodet = {};
+                            Object.entries(profiiliData?.historia_vuodet || {}).forEach(([palvelu, vuodet]) => {
+                                if (!mergedProfiili.historia_vuodet[palvelu]) mergedProfiili.historia_vuodet[palvelu] = {};
+                                Object.entries(vuodet).forEach(([vuosi, count]) => {
+                                    mergedProfiili.historia_vuodet[palvelu][vuosi] = (mergedProfiili.historia_vuodet[palvelu][vuosi] || 0) + count;
+                                });
+                            });
+
+                            mergedProfiili.aktiiviset_kpl = (mergedProfiili.aktiiviset_kpl || 0) + (profiiliData?.aktiiviset_kpl || 0);
+                            mergedProfiili.tulevat_kpl = (mergedProfiili.tulevat_kpl || 0) + (profiiliData?.tulevat_kpl || 0);
+
+                            updates.asiakas_profiilit_tilasto = mergedProfiili;
                         }
                     }
                     
-                    const { error: updateError } = await supabase.schema('espan').from('weekly_counters').update(updates).eq('id', existing.id);
-                    if (updateError) console.error("Sentinel Update Virhe:", updateError);
+                    await supabase.schema('espan').from('weekly_counters').update(updates).eq('id', existing.id);
                 
                 } else {
                     let newRow = {
@@ -188,7 +213,7 @@ export const useSentinelAnalytics = () => {
                         asiantuntija_id: asiantuntijaId,
                         ikaryhma: ikaryhma,
                         alue: alue,
-                        testi: IS_TEST_MODE, 
+                        testi: isTestMode, 
                         tehdyt_suunnitelmat: isEraantyva ? 0 : 1,
                         eraantyvat_suunnitelmat: isEraantyva ? 1 : 0
                     };
@@ -199,10 +224,17 @@ export const useSentinelAnalytics = () => {
                         newRow.ohjaukset_velvoittava = stats.velvoittavat;
                         newRow.kategoriat_tilasto = stats.kategoriat;
                         newRow.palvelu_tilat_tilasto = stats.historiaTilat;
+                        
+                        // 🎯 PROFIILIDATAN ENSIMMÄINEN LISÄYS
+                        newRow.asiakas_profiilit_tilasto = {
+                            paastatus: { [profiiliData?.paastatus || 'tuntematon']: 1 },
+                            historia_vuodet: profiiliData?.historia_vuodet || {},
+                            aktiiviset_kpl: profiiliData?.aktiiviset_kpl || 0,
+                            tulevat_kpl: profiiliData?.tulevat_kpl || 0
+                        };
                     }
                     
-                    const { error: insertError } = await supabase.schema('espan').from('weekly_counters').insert([newRow]);
-                    if (insertError) console.error("Sentinel Insert Virhe:", insertError);
+                    await supabase.schema('espan').from('weekly_counters').insert([newRow]);
                 }
             };
 
@@ -214,15 +246,10 @@ export const useSentinelAnalytics = () => {
             const paivanTavoite = parseInt(localStorage.getItem('espan_paivan_tyot') || '0', 10) + 1;
             localStorage.setItem('espan_paivan_tyot', paivanTavoite);
 
-            if (IS_TEST_MODE) {
-                console.log(`🧪 Sentinel [TESTITILA]: Tilastot tallennettu testimerkillä. (Alue: ${alue})`);
-            } else {
-                console.log(`✅ Sentinel [TUOTANTO]: Tilastot tallennettu! (Alue: ${alue})`);
-            }
+            console.log(isTestMode ? `🧪 Sentinel [TESTITILA]: Tilastot tallennettu.` : `✅ Sentinel [TUOTANTO]: Tilastot tallennettu!`);
 
         } catch (err) {
             console.error("❌ Sentinel Analytics Kriittinen Virhe:", err);
-            // Vapautetaan sormenjälki, jos tilastointi epäonnistui fataalisti, jotta uudelleenyritys toimii
             sessionStorage.removeItem('espan_last_logged_signature');
         }
     };

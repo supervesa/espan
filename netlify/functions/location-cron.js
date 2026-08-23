@@ -1,313 +1,241 @@
-// netlify/functions/location-cron.js
 const { schedule } = require('@netlify/functions');
 const { createClient } = require('@supabase/supabase-js');
 
+const LEGACY_ID = '00000000-0000-0000-0000-000000000000';
+
+const extractDBDate = (dbString) => {
+    if (!dbString) return '';
+    return String(dbString).substring(0, 10);
+};
+
+const createSafeDate = (offsetDays = 0) => {
+    const d = new Date();
+    d.setHours(d.getHours() + 3); 
+    d.setHours(12, 0, 0, 0); 
+    d.setDate(d.getDate() + offsetDays);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+
 const handler = async (event, context) => {
     const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     try {
-        console.log("CRON: Aloitetaan asiantuntijoiden Master 2.0 -kalenterien optimointi...");
+        console.log("CRON: Aloitetaan asiantuntijoiden Master 2.0 optimointi (Sis. Ninja-matkat)...");
 
-        // 1. Haetaan kaikkien asiantuntijoiden asetukset
         const { data: expertsSettings, error: settingsError } = await supabase.schema('espan').from('expert_location_settings').select('*');
-        
         if (settingsError) throw settingsError;
-        if (!expertsSettings || expertsSettings.length === 0) {
-            console.log("CRON: Ei asiantuntijoita, joille ajaa optimointi.");
-            return { statusCode: 200, body: 'No experts found' };
-        }
+        if (!expertsSettings || expertsSettings.length === 0) return { statusCode: 200, body: 'No experts' };
 
-        // =======================================================================
-        // AIKAVYÖHYKKEEN JA PÄIVÄMÄÄRIEN TURVALLINEN LASKENTA (SUOMEN AIKA)
-        // =======================================================================
-        const now = new Date();
-        const helsinkiTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Helsinki' }));
-        
-        const formatISODate = (d) => {
-            return d.getFullYear() + '-' + 
-                   String(d.getMonth() + 1).padStart(2, '0') + '-' + 
-                   String(d.getDate()).padStart(2, '0');
-        };
+        let safeTodayObj = new Date();
+        safeTodayObj.setHours(safeTodayObj.getHours() + 3);
+        const todayStr = safeTodayObj.getFullYear() + '-' + String(safeTodayObj.getMonth() + 1).padStart(2, '0') + '-' + String(safeTodayObj.getDate()).padStart(2, '0');
 
-        const todayStr = formatISODate(helsinkiTime);
+        let currentWeekStartObj = new Date();
+        currentWeekStartObj.setHours(currentWeekStartObj.getHours() + 3);
+        currentWeekStartObj.setHours(12, 0, 0, 0); 
+        const dayOffset = currentWeekStartObj.getDay() === 0 ? -6 : 1 - currentWeekStartObj.getDay();
+        currentWeekStartObj.setDate(currentWeekStartObj.getDate() + dayOffset); 
 
-        // Kuluvan viikon maanantai (jotta tietokannasta saadaan mukaan myös viikon menneet päivät)
-        let currentWeekStart = new Date(helsinkiTime);
-        const dayOffset = currentWeekStart.getDay() === 0 ? -6 : 1 - currentWeekStart.getDay();
-        currentWeekStart.setDate(currentWeekStart.getDate() + dayOffset);
-        currentWeekStart.setHours(0, 0, 0, 0);
+        const startDateStr = currentWeekStartObj.getFullYear() + '-' + String(currentWeekStartObj.getMonth() + 1).padStart(2, '0') + '-' + String(currentWeekStartObj.getDate()).padStart(2, '0');
+        const endDateStr = createSafeDate(180);
 
-        const queryStartStr = formatISODate(currentWeekStart);
+        const fetchStartObj = new Date(currentWeekStartObj.getTime());
+        fetchStartObj.setDate(fetchStartObj.getDate() - 2);
+        const fetchStartStr = fetchStartObj.getFullYear() + '-' + String(fetchStartObj.getMonth() + 1).padStart(2, '0') + '-' + String(fetchStartObj.getDate()).padStart(2, '0');
 
-        // Horisontin laajennus: 120 päivää (n. 4 kuukautta)
-        const endDate = new Date(helsinkiTime);
-        endDate.setDate(endDate.getDate() + 120); 
-        const endDateStr = formatISODate(endDate);
-
-        console.log(`CRON Aikaikkuna: ${queryStartStr} -> ${endDateStr}. "Tänään" on ${todayStr}.`);
-
-        // 2. PORTINVARTIJA-DATA: Haetaan kansalliset pyhäpäivät kerralla yhteisesti kaikille asiantuntijoille
-        const { data: holidays } = await supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', queryStartStr).lte('date', endDateStr);
+        const { data: holidays } = await supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', fetchStartStr).lte('date', endDateStr);
         const holidayList = holidays || [];
 
-        // Käsitellään jokainen asiantuntija erikseen omassa 2 viikon syklitoteutuksessaan
         for (const settings of expertsSettings) {
             const expertId = settings.expert_id;
-            console.log(`CRON: Käsitellään asiantuntija: ${expertId}`);
+            if (expertId === LEGACY_ID) continue;
+            
+            const queryExpertIds = [expertId, LEGACY_ID];
 
-            // Haetaan asiantuntijan omat varaukset, lukitukset ja etäpäiväpankin tilanne
-            const [availRes, locRes, ledgerRes] = await Promise.all([
-                supabase.schema('espan').from('availability').select('start_time, is_blocked, meeting_type, contact_method').eq('expert_id', expertId).gte('start_time', `${queryStartStr} 00:00:00`).lte('start_time', `${endDateStr} 23:59:59`),
-                supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', expertId).gte('date', queryStartStr).lte('date', endDateStr),
-                supabase.schema('espan').from('expert_remote_bank_ledger').select('transaction_type').eq('expert_id', expertId).gt('expiration_date', queryStartStr)
+            const [availRes, locRes, ledgerRes, planRes] = await Promise.all([
+                supabase.schema('espan').from('availability').select('start_time, is_blocked, meeting_type, contact_method').in('expert_id', queryExpertIds).gte('start_time', `${fetchStartStr} 00:00:00`),
+                supabase.schema('espan').from('expert_daily_locations').select('*').in('expert_id', queryExpertIds).gte('date', fetchStartStr),
+                supabase.schema('espan').from('expert_remote_bank_ledger').select('transaction_type').in('expert_id', queryExpertIds).gt('expiration_date', fetchStartStr),
+                supabase.schema('espan').from('expert_journey_plans').select('*').in('expert_id', queryExpertIds).gte('date', fetchStartStr)
             ]);
 
             const availability = availRes.data || [];
             const existingLocations = locRes.data || [];
             const ledger = ledgerRes.data || [];
+            const existingPlans = planRes.data || [];
 
-            // Etäpäiväpankin premium-saldo ja syklirullaava vajaussaldo (Deficit)
             let currentBalance = ledger.reduce((sum, row) => sum + row.transaction_type, 0);
             let carriedDeficit = 0; 
             let newLocations = [];
+            let newJourneys = [];
+            let iterWeekStart = new Date(currentWeekStartObj.getTime());
+            let loopLimit = 0;
 
-            // Työkopio kelaukseen
-            let iterWeekStart = new Date(currentWeekStart);
+            while (true) {
+                loopLimit++;
+                if (loopLimit > 20) break;
 
-            // PYÖRITETÄÄN AS_ASIANTUNTIJAN KALENTERIA KIINTEISSÄ 2 VIIKON (14 PV) SYKLEISSÄ
-            while (iterWeekStart < endDate) {
                 let cycleDays = [];
 
-                // Luodaan kahden viikon (10 työpäivän) jaksolohko
                 for (let w = 0; w < 2; w++) {
                     const weekStart = new Date(iterWeekStart);
                     weekStart.setDate(weekStart.getDate() + (w * 7));
-                    
-                    // Arvotaan kyseisen viikon torstain ihannetila runkosäännön mukaan
                     const shouldBeOfficeThu = (Math.random() * 100) < settings.thursday_office_rate;
 
                     for (let i = 0; i < 5; i++) {
                         let d = new Date(weekStart);
                         d.setDate(d.getDate() + i);
-                        const dateStr = formatISODate(d);
-                        const dayNum = d.getDate();
-                        const dayOfWeek = i + 1; // 1=Ma, 2=Ti, 3=Ke, 4=To, 5=Pe
-
+                        const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                        
                         let dayObj = { 
-                            dateStr, dayOfWeek, weekIndex: w, dayNum,
+                            dateStr, dayOfWeek: i + 1, weekIndex: w, dayNum: d.getDate(), dateObj: new Date(d.getTime()),
                             type: 'eta', name: 'Etätyö', 
                             isUserLocked: false, isAnchor: false 
                         };
 
                         const existingLoc = existingLocations.find(l => l.date === dateStr);
-                        const isPastOrToday = dateStr <= todayStr; // Tänään tai menneisyydessä
                         const isUserManuallyLocked = existingLoc && !existingLoc.is_auto_generated;
 
-                        // ==========================================================
-                        // MENNEISYYDEN MUURI JA IHMISEN VALINTOJEN SUOJAUS
-                        // ==========================================================
-                        if (isPastOrToday || isUserManuallyLocked) {
-                            dayObj.isUserLocked = true; // Estää automaattia ylikirjoittamasta tätä kantaan
-                            if (existingLoc) {
-                                dayObj.type = existingLoc.location_type;
-                                dayObj.name = existingLoc.location_name;
-                            } else if (isPastOrToday) {
-                                // Jos menneisyydessä ei ole merkintää, oletetaan etätyö laskentaa varten
-                                dayObj.type = 'eta';
-                                dayObj.name = 'Etätyö';
-                            }
+                        const prevDate = new Date(dayObj.dateObj);
+                        prevDate.setDate(prevDate.getDate() - 1);
+                        const prevStr = prevDate.getFullYear() + '-' + String(prevDate.getMonth() + 1).padStart(2, '0') + '-' + String(prevDate.getDate()).padStart(2, '0');
+                        const hasTravelYesterday = existingPlans.some(p => p.date === prevStr) || newJourneys.some(p => p.date === prevStr);
+
+                        if (dayObj.dayOfWeek === 1 && hasTravelYesterday && !isUserManuallyLocked && dateStr > todayStr) {
+                            dayObj.type = 'lahityo'; dayObj.name = settings.primary_office_name; dayObj.isAnchor = true;
+                        }
+
+                        if (isUserManuallyLocked || dateStr <= todayStr) {
+                            dayObj.isUserLocked = true; 
+                            if (existingLoc) { dayObj.type = existingLoc.location_type; dayObj.name = existingLoc.location_name; }
                             cycleDays.push(dayObj);
                             continue;
                         }
 
-                        const isHoliday = holidayList.some(h => h.date === dateStr);
-                        if (isHoliday) {
-                            dayObj.type = 'pyha';
-                            dayObj.name = 'Pyhäpäivä';
-                            dayObj.isUserLocked = true;
-                            cycleDays.push(dayObj);
-                            continue;
+                        const isHoliday = holidays.some(h => extractDBDate(h.date || h.start_time) === dateStr);
+                        if (isHoliday) { dayObj.type = 'pyha'; dayObj.isUserLocked = true; cycleDays.push(dayObj); continue; }
+
+                        const dayAppts = availability.filter(a => extractDBDate(a.start_time) === dateStr);
+                        if (dayAppts.some(a => a.is_blocked && String(a.meeting_type).trim().toLowerCase() === 'estetty')) {
+                            dayObj.type = 'loma'; dayObj.isUserLocked = true; cycleDays.push(dayObj); continue;
                         }
 
-                        const dayAppts = availability.filter(a => a.start_time.startsWith(dateStr));
-                        const isPersonalBlocked = dayAppts.some(a => a.is_blocked && a.meeting_type === 'estetty');
-                        if (isPersonalBlocked) {
-                            dayObj.type = 'loma';
-                            dayObj.name = 'Loma/Este';
-                            dayObj.isUserLocked = true;
-                            cycleDays.push(dayObj);
-                            continue;
+                        if (dayAppts.some(a => a.contact_method === 'kaynti')) {
+                            dayObj.type = 'lahityo'; dayObj.name = (dayObj.dayOfWeek === 4) ? settings.thursday_office_name : settings.primary_office_name; dayObj.isAnchor = true; cycleDays.push(dayObj); continue;
                         }
 
-                        // KASVOKKAINEN ASIAKASANKKURI PASSIIVISESSA SUOJASSA
-                        const hasInPersonMeeting = dayAppts.some(a => a.contact_method === 'kaynti');
-                        if (hasInPersonMeeting) {
-                            dayObj.type = 'lahityo';
-                            dayObj.name = (dayOfWeek === 4) ? settings.thursday_office_name : settings.primary_office_name;
-                            dayObj.isAnchor = true;
-                            cycleDays.push(dayObj);
-                            continue;
-                        }
-
-                        // VAPAAT PÄIVÄT MERKITÄÄN PEHMEÄKSI RUNKOTEMPLATEKSI
-                        dayObj.shouldBeOfficeThu = shouldBeOfficeThu;
+                        if (!dayObj.isAnchor) dayObj.shouldBeOfficeThu = shouldBeOfficeThu;
                         cycleDays.push(dayObj);
                     }
                 }
 
-                // LEIVOTAAN PEHMEILLE PÄIVILLE ALUSTAVAT SIJAINNIT VIIKKOTYYPIN MUKAAN
                 cycleDays.forEach(day => {
                     if (day.isUserLocked || day.isAnchor || day.type === 'pyha' || day.type === 'loma') return;
-
                     if (day.shouldBeOfficeThu) {
-                        // SKENAARIO 1: Matkaviikko (Torstai toimistolla -> Ke-To lukitaan käsikädessä)
-                        if (day.dayOfWeek === 1) {
-                            day.type = 'eta';
-                        } else if (day.dayOfWeek === 2 || day.dayOfWeek === 3) {
-                            day.type = 'lahityo';
-                            day.name = settings.primary_office_name;
-                        } else if (day.dayOfWeek === 4) {
-                            day.type = 'lahityo';
-                            day.name = settings.thursday_office_name;
-                            day.isAnchor = true; // Suojataan Viipurinkatu-torstai trimmaukselta
-                        } else if (day.dayOfWeek === 5) {
+                        if (day.dayOfWeek === 1) day.type = 'eta';
+                        else if (day.dayOfWeek === 2 || day.dayOfWeek === 3) { day.type = 'lahityo'; day.name = settings.primary_office_name; }
+                        else if (day.dayOfWeek === 4) { day.type = 'lahityo'; day.name = settings.thursday_office_name; day.isAnchor = true; }
+                        else if (day.dayOfWeek === 5) {
                             const isAllowedFriday = (day.dayNum <= 7) || (day.dayNum >= 15 && day.dayNum <= 21);
-                            if (isAllowedFriday) {
-                                day.type = 'lahityo';
-                                day.name = settings.primary_office_name;
-                            } else {
-                                day.type = 'eta';
-                            }
+                            day.type = isAllowedFriday ? 'lahityo' : 'eta';
+                            day.name = isAllowedFriday ? settings.primary_office_name : 'Etätyö';
                         }
                     } else {
-                        // SKENAARIO 2: Paikallisviikko (Torstai kotona -> Ti-Ke muodostaa yhtenäisen blokin)
-                        if (day.dayOfWeek === 1 || day.dayOfWeek === 4 || day.dayOfWeek === 5) {
-                            day.type = 'eta'; // Perjantai etäksi saarekesuojan vuoksi
-                        } else if (day.dayOfWeek === 2 || day.dayOfWeek === 3) {
-                            day.type = 'lahityo';
-                            day.name = settings.primary_office_name;
-                        }
+                        if (day.dayOfWeek === 1 || day.dayOfWeek === 4 || day.dayOfWeek === 5) day.type = 'eta'; 
+                        else if (day.dayOfWeek === 2 || day.dayOfWeek === 3) { day.type = 'lahityo'; day.name = settings.primary_office_name; }
                     }
                 });
 
-                // LASKETAAN SYKLIN AKTIIVISET TYÖPÄIVÄT JA LÄHITYÖTAVOITE (50%)
                 const activeWorkingDays = cycleDays.filter(d => d.type !== 'pyha' && d.type !== 'loma').length;
-                let targetOfficeDays = Math.ceil(activeWorkingDays * 0.5) + carriedDeficit;
+                let targetOfficeDays = Math.ceil(activeWorkingDays * (settings.target_office_percent / 100)) + carriedDeficit;
                 let currentOfficeDays = cycleDays.filter(d => d.type === 'lahityo').length;
+                const hasManualLocks = cycleDays.some(d => d.isUserLocked);
 
-                // ================= ILMAINEN TASAPAINOTUS (TRIMMAUS) =================
                 if (currentOfficeDays > targetOfficeDays) {
-                    // Liikaa toimistopäiviä. Kevennetään reunapäiviä luomatta saarekkeita
                     cycleDays.forEach(day => {
-                        if (currentOfficeDays <= targetOfficeDays) return;
-                        if (day.isUserLocked || day.isAnchor) return;
-
-                        if (day.dayOfWeek === 5 && day.type === 'lahityo') {
-                            day.type = 'eta_kevennys';
-                            day.name = '⚖️ Etätyö (Tasapainotus)';
-                            currentOfficeDays--;
-                        }
-                    });
-
-                    cycleDays.forEach(day => {
-                        if (currentOfficeDays <= targetOfficeDays) return;
-                        if (day.isUserLocked || day.isAnchor) return;
-
-                        if (day.dayOfWeek === 2 && day.type === 'lahityo') {
-                            day.type = 'eta_kevennys';
-                            day.name = '⚖️ Etätyö (Tasapainotus)';
-                            currentOfficeDays--;
-                        }
+                        if (currentOfficeDays <= targetOfficeDays || day.isUserLocked || day.isAnchor) return;
+                        if ((day.dayOfWeek === 5 || day.dayOfWeek === 2) && day.type === 'lahityo') { day.type = 'eta_kevennys'; day.name = '⚖️ Etätyö (Tasapainotus)'; currentOfficeDays--; }
                     });
                 }
 
-                // ================= VAJEEN TÄYTTÖ TAI RULLAUS ETEENPÄIN =================
                 if (currentOfficeDays < targetOfficeDays) {
-                    // Kalenterissa liikaa etää. Täytetään laajentamalla olemassa olevia matkablokkeja
                     cycleDays.forEach(day => {
-                        if (currentOfficeDays >= targetOfficeDays) return;
-                        if (day.isUserLocked || day.isAnchor) return;
-
-                        if (day.dayOfWeek === 5 && day.shouldBeOfficeThu && day.type !== 'lahityo') {
-                            day.type = 'lahityo';
-                            day.name = settings.primary_office_name;
-                            currentOfficeDays++;
-                        }
+                        if (currentOfficeDays >= targetOfficeDays || day.isUserLocked || day.isAnchor) return;
+                        if (day.dayOfWeek === 5 && day.shouldBeOfficeThu && day.type !== 'lahityo') { day.type = 'lahityo'; day.name = settings.primary_office_name; currentOfficeDays++; }
                     });
-
-                    // Tarkistetaan jäikö sykli silti vajaaksi
-                    if (currentOfficeDays < targetOfficeDays) {
-                        carriedDeficit = targetOfficeDays - currentOfficeDays; // Rullataan vaje seuraavaan sykliin
-                    } else {
-                        carriedDeficit = 0;
-                    }
+                    if (hasManualLocks) carriedDeficit = 0;
+                    else carriedDeficit = currentOfficeDays < targetOfficeDays ? targetOfficeDays - currentOfficeDays : 0;
                 } else {
                     carriedDeficit = 0;
                 }
 
-                // ================= PREMIUM-ETÄPÄIVÄPANKKI (SILTAPÄIVÄT) =================
                 if (currentBalance > 0) {
                     cycleDays.forEach((day, idx) => {
-                        if (currentBalance <= 0) return;
-                        if (day.isUserLocked || day.isAnchor) return;
-
-                        // Tiistai-pyhä -> Maanantai etäksi pankista
-                        if (day.dayOfWeek === 2 && day.type === 'pyha' && idx > 0) {
-                            const prev = cycleDays[idx - 1];
-                            if (prev.type === 'lahityo' && !prev.isUserLocked && !prev.isAnchor) {
-                                prev.type = 'eta_pankki';
-                                prev.name = 'Ehdotus: Pankki-etä (Silta)';
-                                currentBalance--;
-                            }
-                        }
-                        // Torstai-pyhä -> Perjantai etäksi pankista
-                        if (day.dayOfWeek === 4 && day.type === 'pyha' && idx < cycleDays.length - 1) {
-                            const next = cycleDays[idx + 1];
-                            if (next.type === 'lahityo' && !next.isUserLocked && !next.isAnchor) {
-                                next.type = 'eta_pankki';
-                                next.name = 'Ehdotus: Pankki-etä (Silta)';
+                        if (currentBalance <= 0 || day.isUserLocked || day.isAnchor) return;
+                        if ((day.dayOfWeek === 2 || day.dayOfWeek === 4) && day.type === 'pyha') {
+                            const targetIdx = day.dayOfWeek === 2 ? idx - 1 : idx + 1;
+                            const targetDay = cycleDays[targetIdx];
+                            if (targetDay && targetDay.type === 'lahityo' && !targetDay.isUserLocked && !targetDay.isAnchor) {
+                                targetDay.type = 'eta_pankki'; targetDay.name = 'Ehdotus: Pankki-etä (Silta)';
                                 currentBalance--;
                             }
                         }
                     });
                 }
 
-                // KERÄTÄÄN SYKLIN VALMIIT AUTOMAATTIEHDOTUKSET TALLENNUSLISTALLE
-                cycleDays.forEach(day => {
-                    // Viimeinen varmistus: Menneisyyteen ja käsin lukittuihin ei kosketa!
-                    if (!day.isUserLocked) {
-                        newLocations.push({ 
-                            expert_id: expertId, 
-                            date: day.dateStr, 
-                            location_type: day.type, 
-                            location_name: day.name, 
-                            is_auto_generated: true 
-                        });
+                // =========================================================
+                // KORJATTU NINJA-MATKAT (Viikonlopun katkaisu säännöillä)
+                // =========================================================
+                cycleDays.forEach((day, idx) => {
+                    if (day.type !== 'lahityo' || day.dateStr <= todayStr) return; 
+
+                    const prevDay = idx > 0 ? cycleDays[idx - 1] : null;
+                    const nextDay = idx < cycleDays.length - 1 ? cycleDays[idx + 1] : null;
+
+                    // Katkaistaan "ikuiset putket" Maanantaihin ja Perjantaihin!
+                    const isStartOfBlock = !prevDay || prevDay.type !== 'lahityo' || day.dayOfWeek === 1;
+                    const isEndOfBlock = !nextDay || nextDay.type !== 'lahityo' || day.dayOfWeek === 5;
+
+                    const prevDate = new Date(day.dateObj);
+                    prevDate.setDate(prevDate.getDate() - 1);
+                    const prevStr = prevDate.getFullYear() + '-' + String(prevDate.getMonth() + 1).padStart(2, '0') + '-' + String(prevDate.getDate()).padStart(2, '0');
+
+                    const hasTravelYesterday = existingPlans.some(p => p.date === prevStr) || newJourneys.some(p => p.date === prevStr);
+                    const hasTravelToday = existingPlans.some(p => p.date === day.dateStr) || newJourneys.some(p => p.date === day.dateStr);
+
+                    if (isStartOfBlock && !hasTravelYesterday && !hasTravelToday) {
+                        newJourneys.push({ expert_id: expertId, date: day.dateStr });
+                    }
+
+                    const hasTravelAtEnd = existingPlans.some(p => p.date === day.dateStr) || newJourneys.some(p => p.date === day.dateStr);
+                    if (isEndOfBlock && !hasTravelAtEnd) {
+                        newJourneys.push({ expert_id: expertId, date: day.dateStr });
                     }
                 });
 
-                // Siirretään pääluuppia eteenpäin tasan 14 päivää
-                iterWeekStart.setDate(iterWeekStart.getDate() + 14);
+                cycleDays.forEach(day => {
+                    if (!day.isUserLocked) {
+                        newLocations.push({ expert_id: expertId, date: day.dateStr, location_type: day.type, location_name: day.name, is_auto_generated: true });
+                    }
+                });
+
+                const cycleEndStr = cycleDays[cycleDays.length - 1].dateStr;
+                if (cycleEndStr >= limitStr) break;
+
+                currentWeekStartObj.setDate(currentWeekStartObj.getDate() + 14);
             }
 
-            // 4. Tallennetaan generoitu data kantaan UPSERT-komennolla
             if (newLocations.length > 0) {
-                const { error: upsertError } = await supabase.schema('espan').from('expert_daily_locations').upsert(newLocations, { onConflict: 'expert_id, date' });
-                
-                if (upsertError) {
-                    console.error(`CRON: Virhe tallennettaessa asiantuntijalle ${expertId}:`, upsertError);
-                } else {
-                    console.log(`CRON: Asiantuntijan ${expertId} kalenteri tallennettu (${newLocations.length} uutta päivää).`);
-                }
-            } else {
-                console.log(`CRON: Asiantuntijan ${expertId} kalenteri on jo ajan tasalla.`);
+                await supabase.schema('espan').from('expert_daily_locations').upsert(newLocations, { onConflict: 'unique_expert_date' });
+            }
+            if (newJourneys.length > 0) {
+                await supabase.schema('espan').from('expert_journey_plans').upsert(newJourneys, { onConflict: 'expert_journey_plans_expert_id_date_key' });
             }
         }
 
-        console.log("CRON: Kaikki asiantuntijat optimoitu onnistuneesti Master 2.0 -logiikalla!");
-        return { statusCode: 200, body: 'Schedule optimized successfully with Master 2.0' };
+        return { statusCode: 200, body: 'Schedule optimized successfully' };
 
     } catch (error) {
         console.error('CRON Error:', error);
@@ -315,5 +243,4 @@ const handler = async (event, context) => {
     }
 };
 
-// Netlify Cron-määritys: Ajetaan kerran päivässä (keskiyöllä UTC)
 exports.handler = schedule("@daily", handler);

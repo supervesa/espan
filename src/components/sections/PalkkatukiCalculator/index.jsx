@@ -143,6 +143,42 @@ const PalkkatukiCalculator = ({ state, actions }) => {
                                     onChange={(e) => onUpdatePalkkatuki('tyokokeilu_historia', e.target.value)}
                                 />
                             </div>
+                            {/* UUSI: Havaittujen jaksojen listaus */}
+                            {tkCalc.periods && tkCalc.periods.length > 0 && (
+                                <div className="card-inner-sm" style={{ marginTop: '0.5rem', backgroundColor: 'var(--color-surface)' }}>
+                                    <strong style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--color-text-primary)' }}>
+                                        Laskentaan huomioidut jaksot:
+                                    </strong>
+                                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.85rem' }}>
+                                        {tkCalc.periods.map((period, i) => (
+                                            <li key={i} style={{ 
+                                                display: 'flex', 
+                                                justifyContent: 'space-between', 
+                                                alignItems: 'center',
+                                                padding: '0.4rem 0', 
+                                                borderBottom: i < tkCalc.periods.length - 1 ? '1px solid var(--color-border)' : 'none' 
+                                            }}>
+                                                <div>
+                                                    <span style={{ fontWeight: '500' }}>{period.startStr} - {period.endStr}</span>
+                                                    <span style={{ color: 'var(--color-text-secondary)', marginLeft: '0.5rem' }}>
+                                                        ({period.months} kk {period.leftoverDays > 0 ? `${period.leftoverDays} pv` : ''})
+                                                    </span>
+                                                </div>
+                                                <span 
+                                                    className={`tag ${
+                                                        period.source === 'järjestelmä' ? 'tag--primary' : 
+                                                        period.source === 'suunniteltu' ? 'tag--warning' : 
+                                                        'tag--neutral'
+                                                    }`} 
+                                                    style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem' }}
+                                                >
+                                                    {period.source}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
 
                             {ptState.suunniteltu_tk_alku && ptState.suunniteltu_tk_loppu && (
                                 <div className="card-inner-sm" style={{ borderLeft: '3px solid var(--color-primary)' }}>

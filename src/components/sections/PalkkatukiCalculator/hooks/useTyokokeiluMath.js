@@ -40,77 +40,108 @@ export const useTyokokeiluMath = (state, ika, ptState, actions) => {
     const isUnder25 = ika !== null && ika < 25;
 
     const tkCalc = useMemo(() => {
-        let totalDays = 0;
+        let totalMonths = 0;
+        let totalLeftoverDays = 0;
         let latestEndDate = null;
         const periods = [];
+        const processedSignatures = new Set(); // Apumuuttuja duplikaattien estoon
 
         const now = new Date();
         const twoYearsAgo = new Date();
         twoYearsAgo.setMonth(now.getMonth() - 24); 
 
+        // Keskitetty funktio yhden jakson prosessointiin
+        const addPeriod = (startStr, endStr, source) => {
+            const start = parseSafeDate(startStr);
+            const end = parseSafeDate(endStr);
+            
+            if (!start || !end || end < start) return;
+            if (end < twoYearsAgo) return;
+
+            // Estetään täsmälleen samojen aikavälien tuplalaskenta
+            const signature = `${start.getTime()}-${end.getTime()}`;
+            if (processedSignatures.has(signature)) return;
+            processedSignatures.add(signature);
+
+            // 1. Laske absoluuttiset kalenterikuukaudet
+            let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+            let leftoverDays = 0;
+
+            // 2. Jos lopetuspäivä on aiemmin kuukaudessa kuin aloituspäivä (+1 sallii esim. 15.1.-14.2. olla tasan 1kk)
+            if (end.getDate() + 1 < start.getDate()) {
+                months -= 1;
+                const tempDate = new Date(start);
+                tempDate.setMonth(tempDate.getMonth() + months);
+                leftoverDays = Math.round((end - tempDate) / (1000 * 60 * 60 * 24)) + 1; // Päivien heitto
+            } else {
+                leftoverDays = (end.getDate() - start.getDate()) + 1;
+            }
+
+            // 3. Tasataan yli 30 päivän "irtopäivät" kuukausiksi heti
+            if (leftoverDays >= 30) {
+                months += Math.floor(leftoverDays / 30);
+                leftoverDays = leftoverDays % 30;
+            }
+
+            totalMonths += months;
+            totalLeftoverDays += leftoverDays;
+
+            // Seurataan nollaussääntöä varten vain menneitä tai käynnissä olevia kokeiluja
+            if (end <= now) {
+                if (!latestEndDate || end > latestEndDate) latestEndDate = end;
+            }
+
+            periods.push({ 
+                startStr: typeof startStr === 'string' ? startStr : start.toLocaleDateString('fi-FI'), 
+                endStr: typeof endStr === 'string' ? endStr : end.toLocaleDateString('fi-FI'), 
+                months, 
+                leftoverDays, 
+                source 
+            });
+        };
+
+        // 1. Käsitellään järjestelmän palvelut
         const services = state?.sessionServices || [];
         services.forEach((srv) => {
-            const tyyppi = srv?.entity_key;
-            if (tyyppi === 'tyokokeilu') {
-                const start = parseSafeDate(srv?.data?.alku);
-                const end = parseSafeDate(srv?.data?.loppu);
-                
-                if (start && end && end >= start) {
-                    if (end >= twoYearsAgo) {
-                        const diffDays = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)) + 1;
-                        totalDays += diffDays;
-                        if (!latestEndDate || end > latestEndDate) latestEndDate = end;
-                        periods.push({ startStr: srv.data.alku, endStr: srv.data.loppu, days: diffDays, source: 'järjestelmä' });
-                    }
-                }
+            if (srv?.entity_key === 'tyokokeilu') {
+                addPeriod(srv?.data?.alku, srv?.data?.loppu, 'järjestelmä');
             }
         });
 
+        // 2. Käsitellään manuaalinen tekstihistoria
         if (tkText) {
             const regex = /(\d{1,2}\.\d{1,2}\.\d{4})\s*-\s*(\d{1,2}\.\d{1,2}\.\d{4})/g;
             let match;
             while ((match = regex.exec(tkText)) !== null) {
-                const start = parseSafeDate(match[1]);
-                const end = parseSafeDate(match[2]);
-                if (start && end && end >= start) {
-                    if (end >= twoYearsAgo) {
-                        const diffDays = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)) + 1; 
-                        totalDays += diffDays;
-                        if (!latestEndDate || end > latestEndDate) latestEndDate = end;
-                        periods.push({ startStr: match[1], endStr: match[2], days: diffDays, source: 'manuaalinen' });
-                    }
-                }
+                addPeriod(match[1], match[2], 'manuaalinen');
             }
         }
 
-        const usePlanned = ptState?.huomioi_suunniteltu_tk !== false;
-        if (usePlanned && ptState?.suunniteltu_tk_alku && ptState?.suunniteltu_tk_loppu) {
-            const pStart = parseSafeDate(ptState.suunniteltu_tk_alku);
-            const pEnd = parseSafeDate(ptState.suunniteltu_tk_loppu);
-            if (pStart && pEnd && pEnd >= pStart) {
-                const diffDays = Math.ceil(Math.abs(pEnd - pStart) / (1000 * 60 * 60 * 24)) + 1;
-                totalDays += diffDays;
-                if (!latestEndDate || pEnd > latestEndDate) latestEndDate = pEnd;
-            }
-        }
-
-        let gapDays = 0;
+        // 3. Tarkistetaan nollaussääntö aiemmista jaksoista ennen suunniteltua jaksoa
         let isReset = false;
-
         if (latestEndDate) {
             const gapTime = Math.max(0, now - latestEndDate);
-            gapDays = Math.ceil(gapTime / (1000 * 60 * 60 * 24));
+            const gapDays = Math.ceil(gapTime / (1000 * 60 * 60 * 24));
             const requiredGap = isUnder25 ? 90 : 365;
             
             if (gapDays >= requiredGap) {
                 isReset = true;
-                totalDays = 0; 
+                totalMonths = 0; 
+                totalLeftoverDays = 0;
             }
         }
 
-        const maxDays = 180;
-        const remainingDays = Math.max(0, maxDays - totalDays);
-        const remainingMonths = Math.floor(remainingDays / 30); 
+        // 4. Lisätään suunniteltu työkokeilu (nollauksen jälkeen, jos nollaus on tapahtunut)
+        const usePlanned = ptState?.huomioi_suunniteltu_tk !== false;
+        if (usePlanned && ptState?.suunniteltu_tk_alku && ptState?.suunniteltu_tk_loppu) {
+            addPeriod(ptState.suunniteltu_tk_alku, ptState.suunniteltu_tk_loppu, 'suunniteltu');
+        }
+
+        // 5. Lopullinen summaus
+        totalMonths += Math.floor(totalLeftoverDays / 30);
+        
+        const maxMonths = 6; 
+        const remainingMonths = Math.max(0, maxMonths - totalMonths);
 
         return {
             periods,
@@ -136,7 +167,6 @@ export const useTyokokeiluMath = (state, ika, ptState, actions) => {
         }
     }, [tkCalc.isMaxedOut, ptState?.kirjaa_tyokokeilu_esto, onUpdatePalkkatuki]);
 
-    // --- UUSI: Älysignaalien lähettäminen globaaliin tilaan ---
     useEffect(() => {
         if (!onAddSignal || !onRemoveSignal) return;
 

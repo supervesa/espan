@@ -49,7 +49,6 @@ export const usePalkkatukiMath = (state, ptState, actions) => {
         if (!thPvm) thPvm = thInfo?.muuttujat?.[STATE_MUUTTUJAT.TYONHAKU_ALKUPVM] || thInfo?.value || thInfo?.oletus;
 
         let laskettuIka = null;
-        let originalDiffDays = 0;
 
         const syntymaVuosi = state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.[STATE_MUUTTUJAT.SYNTYMAVUOSI]
                           || state?.suunnitelman_perustiedot?.syntymavuosi?.muuttujat?.['[SYNTYMÄVUOSI]']; 
@@ -61,14 +60,11 @@ export const usePalkkatukiMath = (state, ptState, actions) => {
 
         const startDate = parseSafeDate(thPvm); 
         const turvallinenAlkuPvm = startDate ? startDate.toLocaleDateString('fi-FI') : 'Ei tiedossa';
+        
+        // Nollataan nykyhetken kellonaika heti, jotta kesä- ja talviajan tunnit eivät sotke päivävertailua
         const now = new Date();
+        now.setHours(0, 0, 0, 0);
 
-        if (startDate) {
-            const diffTime = Math.max(0, now - startDate);
-            originalDiffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        }
-
-        // --- KORJATTU LASKENTALOIKKA: Etsitään palvelut ja opinnot, jotka nollaavat laskurin ---
         let latestResetDate = startDate;
         let reason = null;
 
@@ -78,6 +74,7 @@ export const usePalkkatukiMath = (state, ptState, actions) => {
             if (srv?.entity_key === 'opiskelu_omaehtoinen') {
                 const sLoppu = parseSafeDate(srv?.data?.loppu);
                 if (sLoppu && (!latestResetDate || sLoppu > latestResetDate)) {
+                    sLoppu.setHours(0, 0, 0, 0);
                     latestResetDate = sLoppu;
                     reason = `Omaehtoinen opiskelu päättynyt ${sLoppu.toLocaleDateString('fi-FI')}`;
                 }
@@ -90,11 +87,9 @@ export const usePalkkatukiMath = (state, ptState, actions) => {
             const vuosiStr = edu?.data?.vuosi;
             if (vuosiStr) {
                 const vuosiNum = parseInt(String(vuosiStr).replace(/\D/g, ''), 10);
-                // Varmistetaan että vuosi on järkevä (esim. 1950 - nykyhetki)
                 if (!isNaN(vuosiNum) && vuosiNum > 1950 && vuosiNum <= now.getFullYear() + 1) {
-                    // Oletetaan valmistumispäiväksi kevätlukukauden loppu (31.5.YYYY)
-                    const valmPvm = new Date(vuosiNum, 4, 31); // 4 = toukokuu
-                    // Jos päivämäärä on tulevaisuudessa, leikataan se tähän hetkeen
+                    const valmPvm = new Date(vuosiNum, 4, 31); 
+                    valmPvm.setHours(0, 0, 0, 0);
                     const actualValmPvm = valmPvm > now ? now : valmPvm;
 
                     if (!latestResetDate || actualValmPvm > latestResetDate) {
@@ -105,41 +100,71 @@ export const usePalkkatukiMath = (state, ptState, actions) => {
             }
         });
 
-        // Käyttäjän käsin syöttämä nollauspvm (UI:ssa) ohittaa automaation
         const manualNollaus = parseSafeDate(ptState?.nollausPvm); 
+        if (manualNollaus) manualNollaus.setHours(0, 0, 0, 0);
+
         const activeStart = manualNollaus || latestResetDate;
+        const isAutoReset = !manualNollaus && latestResetDate && startDate && latestResetDate > startDate;
         
         let acceptedDays = 0;
         let activeKestoTxt = 'Ei tiedossa';
-        const isAutoReset = !manualNollaus && latestResetDate && startDate && latestResetDate > startDate;
+        let ehto24 = false;
+        let ehto3 = false;
 
         if (activeStart) {
-            // Lasketaan uudet kertyneet päivät ja käännetään ne kauniiksi tekstiksi UI:ta varten
+            // Huomioidaan sallitut katkopäivät siirtämällä laskennan alkupistettä kalenterissa
+            const vahennykset = parseInt(ptState?.vahennysPv, 10) || 0;
+            const effectiveStartDate = new Date(activeStart);
+            effectiveStartDate.setDate(effectiveStartDate.getDate() + vahennykset);
+
+            // Rajapyykkien luominen nykypäivästä taaksepäin
+            const target3Months = new Date(now);
+            target3Months.setMonth(target3Months.getMonth() - 3);
+
+            const target24Months = new Date(now);
+            target24Months.setFullYear(target24Months.getFullYear() - 2);
+
+            // Täyttyvätkö ehdot? (Alkupäivä + vähennykset on kalenterissa yhtä vanha tai vanhempi kuin rajapyykki)
+            ehto3 = effectiveStartDate <= target3Months;
+            ehto24 = effectiveStartDate <= target24Months;
+
+            // Käyttöliittymän selkoteksti "X v Y kk (Z pv)" ja kokonaispäivien laskenta
             const diffTimeActive = Math.max(0, now - activeStart);
-            const daysFromActiveStart = Math.ceil(diffTimeActive / (1000 * 60 * 60 * 24));
-            
-            const vuodet = Math.floor(daysFromActiveStart / 365);
-            const kuukaudet = Math.floor((daysFromActiveStart % 365) / 30);
-            
+            const daysFromActiveStart = Math.round(diffTimeActive / (1000 * 60 * 60 * 24));
+            acceptedDays = Math.max(0, daysFromActiveStart - vahennykset);
+
             if (daysFromActiveStart > 0) {
-                if (vuodet > 0) activeKestoTxt = `${vuodet} v ${kuukaudet} kk (${daysFromActiveStart} pv)`;
-                else activeKestoTxt = `${kuukaudet} kk (${daysFromActiveStart} pv)`;
+                let years = now.getFullYear() - activeStart.getFullYear();
+                let months = now.getMonth() - activeStart.getMonth();
+
+                // Jos nykypäivä on kalenterissa ennen aloituspäivää (esim. 10. pvm vs 15. pvm), 
+                // kuukausi ei ole vielä täysi, joten vähennetään 1.
+                if (now.getDate() < activeStart.getDate()) {
+                    months -= 1;
+                }
+                if (months < 0) {
+                    years -= 1;
+                    months += 12;
+                }
+                
+                if (years > 0) {
+                    activeKestoTxt = `${years} v ${months} kk (${acceptedDays} pv)`;
+                } else {
+                    activeKestoTxt = `${months} kk (${acceptedDays} pv)`;
+                }
             } else {
                 activeKestoTxt = '0 pv';
             }
-            
-            const vahennykset = parseInt(ptState?.vahennysPv, 10) || 0;
-            acceptedDays = Math.max(0, daysFromActiveStart - vahennykset);
         }
 
         return { 
             ika: laskettuIka, 
             alkuperainenAlkuPvm: turvallinenAlkuPvm, 
-            perusKestoPv: acceptedDays, // Välitetään hyväksytyt päivät
-            perusKestoTxt: activeKestoTxt, // Näyttää nyt nollatun keston
+            perusKestoPv: acceptedDays,
+            perusKestoTxt: activeKestoTxt,
             hyvaksytytPaivat: acceptedDays, 
-            ehto24_28_tayttyy: acceptedDays >= 730, 
-            ehto3kk_tayttyy: acceptedDays >= 91,
+            ehto24_28_tayttyy: ehto24, 
+            ehto3kk_tayttyy: ehto3,
             activeStartTxt: activeStart ? activeStart.toLocaleDateString('fi-FI') : 'Ei tiedossa',
             resetReason: reason,
             isAutoReset: isAutoReset
@@ -154,7 +179,6 @@ export const usePalkkatukiMath = (state, ptState, actions) => {
         }
     }, [ehto24_28_tayttyy, ptState?.ehto24_28_tayttyy, onUpdatePalkkatuki]);
 
-    // --- Älysignaalien lähettäminen globaaliin tilaan ---
     useEffect(() => {
         if (!onAddSignal || !onRemoveSignal) return;
 

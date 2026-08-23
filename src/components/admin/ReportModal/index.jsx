@@ -9,6 +9,16 @@ import ReportToteumaTab from './ReportToteumaTab';
 import ReportTravelTab from './ReportTravelTab';
 import ReportRulesTab from './ReportRulesTab';
 
+const LEGACY_ID = '00000000-0000-0000-0000-000000000000';
+
+// Pomminvarma paikallisen ajan kääntäjä lomiin ja estoihin (UTC korjaus)
+const getSafeLocalDayString = (dbString) => {
+    if (!dbString) return '';
+    const d = new Date(dbString);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().split('T')[0];
+};
+
 // Apufunktio: Hakee kiinteät 14 päivän (2 viikon) jaksot
 const getFixedPeriods = () => {
     const periods = [];
@@ -110,22 +120,26 @@ const ReportModal = ({ isOpen, onClose, expertId }) => {
     }, [isOpen]);
 
     useEffect(() => {
-        if (isOpen && selectedPeriod) {
+        if (isOpen && selectedPeriod && expertId) {
             fetchPreviewData(selectedPeriod);
         }
-    }, [isOpen, selectedPeriod]);
+    }, [isOpen, selectedPeriod, expertId]);
 
     const fetchPreviewData = async (period) => {
         setLoadingPreview(true);
         try {
+            // KORJAUS 1: Määritellään ID:t kaksoishakua varten
+            const queryIds = [expertId, LEGACY_ID];
+
+            // KORJAUS 2: Käytetään .in() funktiota .eq() sijaan
             const [locRes, excRes, holidayRes, ledgerRes, journeyRes, receiptRes, rulesRes] = await Promise.all([
-                supabase.schema('espan').from('expert_daily_locations').select('*').eq('expert_id', expertId).gte('date', period.startDate).lte('date', period.endDate),
-                supabase.schema('espan').from('availability').select('*').eq('expert_id', expertId).gte('start_time', `${period.startDate} 00:00:00`).lte('start_time', `${period.endDate} 23:59:59`),
+                supabase.schema('espan').from('expert_daily_locations').select('*').in('expert_id', queryIds).gte('date', period.startDate).lte('date', period.endDate),
+                supabase.schema('espan').from('availability').select('*').in('expert_id', queryIds).gte('start_time', `${period.startDate} 00:00:00`).lte('start_time', `${period.endDate} 23:59:59`),
                 supabase.schema('espan').from('national_holidays_cache').select('*').gte('date', period.startDate).lte('date', period.endDate),
-                supabase.schema('espan').from('expert_remote_bank_ledger').select('*').eq('expert_id', expertId),
-                supabase.schema('espan').from('expert_journeys').select('*').eq('expert_id', expertId).gte('departure_time', `${period.startDate} 00:00:00`).lte('departure_time', `${period.endDate} 23:59:59`),
-                supabase.schema('espan').from('expert_ticket_receipts').select('*').eq('expert_id', expertId).gte('departure_time', `${period.startDate} 00:00:00`).lte('departure_time', `${period.endDate} 23:59:59`),
-                supabase.schema('espan').from('expert_availability_rules').select('*').eq('expert_id', expertId)
+                supabase.schema('espan').from('expert_remote_bank_ledger').select('*').in('expert_id', queryIds),
+                supabase.schema('espan').from('expert_journeys').select('*').in('expert_id', queryIds).gte('departure_time', `${period.startDate} 00:00:00`).lte('departure_time', `${period.endDate} 23:59:59`),
+                supabase.schema('espan').from('expert_ticket_receipts').select('*').in('expert_id', queryIds).gte('departure_time', `${period.startDate} 00:00:00`).lte('departure_time', `${period.endDate} 23:59:59`),
+                supabase.schema('espan').from('expert_availability_rules').select('*').in('expert_id', queryIds)
             ]);
 
             const locations = locRes.data || [];
@@ -153,8 +167,10 @@ const ReportModal = ({ isOpen, onClose, expertId }) => {
 
                 totalCalendarWorkDays++;
                 const dStr = d.toISOString().split('T')[0];
-                const isHoliday = holidays.find(h => h.date === dStr);
-                const isBlocked = exceptions.some(e => e.is_blocked && e.meeting_type === 'estetty' && e.start_time.startsWith(dStr));
+                
+                // KORJAUS 3: Käytetään turvallista aikamuunninta ja tiukkaa 'estetty' ehtoa
+                const isHoliday = holidays.find(h => getSafeLocalDayString(h.date || h.start_time) === dStr);
+                const isBlocked = exceptions.some(e => e.is_blocked && String(e.meeting_type).trim().toLowerCase() === 'estetty' && e.start_time.substring(0, 10) === dStr);
                 const loc = locations.find(l => l.date === dStr);
 
                 if (isHoliday) {
@@ -220,10 +236,7 @@ const ReportModal = ({ isOpen, onClose, expertId }) => {
                 raw: { locations, exceptions, holidays, ledgerAll } 
             });
 
-            // --- 2. TALLENNETAAN MATKADATA (Välilehti 2) ---
             setTravelData({ journeys, receipts });
-
-            // --- 3. TALLENNETAAN SÄÄNTÖDATA (Välilehti 3) ---
             setRulesData({ rules, exceptions, locations });
 
         } catch (error) {
@@ -259,8 +272,9 @@ const ReportModal = ({ isOpen, onClose, expertId }) => {
                 const displayDate = `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
                 const weekdayName = weekdaysFi[dayOfWeek];
 
-                const isHoliday = holidays.find(h => h.date === dStr);
-                const isBlocked = exceptions.some(e => e.is_blocked && e.meeting_type === 'estetty' && e.start_time.startsWith(dStr));
+                // Sama UTC-korjaus kuin latauksessa
+                const isHoliday = holidays.find(h => getSafeLocalDayString(h.date || h.start_time) === dStr);
+                const isBlocked = exceptions.some(e => e.is_blocked && String(e.meeting_type).trim().toLowerCase() === 'estetty' && e.start_time.substring(0, 10) === dStr);
                 const loc = locations.find(l => l.date === dStr);
 
                 let locationName = "";
@@ -290,7 +304,13 @@ const ReportModal = ({ isOpen, onClose, expertId }) => {
                             }
                         }
 
-                        const dayAppointments = exceptions.filter(e => !e.is_blocked && e.start_time.startsWith(dStr));
+                        // KORJAUS: Varmistetaan että ei yritetä laskea 'estetty' merkintää asiakastapaamiseksi!
+                        const dayAppointments = exceptions.filter(e => 
+                            !e.is_blocked && 
+                            String(e.meeting_type).trim().toLowerCase() !== 'estetty' && 
+                            getSafeLocalDayString(e.start_time) === dStr
+                        );
+                        
                         if (dayAppointments.length > 0) {
                             const contactMethods = dayAppointments.map(e => e.contact_method);
                             const hasKaynti = contactMethods.includes('kaynti');

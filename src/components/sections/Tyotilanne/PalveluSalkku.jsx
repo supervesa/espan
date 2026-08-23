@@ -66,6 +66,17 @@ const PalveluSalkku = ({
         return { label: 'Tuleva', variant: 'primary', icon: Clock };
     };
 
+    // Apufunktio uuden historia_vuodet -rakenteen näyttämiseen
+    const getHistoryDisplay = (serviceKey) => {
+        const yearData = analyticsData?.historia_vuodet?.[serviceKey];
+        if (!yearData || Object.keys(yearData).length === 0) return '0';
+        
+        const total = Object.values(yearData).reduce((sum, count) => sum + count, 0);
+        const years = Object.keys(yearData).sort().join(', ');
+        
+        return `${total} kpl (${years})`;
+    };
+
     // Hae aktiivisen palvelun kenttävaatimukset
     const activeDef = ENTITY_DEFINITIONS[activeEntityKey];
     const availableFields = activeDef?.fields || {};
@@ -182,7 +193,7 @@ const PalveluSalkku = ({
             {/* --- ANALYTIIKAN LÄPINÄKYVYYS --- */}
             <div className="p-3 mt-4" style={{ backgroundColor: 'var(--color-bg-secondary)', borderRadius: '8px', border: '1px dashed var(--color-border)' }}>
                 <h4 className="text-xs-dense fw-bold text-slate-700 text-uppercase mb-2" style={{ letterSpacing: '0.05em' }}>
-                    📊 Sentinel Analytiikka (Live)
+                    Sentinel Analytiikka (Live)
                 </h4>
                 <div className="text-xxs font-mono text-slate-500 lh-tight grid-cols-2-tight">
                     <div>
@@ -192,9 +203,9 @@ const PalveluSalkku = ({
                     </div>
                     <div>
                         <strong>Historia:</strong><br/>
-                        - Työkokeilut: {analyticsData.historia_kpl?.tyokokeilu || 0}<br/>
-                        - Palkkatuet: {analyticsData.historia_kpl?.palkkatuki || 0}<br/>
-                        - Kuntouttava: {analyticsData.historia_kpl?.kuntouttava_tyotoiminta || 0}
+                        - Työkokeilut: {getHistoryDisplay('tyokokeilu')}<br/>
+                        - Palkkatuet: {getHistoryDisplay('palkkatuki')}<br/>
+                        - Kuntouttava: {getHistoryDisplay('kuntouttava_tyotoiminta')}
                     </div>
                 </div>
             </div>

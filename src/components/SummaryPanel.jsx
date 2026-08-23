@@ -21,14 +21,14 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
     
     // UUDET TILAT ASETUKSILLE
     const [useLegacy, setUseLegacy] = useState(false);
-    const [skipAnalytics, setSkipAnalytics] = useState(false);
+    const [isTestMode, setIsTestMode] = useState(false); // KORJATTU
     const [skipSentinel, setSkipSentinel] = useState(false);
     
     const [currentFingerprint, setCurrentFingerprint] = useState(''); 
     const observerRef = useRef(null); 
     const identityCheckedRef = useRef(false); 
     
-    const { logPlanCopied } = useSentinelAnalytics();
+    const { logPlanCopied } = useSentinelAnalytics(state);
     const { getFingerprintData } = useSentinelFingerprint(state);
     const { checkIdentity, registerIdentity, isReturning } = useSentinelIdentity();
 
@@ -102,8 +102,9 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                 setFeedback('Suunnitelma kopioitu ja tiedot lukittu!'); 
                 setIsSaved(true); 
                 
-                if (!skipAnalytics && logPlanCopied) {
-                    logPlanCopied(state, asiantuntijaId);
+                // KORJATTU
+                if (logPlanCopied) {
+                    logPlanCopied(state, asiantuntijaId, isTestMode);
                 }
 
                 if (!skipSentinel && getFingerprintData) {
@@ -119,8 +120,9 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                     setFeedback('Kopioitu (ei-muotoiltuna)!');
                     setIsSaved(true);
                     
-                    if (!skipAnalytics && logPlanCopied) {
-                        logPlanCopied(state, asiantuntijaId);
+                    // KORJATTU
+                    if (logPlanCopied) {
+                        logPlanCopied(state, asiantuntijaId, isTestMode);
                     }
                     
                     if (!skipSentinel && getFingerprintData) {
@@ -300,9 +302,9 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                         onChange={setUseLegacy} 
                     />
                     <Checkbox 
-                        label="Älä tallenna tilastoihin (Testitila)" 
-                        checked={skipAnalytics} 
-                        onChange={setSkipAnalytics} 
+                        label="Tallenna tilastoihin testinä (Testitila)" // KORJATTU
+                        checked={isTestMode} 
+                        onChange={setIsTestMode} 
                     />
                     <Checkbox 
                         label="Älä päivitä asiakkaan taustatietoja arkistoon" 
