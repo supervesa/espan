@@ -43,17 +43,14 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
     // ==========================================
     const parseIcsDate = (dateStr) => {
         if (!dateStr) return null;
-        // Napataan varsinainen arvo riippumatta ICS-parametreista (esim VALUE=DATE tai TZID)
         const cleanStr = dateStr.includes(':') ? dateStr.split(':').pop().trim() : dateStr.trim();
         
         if (cleanStr.length === 8) {
-            // Koko päivän tapahtuma. Lukitaan neutraaliin klo 00:00:00Z UTC, jotta päivä ei vaihdu
             const y = cleanStr.substring(0, 4);
             const m = cleanStr.substring(4, 6);
             const d = cleanStr.substring(6, 8);
             return new Date(`${y}-${m}-${d}T00:00:00Z`).toISOString();
         } else if (cleanStr.length >= 15) {
-            // Normaali kellonajallinen tapahtuma
             const y = cleanStr.substring(0, 4);
             const m = cleanStr.substring(4, 6);
             const d = cleanStr.substring(6, 8);
@@ -74,7 +71,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
     const parseICS = (icsText) => {
         const events = [];
         
-        // 1. Rivitaittojen (line folding) ehjäys - Korjaa pitkät UID-katkeamiset
         const unfoldedText = icsText.replace(/\r?\n[ \t]/g, '');
         const lines = unfoldedText.split(/\r?\n/);
         
@@ -85,7 +81,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 currentEvent = {};
             } else if (line.startsWith('END:VEVENT') && currentEvent) {
                 
-                // VIP / Stealth-token: Etsitään salainen tunniste järjestelmän omista varauksista
                 if (currentEvent.description) {
                     const tokenMatch = currentEvent.description.match(/Asiantuntija Vesa Nessling(?:\\n|\n)(.+)/);
                     if (tokenMatch && tokenMatch[1]) {
@@ -96,16 +91,14 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 events.push(currentEvent);
                 currentEvent = null;
             } else if (currentEvent) {
-                // Joustava kenttien lukija (Ohittaa koodit kuten LANGUAGE=fi)
                 const colonIndex = line.indexOf(':');
                 if (colonIndex > -1) {
                     const propFull = line.substring(0, colonIndex);
-                    // Poimitaan vain perusominaisuus ennen puolipistettä (esim. SUMMARY;LANGUAGE=fi -> SUMMARY)
                     const propName = propFull.split(';')[0].toUpperCase(); 
                     const value = line.substring(colonIndex + 1).trim();
 
                     if (propName === 'UID') currentEvent.uid = value;
-                    if (propName === 'SUMMARY') currentEvent.summary = value; // Nappaa ehjänä, vaikka sisältäisi 2. kaksoispisteen
+                    if (propName === 'SUMMARY') currentEvent.summary = value; 
                     if (propName === 'DTSTART') currentEvent.start = line; 
                     if (propName === 'DTEND') currentEvent.end = line;
                     if (propName === 'DESCRIPTION') currentEvent.description = value;
@@ -123,7 +116,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
         const queueEvents = [];
 
         rawEvents.forEach(event => {
-            // Parsitaan pvm-tunniste (yhdistetään UID:iin, jotta toistuvat tapahtumat tallentuvat uniikkeina!)
             const datePart = event.start ? (event.start.includes(':') ? event.start.split(':').pop().trim() : event.start.trim()) : '';
             const finalUid = event.uid ? `${event.uid}_${datePart}` : null;
             if (!finalUid) return;
@@ -141,7 +133,7 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 sync_token: event.sync_token || null 
             };
 
-            // OHITUSKAISTA (VIP): Oman järjestelmän synkronoimat tapahtumat
+            // VIP-KAISTA 1: Stealth-token oman järjestelmän varauksista
             if (event.sync_token) {
                 cleanEvents.push({ 
                     ...baseEvent, 
@@ -151,38 +143,76 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 return; 
             }
 
-            // NORMAALI TARKISTUS
             const summary = event.summary || '';
             const lowerSummary = summary.toLowerCase();
             
-            // Haetaan joustavasti mikä tahansa 14-numeroinen putki (sallii klo/teksti-päättymiset)
             const idMatch = summary.match(/\d{14}/);
             const customerId = idMatch ? idMatch[0] : null;
 
-            // Poissulkeminen VASTA kun ei numeroa ja yhtään oikeaa avainsanaa
             if (!customerId && !lowerSummary.match(/malminkatu|viipurinkatu|itäkeskus|etä|loma|tuuraus/)) {
                 return; 
             }
 
             if (customerId) {
-                if (lowerSummary.includes('peruttu')) {
+                
+                // ==========================================
+                // VIP-KAISTA 2: ETULIITEMALLI (Turvallinen päivitys)
+                // ==========================================
+                let isPrefixMatched = false;
+                let explicitCat = null;
+                let explicitMethod = null;
+                let isCancelled = false;
+
+                // Tunnistetaan standardin mukaiset otsikot.
+                // startWith varmistaa, että esim. "Kylmäsoitto" ohjautuu kylmäsoitoksi,
+                // vaikka koodi myöhemmin näkisi vahingossa sanan "soitto".
+                if (lowerSummary.startsWith('peruttu')) {
+                    isPrefixMatched = true;
+                    explicitCat = 'peruttu';
+                    isCancelled = true;
+                } else if (lowerSummary.startsWith('ajanvaraus/läsnä') || lowerSummary.startsWith('ajanvaraus/lasna')) {
+                    isPrefixMatched = true;
+                    explicitCat = 'tapaaminen';
+                    explicitMethod = 'lasna';
+                } else if (lowerSummary.startsWith('ajanvaraus/soitto')) {
+                    isPrefixMatched = true;
+                    explicitCat = 'tapaaminen';
+                    explicitMethod = 'soitto';
+                } else if (lowerSummary.startsWith('kylmäsoitto') || lowerSummary.startsWith('kylmasoitto')) {
+                    isPrefixMatched = true;
+                    explicitCat = 'kylmasoitto';
+                    explicitMethod = 'soitto';
+                }
+
+                // ==========================================
+                // TALLENNUS- JA ARVAILULOGIIKKA
+                // ==========================================
+                
+                if (isPrefixMatched) {
+                    // JOS TÄYDELLINEN ETULIITE LÖYTYI -> Ohitetaan arvailu, suoraan kantaan!
+                    cleanEvents.push({ 
+                        ...baseEvent, 
+                        event_category: explicitCat, 
+                        contact_method: explicitMethod,
+                        is_cancelled: isCancelled
+                    });
+                } 
+                else if (lowerSummary.includes('peruttu')) {
+                    // VANHA TURVAVERKKO ALKAA: Jos ei ollut etuliitettä, mutta sana löytyy muualta
                     cleanEvents.push({ ...baseEvent, event_category: 'peruttu', is_cancelled: true });
                 } 
                 else if (lowerSummary.includes('soitto') || lowerSummary.includes('puhelu')) {
                     cleanEvents.push({ ...baseEvent, event_category: 'tapaaminen', contact_method: 'soitto' });
                 } 
                 else {
-                    // Päättely, onko merkinnässä pelkkä asiakasnumero
                     const summaryWithoutId = summary.replace(customerId, '').trim();
                     const isOnlyId = summaryWithoutId.length === 0 || /^[\W_]*$/.test(summaryWithoutId); 
                     
                     if (isOnlyId || lowerSummary.includes('läsnä') || lowerSummary.includes('lasna') || lowerSummary.includes('ajanvaraus') || lowerSummary.includes('sovittu') || lowerSummary.includes('varattu')) {
-                        // Täydellinen läsnävaraus tai "pelkkä numero" -> suoraan tapaamisiin
                         cleanEvents.push({ ...baseEvent, event_category: 'tapaaminen', contact_method: 'lasna' });
                     } else {
-                        // Asiakasnumero löytyi, mutta otsikon tarkoitus ei selvinnyt. Siirretään ratkaisujonoon!
+                        // Menee Ratkaisukeskukseen (Kuten ennenkin!)
                         const maskedSummary = summary.replace(customerId, `${customerId.substring(0, 4)}*******${customerId.substring(11)}`);
-                        // KORJAUS 400 ERROR: Työnnetään VAIN taulusta löytyvät arvot jonoon (ei baseEventin kenttiä is_all_day tai sync_token)
                         queueEvents.push({ 
                             expert_id: asiantuntijaId,
                             ics_uid: finalUid,
@@ -195,11 +225,9 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             } 
             else if (lowerSummary.match(/malminkatu|viipurinkatu|itäkeskus|etä/)) {
-                // Sijainnit
                 cleanEvents.push({ ...baseEvent, event_category: 'sijainti', location_name: summary });
             } 
             else if (lowerSummary.match(/loma|tuuraus/)) {
-                // Poissaolot
                 cleanEvents.push({ ...baseEvent, event_category: 'poissaolo' });
             }
         });
@@ -218,13 +246,11 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
             const text = await file.text();
             const rawEvents = parseICS(text);
             
-            // Kerätään kaikki unikaaliset kustomoidut UID:t 
             const fileUids = rawEvents.map(ev => {
                 const dp = ev.start ? (ev.start.includes(':') ? ev.start.split(':').pop().trim() : ev.start.trim()) : '';
                 return ev.uid ? `${ev.uid}_${dp}` : null;
             }).filter(Boolean);
             
-            // Katsotaan kannasta kaikki tuonut
             const queryIds = [asiantuntijaId, LEGACY_ID];
             const { data: existingData } = await supabase.schema('espan')
                 .from('ics_events')
@@ -234,7 +260,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 
             const existingUids = new Set(existingData?.map(d => d.ics_uid) || []);
             
-            // Jätetään käsittelyyn vain aidosti uudet
             const newEvents = rawEvents.filter(ev => {
                 const dp = ev.start ? (ev.start.includes(':') ? ev.start.split(':').pop().trim() : ev.start.trim()) : '';
                 const fUid = ev.uid ? `${ev.uid}_${dp}` : null;
@@ -278,8 +303,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
     const resolveItem = async (item, actionCategory, actionMethod) => {
         try {
             const finalCategory = actionCategory === 'hylkaa' ? 'hylatty' : actionCategory;
-            
-            // KORJAUS 400 ERROR: Koska is_all_day jäi pois ratkaisujonotaulusta, selvitetään se luotettavasti tässä!
             const isAllDay = item.start_time.includes('00:00:00');
             
             const newEvent = {
@@ -388,7 +411,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             {reviewQueue.map((item) => {
                                 const startDate = new Date(item.start_time);
-                                // KORJAUS 400 ERROR: Selvitetään oliko kyseessä koko päivän (klo 00:00:00) ilmiö ja printataan asiallisesti UI:hin
                                 const isAllDayItem = item.start_time.includes('00:00:00');
                                 
                                 return (
