@@ -1,12 +1,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { supabase } from '../../../utils/supabaseClient';
 import Button from '../../common/Button';
-import { CalendarDays, Map, Settings } from 'lucide-react'; 
+import { CalendarDays, Map, Settings, CalendarCheck } from 'lucide-react'; 
 
 import Calendar from './index';
 import LocationsPlanner from './locations/index.jsx'; 
-// UUSI: Tuodaan asetuspaneeli oikeasta polusta!
 import CalendarSettings from '../settings/Calendar/CalendarSettings'; 
+// UUSI: Tuodaan uusi asetuspaneeli
+import AjanvarausSettings from '../settings/ajanvaraus/AjanvarausSettings'; 
 
 const CalendarManager = () => {
     // 1. TILANHALLINTA
@@ -23,7 +24,8 @@ const CalendarManager = () => {
     const navTabs = [
         { id: 'calendar', label: 'Kalenteri', icon: CalendarDays },
         { id: 'locations', label: 'Sijaintisuunnittelu', icon: Map },
-        { id: 'settings', label: 'Asetukset', icon: Settings } // <-- Täällä uusi sivu!
+        { id: 'settings', label: 'Sijaintiasetukset', icon: Settings },
+        { id: 'ajanvaraus_settings', label: 'Ajanvarausasetukset', icon: CalendarCheck } // <-- Täällä uusi oma tabi!
     ];
 
     const [settings, setSettings] = useState({
@@ -121,9 +123,14 @@ const CalendarManager = () => {
 
     // 3. APUFUNKTIO NÄKYMIEN RENDERÖINTIIN
     const renderActiveContent = () => {
-        // Jos ollaan asetuksissa, näytetään itsenäinen älykäs asetuspaneeli
+        // Alkuperäinen sijaintiasetukset
         if (activeView === 'settings') {
             return <CalendarSettings />;
+        }
+
+        // UUSI: Ajanvarausasetusten itsenäinen näkymä
+        if (activeView === 'ajanvaraus_settings') {
+            return <AjanvarausSettings />;
         }
 
         // Muut näkymät vaativat, että asiantuntija on valittu
