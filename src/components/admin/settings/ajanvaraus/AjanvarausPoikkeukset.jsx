@@ -12,7 +12,6 @@ const getISOWeek = (dateString) => {
     return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 };
 
-// UUSI LISÄYS: Otetaan propsit vastaan yläkomponentilta
 const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) => {
     const [loading, setLoading] = useState(true);
     
@@ -43,7 +42,14 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                     .gte('date', startStr)
                     .lte('date', endStr);
 
-                // 4. Hae seuranta-data (kapasiteetti ja erääntyvät)
+                // 4. Hae arkipyhät (holidays)
+                const { data: holidaysData, error: holError } = await supabase.schema('espan')
+                    .from('national_holidays_cache')
+                    .select('*')
+                    .gte('date', startStr)
+                    .lte('date', endStr);
+
+                // 5. Hae seuranta-data (kapasiteetti ja erääntyvät)
                 const currentYear = today.getFullYear();
                 const { data: countersData, error: countError } = await supabase.schema('espan')
                     .from('v_tyottomyysturva_seuranta')
@@ -52,10 +58,13 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                     .gte('vuosi', currentYear);
 
                 if (locError) console.error("Virhe locations-haussa:", locError);
+                if (holError) console.error("Virhe holidays-haussa:", holError);
                 if (countError) console.error("Virhe seuranta-haussa:", countError);
 
-                // 5. Ryhmitellään ja prosessoidaan poikkeukset
+                // 6. Ryhmitellään ja prosessoidaan poikkeukset
                 const weekMap = {};
+                
+                // Käsitellään lomat ja tuuraukset
                 if (locationsData) {
                     locationsData.forEach(loc => {
                         const locDate = new Date(loc.date);
@@ -64,7 +73,7 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                         const key = `${year}-${week}`;
 
                         if (!weekMap[key]) {
-                            weekMap[key] = { week, year, isLoma: false, isTuuraus: false };
+                            weekMap[key] = { week, year, isLoma: false, isTuuraus: false, holidays: [] };
                         }
 
                         if (loc.location_type === 'loma' || (loc.location_name && loc.location_name.includes('Loma'))) {
@@ -76,15 +85,50 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                     });
                 }
 
+                // Käsitellään arkipyhät
+                if (holidaysData) {
+                    holidaysData.forEach(hol => {
+                        const holDate = new Date(hol.date);
+                        const week = getISOWeek(hol.date);
+                        const year = holDate.getFullYear();
+                        const key = `${year}-${week}`;
+
+                        if (!weekMap[key]) {
+                            weekMap[key] = { week, year, isLoma: false, isTuuraus: false, holidays: [] };
+                        }
+                        
+                        if (!weekMap[key].holidays.includes(hol.name)) {
+                            weekMap[key].holidays.push(hol.name);
+                        }
+                    });
+                }
+
                 const exceptions = [];
                 let idCounter = 1;
 
                 Object.values(weekMap).forEach(w => {
+                    const counter = (countersData || []).find(c => c.viikko === w.week && c.vuosi === w.year) || {};
+                    const eraantyvat = parseInt(counter.eraantyvat_suunnitelmat || 0, 10);
+                    const tavoiteRaw = counter.pbi_tavoitetahti ? parseFloat(counter.pbi_tavoitetahti) : 12;
+                    const tavoitetahti_ympari = Math.round(tavoiteRaw);
+
+                    // A) Luodaan oma kortti Arkipyhille
+                    if (w.holidays && w.holidays.length > 0) {
+                        exceptions.push({
+                            id: idCounter++,
+                            week: w.week,
+                            year: w.year,
+                            type: 'pyha',
+                            title: `Arkipyhä (${w.holidays.join(', ')})`,
+                            icon: CalendarDays,
+                            color: 'var(--color-info-text)', 
+                            eraantyvat: eraantyvat,
+                            tavoitetahti_ympari: tavoitetahti_ympari
+                        });
+                    }
+
+                    // B) Luodaan oma kortti Lomille ja Tuurauksille
                     if (w.isLoma || w.isTuuraus) {
-                        const counter = (countersData || []).find(c => c.viikko === w.week && c.vuosi === w.year) || {};
-                        const eraantyvat = parseInt(counter.eraantyvat_suunnitelmat || 0, 10);
-                        const tavoiteRaw = counter.pbi_tavoitetahti ? parseFloat(counter.pbi_tavoitetahti) : 12;
-                        
                         exceptions.push({
                             id: idCounter++,
                             week: w.week,
@@ -92,13 +136,14 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                             type: w.isLoma ? 'loma' : 'tuuraus',
                             title: w.isLoma ? 'Vuosiloma / Este' : 'Tuurausviikko (Ei omia asiakkaita)',
                             icon: w.isLoma ? Palmtree : Users,
-                            color: w.isLoma ? '#10b981' : '#f59e0b',
+                            color: w.isLoma ? 'var(--color-success)' : 'var(--color-warning)',
                             eraantyvat: eraantyvat,
-                            tavoitetahti_ympari: Math.round(tavoiteRaw)
+                            tavoitetahti_ympari: tavoitetahti_ympari
                         });
                     }
                 });
 
+                // Järjestetään kronologisesti
                 exceptions.sort((a, b) => a.year !== b.year ? a.year - b.year : a.week - b.week);
                 setRawExceptions(exceptions);
 
@@ -113,18 +158,17 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
     }, []);
 
     if (loading) {
-        return <div className="p-4 text-center text-secondary">Skannataan kalenterin poikkeuksia (3 kk)...</div>;
+        return <div className="p-4 text-center text-secondary text-sm">Skannataan kalenterin poikkeuksia (3 kk)...</div>;
     }
 
     return (
         <Card icon={Radar} title="Poikkeustutka (Seuraavat 3 kk)" variant="bordered">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 
-                {/* OSA 1: 50/50 Kuormantasauksen ohjaus (käyttää nyt yläkomponentin funktiota) */}
-                <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                {/* OSA 1: 50/50 Kuormantasauksen ohjaus */}
+                <div className="side-bordered-panel" style={{ margin: 0 }}>
                     
-                    {/* Pääkytkin */}
-                    <label className="modern-checkbox-label" style={{ marginBottom: 0 }}>
+                    <label className="custom-checkbox-row">
                         <input 
                             type="checkbox" 
                             className="modern-checkbox"
@@ -134,7 +178,7 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                         <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <GitMerge className="text-primary" size={16} />
-                                <span className="fw-semibold text-primary text-sm">Automaattinen kuormantasaus poikkeusviikoilla</span>
+                                <span className="text-sm fw-semibold text-primary">Automaattinen kuormantasaus poikkeusviikoilla</span>
                             </div>
                             <span className="text-xs text-secondary lh-tight mt-1">
                                 Kun tutka havaitsee kalenterissasi loman tai tuurausviikon, assistentti purkaa sen aiheuttaman sumpun. Kriittiset asiakkaat (46 §) hoidetaan poikkeuksetta aina ennakkoon. Muiden erääntyvien asiakkaiden massa tasataan valintasi mukaan poikkeusta ympäröiville viikoille.
@@ -142,7 +186,6 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                         </div>
                     </label>
 
-                    {/* Alavalinta, auki vain jos pääkytkin on päällä */}
                     {isBalancingEnabled && (
                         <div style={{ marginTop: '1.25rem', paddingLeft: '2.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             <label className="text-xs fw-semibold text-secondary">Sumpun purkaminen poikkeuksen jälkeen:</label>
@@ -150,7 +193,7 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                                 className="modern-select text-sm" 
                                 value={spreadWeeks} 
                                 onChange={(e) => onChange('purku_viikot', parseInt(e?.target?.value ?? e))}
-                                style={{ maxWidth: '450px', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                style={{ maxWidth: '450px' }}
                             >
                                 <option value={1}>1 viikko ennen ja 1 viikko jälkeen (50 % / 50 %)</option>
                                 <option value={2}>1 viikko ennen ja 2 viikkoa jälkeen (50 % / 25 % / 25 %)</option>
@@ -159,50 +202,63 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                     )}
                 </div>
 
-                <div style={{ height: '1px', backgroundColor: 'var(--color-border)' }} />
+                <hr />
 
-                {/* OSA 2: Tutkan Aikajana dynaamisella laskennalla */}
+                {/* OSA 2: Tutkan Aikajana */}
                 <div>
                     <label className="text-sm fw-semibold text-primary mb-3 block">Havaitut poikkeukset ja kapasiteettiennuste</label>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                         
                         {rawExceptions.map((exc) => {
                             const Icon = exc.icon;
+
+                            // Erikoisnäkymä Arkipyhille (Ei laukaise kuormantasauksen keltaisia varoituksia)
+                            if (exc.type === 'pyha') {
+                                return (
+                                    <div key={exc.id} style={{ display: 'flex', gap: '1rem', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '60px' }}>
+                                            <div style={{ backgroundColor: 'var(--color-background)', color: exc.color, padding: '8px', borderRadius: '50%', marginBottom: '4px' }}>
+                                                <Icon size={20} />
+                                            </div>
+                                            <span className="text-xs fw-bold text-secondary">Vko {exc.week}</span>
+                                        </div>
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                            <span className="text-sm fw-semibold mb-1">{exc.title}</span>
+                                            <span className="text-xs text-secondary lh-tight">
+                                                Viikon tavoitemäärää on madallettu automaattisesti arkipyhän vuoksi. Normaali ajanvaraus ja lykkäystoleranssit jatkuvat <strong>Ajanvaraus</strong>-sääntöjen puitteissa.
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            }
                             
-                            // Dynaaminen matematiikka valitun purkuajan perusteella
+                            // Normaali näkymä Lomille ja Tuurauksille
                             const eraantyvat = exc.eraantyvat;
-                            const beforeLoad = Math.ceil(eraantyvat / 2); // Puolet aina viikolle ennen
-                            const totalAfterLoad = Math.floor(eraantyvat / 2); // Loput purkuun
+                            const beforeLoad = Math.ceil(eraantyvat / 2);
+                            const totalAfterLoad = Math.floor(eraantyvat / 2);
                             
-                            // Paljonko kuormaa per viikko purkuaikana?
                             const afterLoadPerWeek = spreadWeeks === 2 ? Math.ceil(totalAfterLoad / 2) : totalAfterLoad;
-                            
-                            // Suurin yksittäisen viikon lisäkuorma määrittää liikennevalon värin
                             const maxExtraLoad = Math.max(beforeLoad, afterLoadPerWeek);
                             const status = maxExtraLoad > 4 ? 'yellow' : 'green';
 
                             return (
-                                <div key={exc.id} style={{ display: 'flex', gap: '1rem', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', backgroundColor: '#fff' }}>
-                                    
-                                    {/* Viikko ja Ikonit */}
+                                <div key={exc.id} style={{ display: 'flex', gap: '1rem', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)' }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '60px' }}>
-                                        <div style={{ backgroundColor: `${exc.color}15`, color: exc.color, padding: '8px', borderRadius: '50%', marginBottom: '4px' }}>
+                                        <div style={{ backgroundColor: 'var(--color-background)', color: exc.color, padding: '8px', borderRadius: '50%', marginBottom: '4px' }}>
                                             <Icon size={20} />
                                         </div>
                                         <span className="text-xs fw-bold text-secondary">Vko {exc.week}</span>
                                     </div>
 
-                                    {/* Data ja Logiikka */}
                                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                                        <span className="fw-semibold text-sm mb-1">{exc.title}</span>
-                                        
+                                        <span className="text-sm fw-semibold mb-1">{exc.title}</span>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                             <div className="text-xs text-secondary">
                                                 <strong>Erääntyviä suunnitelmia (vko {exc.week}):</strong> {exc.eraantyvat} kpl
                                             </div>
                                             
                                             {isBalancingEnabled && status === 'green' && (
-                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', color: '#059669', backgroundColor: '#ecfdf5', padding: '6px 8px', borderRadius: '4px', marginTop: '4px' }}>
+                                                <div className="panel-ai-tk mt-2" style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '8px' }}>
                                                     <CheckCircle size={14} style={{ marginTop: '2px', flexShrink: 0 }} />
                                                     <span className="text-xs lh-tight">
                                                         <strong>Tasaus onnistuu:</strong> {beforeLoad} kpl ennakkoon (vko {exc.week - 1}) ja {totalAfterLoad} kpl puretaan {spreadWeeks} viikon aikana poikkeuksen jälkeen. Lähiviikkojen tavoitetahti ({exc.tavoitetahti_ympari}) kestää lisäyksen turvallisesti.
@@ -211,7 +267,7 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                                             )}
 
                                             {isBalancingEnabled && status === 'yellow' && (
-                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', color: '#d97706', backgroundColor: '#fffbeb', padding: '6px 8px', borderRadius: '4px', marginTop: '4px' }}>
+                                                <div className="alert-box alert-box--warning mt-2" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '8px', padding: '8px' }}>
                                                     <AlertTriangle size={14} style={{ marginTop: '2px', flexShrink: 0 }} />
                                                     <span className="text-xs lh-tight">
                                                         <strong>Huomio ähkysuojasta:</strong> {beforeLoad} kpl siirtyy ennakkoon ja {totalAfterLoad} kpl jaetaan {spreadWeeks} viikolle poikkeuksen jälkeen. Yksittäisen viikon lisäkuorma on enimmillään {maxExtraLoad} asiakasta, mikä ylittää normaalin tavoitetahdin ({exc.tavoitetahti_ympari}). <em>Harkitse purkuajan pidentämistä ylempää, jos mahdollista.</em>
@@ -225,8 +281,8 @@ const AjanvarausPoikkeukset = ({ isBalancingEnabled, spreadWeeks, onChange }) =>
                         })}
 
                         {rawExceptions.length === 0 && (
-                            <div className="text-center p-4 text-sm text-secondary" style={{ backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
-                                Ei tiedossa olevia poikkeuksia (lomia tai tuurauksia) seuraavan 3 kuukauden aikana.
+                            <div className="admin-empty-state p-4 text-sm">
+                                Ei tiedossa olevia poikkeuksia (lomia, tuurauksia tai arkipyhiä) seuraavan 3 kuukauden aikana.
                             </div>
                         )}
 
