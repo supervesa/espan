@@ -9,7 +9,8 @@ import ServiceManager from './ServiceManager';
 import { Database, Zap } from 'lucide-react';
 import { useSentinelAnalytics } from '../context/useSentinelAnalytics';
 import { useSentinelFingerprint } from '../hooks/useSentinelFingerprint';
-import { useSentinelIdentity } from '../hooks/useSentinelIdentity';
+// 1. UUSI: Tuodaan myös appendDurationToVault funktio sisään!
+import { useSentinelIdentity, appendDurationToVault } from '../hooks/useSentinelIdentity';
 
 const FINGERPRINT = '\u200B\u200D\u200C';
 
@@ -110,7 +111,9 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                 if (!skipSentinel && getFingerprintData) {
                     const { idPart, payload } = getFingerprintData('save');
                     if (payload && (payload.sv !== 'XXXX' || payload.historia.length > 0)) {
-                        registerIdentity(idPart, payload);
+                        // 2. UUSI: Lisätään kesto asiakkaan salattuun reppuun!
+                        const updatedPayload = appendDurationToVault(payload, state.kesto, state.kestoTyyppi, state.kestoTapa);
+                        registerIdentity(idPart, updatedPayload);
                     }
                 }
 
@@ -128,7 +131,9 @@ const SummaryPanel = ({ state, sections, dbPlanData, dbKnowledge, actions, asian
                     if (!skipSentinel && getFingerprintData) {
                         const { idPart, payload } = getFingerprintData('save');
                         if (payload && (payload.sv !== 'XXXX' || payload.historia.length > 0)) {
-                            registerIdentity(idPart, payload);
+                            // 2. UUSI: Lisätään kesto asiakkaan salattuun reppuun (Fallback skenaario)!
+                            const updatedPayload = appendDurationToVault(payload, state.kesto, state.kestoTyyppi, state.kestoTapa);
+                            registerIdentity(idPart, updatedPayload);
                         }
                     }
                     

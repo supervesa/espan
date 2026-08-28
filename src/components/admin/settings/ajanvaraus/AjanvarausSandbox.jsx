@@ -87,7 +87,7 @@ const SandboxResultViewer = ({ res, index, dbRules, dbSettings }) => {
             {res.basket.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                     
-                    <IntelAssistant 
+                <IntelAssistant 
                         suggestion={res.mockSuggestion}
                         onApply={() => {}}
                         basket={res.basket}
@@ -95,7 +95,10 @@ const SandboxResultViewer = ({ res, index, dbRules, dbSettings }) => {
                         is46={res.client.is46}
                         needsInterpreter={res.client.needsInterpreter}
                         isFamiliar={res.client.isFamiliar}
-                        expertLocations={res.expertLocations} 
+                        expertLocations={res.expertLocations}
+                        
+                        // 🟢 LISÄÄ TÄMÄ RIVI! Tämä syöttää dummy-kestot IntelAssistantin aivoille!
+                        clientVaultData={res.client.mockState.kestot || {}} 
                     />
 
                     <div style={{ marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px dashed var(--color-border)', flex: 1 }}>

@@ -5,6 +5,45 @@ import { createEncryptedSessionKey, encryptPayload, decryptPayload } from '../ut
 // Haetaan julkinen lukko Vite-ympäristömuuttujista
 const PUBLIC_RSA_KEY = import.meta.env.VITE_PUBLIC_RSA_KEY;
 
+// --- UUSI: Apufunktio, jolla uusi kesto ujutetaan 18-askeleen rengaspuskuriin ---
+export const appendDurationToVault = (vaultData, kesto, kestoTyyppi, kestoTapa) => {
+    // Jos kellotusta ei tehty, palautetaan reppu sellaisenaan
+    if (!kesto || !kestoTyyppi || !kestoTapa) {
+        console.log("⚠️ [Ovimies] Keston päivitys ohitettu: kelloa ei käytetty tai tiedot puutteelliset.");
+        return vaultData;
+    }
+
+    const newVault = { ...vaultData };
+    if (!newVault.kestot) newVault.kestot = {};
+
+    // Normalisoidaan avain (esim. "Täydentävä työnhakukeskustelu" + "Puhelu" -> "taydentava_tyonhakukeskustelu_puhelu")
+    const normalizeKey = (str) => {
+        return str.toLowerCase()
+                  .replace(/ä/g, 'a')
+                  .replace(/ö/g, 'o')
+                  .replace(/[^a-z0-9]/g, '_')
+                  .replace(/_+/g, '_')
+                  .replace(/^_|_$/g, '');
+    };
+    
+    const key = `${normalizeKey(kestoTyyppi)}_${normalizeKey(kestoTapa)}`;
+
+    // Haetaan vanha lista tai luodaan tyhjä
+    const oldArray = newVault.kestot[key] || [];
+    
+    // Laitetaan uusi aika alkuun, ja leikataan lista armotta 18 pitkäksi!
+    const newArray = [kesto, ...oldArray].slice(0, 18);
+    
+    newVault.kestot[key] = newArray;
+
+    console.log(`🔄 [Ovimies] Päivitetään rengaspuskuri kategorialle: '${key}'`);
+    console.log(`   🔸 Vanha lista: [${oldArray.join(', ')}]`);
+    console.log(`   🔸 Uusi lisättävä arvo: ${kesto} min`);
+    console.log(`   ✅ Leikattu uusi lista (max 18 kpl): [${newArray.join(', ')}]`);
+
+    return newVault;
+};
+
 export const useSentinelIdentity = () => {
     const [isReturning, setIsReturning] = useState(false);
     const [isChecking, setIsChecking] = useState(false);
@@ -33,7 +72,7 @@ export const useSentinelIdentity = () => {
             
             if (error) throw error;
             
-            // 3. Avataan paluuposti ja lasketaan 6 kk matematiikka
+            // 3. Avataan paluuposti ja puretaan sisältö
             if (data?.isReturningCustomer && data?.encryptedResponse) {
                 const vaultData = await decryptPayload(data.encryptedResponse, sessionKey);
                 
@@ -43,6 +82,10 @@ export const useSentinelIdentity = () => {
                 
                 const historia = Array.isArray(vaultData.historia) ? vaultData.historia : [];
                 const latest = historia[0] || null;
+
+                // 🟢 LISÄTTY: Haetaan myös kestot repusta
+                const kestot = vaultData.kestot || {};
+                console.log(`🔐 [Ovimies] Purettiin asiakkaan reppu. Löydetyt kesto-historiat:`, kestot);
 
                 if (historia.length > 0) {
                     latestTapa = latest.tapa === 'PUH' ? 'PUHELIN' : 'KÄYNTI';
@@ -92,7 +135,8 @@ export const useSentinelIdentity = () => {
                         historia: historia,
                         viimeKayntiKk: viimeKayntiKk,
                         latestTapa: latestTapa,
-                        signals: signals
+                        signals: signals,
+                        kestot: kestot // 🟢 LISÄTTY
                     }
                 };
             }
@@ -116,6 +160,9 @@ export const useSentinelIdentity = () => {
         }
 
         try {
+            // 🟢 LISÄTTY: Vahvistusloki ennen salausta
+            console.log(`📦 [Ovimies] Pakataan asiakkaan reppu salausta varten. Mukana kesto-historiat:`, payloadObj.kestot || 'Ei kestoja');
+
             const { sessionKey, encryptedKeyBase64 } = await createEncryptedSessionKey(PUBLIC_RSA_KEY);
             const encryptedPayload = await encryptPayload(payloadObj, sessionKey);
 
@@ -132,7 +179,7 @@ export const useSentinelIdentity = () => {
             });
             
             if (error) throw error;
-            console.log("✅ Ovimies: Holvi lukittu vahvalla E2E-hybridisalauksella.");
+            console.log("✅ [Ovimies] Holvi lukittu vahvalla E2E-hybridisalauksella. Data turvassa.");
             
         } catch (err) {
             console.error("Sentinel Register Error:", err);

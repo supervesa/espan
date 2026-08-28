@@ -224,6 +224,20 @@ export const useScraperAdapter = (actions) => {
             });
         }
 
+      // =======================================================
+        // 10. KÄSITELLÄÄN SENTINEL-REPPU (Raakadata Analyysia Varten)
+        // =======================================================
+        if (actions.onUpdateAsiakas) {
+            // Jos Imurin tuloksissa (parsedData) tuotiin mukana kesto-historia...
+            if (parsedData.kestot) {
+                actions.onUpdateAsiakas('kestot', parsedData.kestot);
+            }
+            // (Varmistus, jos se asetettiin vahingossa variables-osion sisään)
+            else if (parsedData.variables && parsedData.variables.kestot) {
+                actions.onUpdateAsiakas('kestot', parsedData.variables.kestot);
+            }
+        }
+
     }, [actions]);
 
     return { injectScrapedData };

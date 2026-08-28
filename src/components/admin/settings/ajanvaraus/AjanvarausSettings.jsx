@@ -7,6 +7,8 @@ import RangeSlider from '../../../common/RangeSlider';
 import { Shield, Clock, GitMerge, Info, CalendarOff, Zap } from 'lucide-react';
 
 import AjanvarausPoikkeukset from './AjanvarausPoikkeukset';
+import RhythmLoad from './RhythmLoad'; // LISÄTTY: Uusi automaation hallintapaneeli
+
 // Tuodaan hiekkalaatikko
 import AjanvarausSandbox from './AjanvarausSandbox';
 
@@ -14,7 +16,7 @@ const AjanvarausSettings = () => {
     const [expertId, setExpertId] = useState(null);
     const [loading, setLoading] = useState(true);
     
-    // UUSI: Purkkaratkaisun tilamuuttuja näkymän vaihtoon
+    // Purkkaratkaisun tilamuuttuja näkymän vaihtoon
     const [showSandbox, setShowSandbox] = useState(false);
 
     // Oletusarvot, jotka vastaavat Ajanvaraus-ohjeistuksen linjauksia
@@ -28,7 +30,13 @@ const AjanvarausSettings = () => {
         liedennys_jarjestys: ['taydentava', 'aktivointi'],
         lukitse_alkuhaastattelu: true,
         hatavara_paivat: { taso_1: 5, viimeinen: 1 },
-        poikkeus_asetukset: { tasaus: true, purku_viikot: 1 }
+        poikkeus_asetukset: { tasaus: true, purku_viikot: 1 },
+        // LISÄTTY: Automaation oletusvaltuudet
+        automaatio: {
+            tasapainotus: { liukuva_tasaus_aktiivinen: true, tasaus_ikkuna_vko: 2, hakeudu_kuoppiin: true },
+            ruuhkareaktiot: { uhraa_puskurit: false, tiivista_tutut: false, vaihda_kanavaa_etaksi: true },
+            ajanhallinta: { salli_dynaamiset_kestot: false }
+        }
     };
 
     const [settings, setSettings] = useState(defaultSettings);
@@ -63,6 +71,10 @@ const AjanvarausSettings = () => {
                             tasaus: true, 
                             purku_viikot: 1, 
                             ...(data.poikkeus_asetukset || {}) 
+                        },
+                        automaatio: {
+                            ...defaultSettings.automaatio,
+                            ...(data.automaatio || {})
                         }
                     });
                 } else {
@@ -122,7 +134,6 @@ const AjanvarausSettings = () => {
         return <div className="p-4 text-center text-secondary text-sm">Ladataan asiantuntijan asetuksia...</div>;
     }
 
-    // UUSI: Jos showSandbox on totta, piirretään vain hiekkalaatikko
     if (showSandbox) {
         return (
             <div>
@@ -138,24 +149,21 @@ const AjanvarausSettings = () => {
         );
     }
 
-    // MUUTEN piirretään normaali asetusnäkymä
     return (
         <div>
-            {/* UUSI: Linkki erilliselle Hiekkalaatikko-sivulle (Purkkaratkaisu napilla) */}
             <div className="smart-analysis-box" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                 <div>
-                    <h2 className="text-lg fw-bold text-ai icon-heading" style={{ margin: 0 }}>
-                        <Zap size={22} /> Assistentin Hiekkalaatikko (Testipenkki)
+                    <h2 className="text-lg fw-bold text-primary icon-heading" style={{ margin: 0 }}>
+                        <Zap size={22} className="text-primary" /> Assistentin Hiekkalaatikko (Testipenkki)
                     </h2>
                     <p className="text-sm text-secondary m-0 mt-1">
-                        Siirry erilliselle testisivulle simuloimaan kalenteriruuhkia ja testaamaan tekoälyn kykyä noudattaa näitä asetuksia.
+                        Siirry erilliselle testisivulle simuloimaan kalenteriruuhkia ja testaamaan automaation kykyä noudattaa näitä asetuksia.
                     </p>
                 </div>
                 
-                {/* Nappi muuttaa tilamuuttujan arvon todeksi */}
                 <button 
                     onClick={() => setShowSandbox(true)} 
-                    className="btn-ai"
+                    className="btn"
                 >
                     Avaa Hiekkalaatikko
                 </button>
@@ -333,6 +341,14 @@ const AjanvarausSettings = () => {
                         isBalancingEnabled={settings.poikkeus_asetukset?.tasaus ?? true}
                         spreadWeeks={settings.poikkeus_asetukset?.purku_viikot ?? 1}
                         onChange={(childField, value) => handleNestedSettingsChange('poikkeus_asetukset', childField, value)}
+                    />
+                </div>
+                
+                {/* LISÄTTY: Automaatio ja kuormituksen hallinta (RhythmLoad) koko leveyteen */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                    <RhythmLoad 
+                        valtuudet={settings.automaatio || {}}
+                        onUpdateValtuudet={(kategoria, arvoObj) => handleNestedSettingsChange('automaatio', kategoria, arvoObj)}
                     />
                 </div>
                 

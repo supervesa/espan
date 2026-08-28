@@ -173,5 +173,52 @@ export const clientTemplates = {
                 }
             }
         }
+    },
+    // 8. DATAPERUSTEINEN (Erittäin nopea asiakas)
+    nopea_data: { 
+        type: 'taydentava', 
+        name: 'Nopea Niilo (Dynaaminen: ~15min)', 
+        jumpMonths: 1, 
+        jumpDays: 0, 
+        isFamiliar: true, 
+        needsInterpreter: false, 
+        is46: false, 
+        description: 'TESTAA AUTOMAATIOTA: Jos "Salli dataperusteiset kestot" on päällä, tekoäly tajuaa asiakkaan historian perusteella (mediaani 15), että 45 min oletusta ei tarvita, ja ehdottaa tarkan pientä aikaa.',
+        mockState: {
+            asiakas: { postinumero: '00100', asiointikieli: 'suomi' },
+            // 🟢 TÄSSÄ ON ASIAKKAAN HOLVIN DATA: Neljä lyhyttä puhelua!
+            kestot: {
+                'taydentava_puhelu': [15, 20, 10, 15] 
+            },
+            activeSignals: {},
+            sessionServices: [],
+            suunnitelman_perustiedot: {
+                sect1: { muuttujat: { TH_ALKU_PVM: '2026-01-01', tapaamishistoria: [] } }
+            }
+        }
+    },
+
+    // 9. DATAPERUSTEINEN (Hitaampi asiakas)
+    hidas_data: { 
+        type: 'taydentava', 
+        name: 'Hidas Hannele (Dynaaminen: ~60min)', 
+        jumpMonths: 1, 
+        jumpDays: 0, 
+        isFamiliar: true, 
+        needsInterpreter: false, 
+        is46: false, 
+        description: 'TESTAA AUTOMAATIOTA: Vaikka asiakas on tuttu rutiiniasiakas, historia paljastaa puheluiden venyvän aina tunnin mittaisiksi. Tekoäly suojelee kalenteria ja varaa tilaa jopa 60 min.',
+        mockState: {
+            asiakas: { postinumero: '00200', asiointikieli: 'suomi' },
+            // 🟢 TÄSSÄ ON ASIAKKAAN HOLVIN DATA: Pitkiä puheluita!
+            kestot: {
+                'taydentava_puhelu': [60, 55, 60, 70, 60] 
+            },
+            activeSignals: {},
+            sessionServices: [],
+            suunnitelman_perustiedot: {
+                sect1: { muuttujat: { TH_ALKU_PVM: '2025-06-01', tapaamishistoria: [] } }
+            }
+        }
     }
 };

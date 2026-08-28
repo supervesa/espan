@@ -1,15 +1,10 @@
 import React, { useState } from 'react';
 import { useAppData } from './hooks/useAppData';
 import { usePlanState } from './hooks/usePlanState';
-
-// Adapteri joka ymmärtää URA-imurin puhetta!
 import { useScraperAdapter } from './hooks/useScraperAdapter';
-
-// --- LISÄTTY: Tuodaan sekä hook ETTÄ Provider ---
 import { useLightSentinel, LightSentinelProvider } from './context/LightSentinelContext';
 import { supabase } from './utils/supabaseClient';
 
-// Kirjautumiskomponentti
 import LoginScreen from './components/LoginScreen';
 import { SignalProvider } from './components/signals/SignalContext';
 import SummaryPanel from './components/SummaryPanel';
@@ -34,12 +29,13 @@ import SignalPanel from './components/signals/SignalPanel';
 import ScraperModalV2 from './components/scraper/ScraperModalV2.jsx';
 import { useScraperAdapterV2 } from './hooks/useScraperAdapterV2';
 
+import SmartTimer from './components/timer/SmartTimer';
+
 import './styles/rakenteet.css';
 import './styles/tyylit.css';
 import './styles/espan2.css';
 import './styles/fontit.css';
 
-// --- UUSI RAKENNE: Tämä on varsinainen ohjelma, joka on suojattu ---
 function EspanCore() {
     const { session, profile, isLoading, isManager, logout } = useLightSentinel();
     const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -67,22 +63,27 @@ function EspanCore() {
         { id: 'osio-tyonhaku', name: 'Työnhakuvelv.' },
     ];
 
+    const handleTimerSave = (chosenMinutes, discrepancy, meetingType, meetingMode) => {
+        setState(prev => ({
+            ...prev,
+            kesto: chosenMinutes,
+            kestoErotus: discrepancy,
+            kestoTyyppi: meetingType,
+            kestoTapa: meetingMode 
+        }));
+        console.log(`⏱️ Tallennettu! [${meetingMode}] ${meetingType}: ${chosenMinutes} min (Erotus: ${discrepancy} min).`);
+    };
+
     const handleSupabaseLogin = async (email, password, duration) => {
         setIsLoggingIn(true);
         try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
-
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
             if (error) throw error;
-
             if (duration > 0) {
                 localStorage.setItem('espan_auth_expiry', Date.now() + duration);
             } else {
                 localStorage.removeItem('espan_auth_expiry');
             }
-
             return true;
         } catch (error) {
             console.error("Kirjautumisvirhe:", error.message);
@@ -96,9 +97,7 @@ function EspanCore() {
         return (
             <div className="app-container">
                 <header className="app-header"><h1>Työllisyyssuunnitelman rakennustyökalu</h1></header>
-                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-                    <h2>Ladataan Sentinel-turvayhteyttä...</h2>
-                </div>
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}><h2>Ladataan Sentinel-turvayhteyttä...</h2></div>
             </div>
         );
     }
@@ -111,9 +110,7 @@ function EspanCore() {
         return (
             <div className="app-container">
                 <header className="app-header"><h1>Työllisyyssuunnitelman rakennustyökalu</h1></header>
-                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-                    <h2>Ladataan järjestelmää tietokannasta...</h2>
-                </div>
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}><h2>Ladataan järjestelmää tietokannasta...</h2></div>
             </div>
         );
     }
@@ -123,44 +120,21 @@ function EspanCore() {
             <div className="app-container">
                 <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h1>Työllisyyssuunnitelman rakennustyökalu</h1>
-                    <button className="btn btn--secondary" onClick={logout} style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>
-                        Kirjaudu ulos
-                    </button>
+                    <button className="btn btn--secondary" onClick={logout} style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}>Kirjaudu ulos</button>
                 </header>
                 <div className="tab-navigation">
                     <button className={`tab-button ${activeTab === 'suunnitelma' ? 'active' : ''}`} onClick={() => setActiveTab('suunnitelma')}>Suunnitelman rakennus</button>
                     <button className={`tab-button ${activeTab === 'viestit' ? 'active' : ''}`} onClick={() => setActiveTab('viestit')}>Viestigeneraattori</button>
-                    {isManager && (
-                        <button className={`tab-button ${activeTab === 'hallinta' ? 'active' : ''}`} onClick={() => setActiveTab('hallinta')}>Hallinta</button>
-                    )}
+                    {isManager && <button className={`tab-button ${activeTab === 'hallinta' ? 'active' : ''}`} onClick={() => setActiveTab('hallinta')}>Hallinta</button>}
                 </div>
                 
                 {activeTab === 'suunnitelma' && (
                     <div className="main-grid">
                         <main className="sections-container">
-                            <button className="btn" onClick={() => setIsScraperOpen(true)}>
-                                🪄 Pura vanha suunnitelma
-                            </button>
-                            <button onClick={() => setIsScraperV2Open(true)} className="btn btn--secondary">
-                                🚀 Kokeile V2
-                            </button>
-
-                            <ScraperModal 
-                                isOpen={isScraperOpen} 
-                                onClose={() => setIsScraperOpen(false)} 
-                                onApply={injectScrapedData}  
-                                state={state}      
-                                actions={actions}
-                                asiantuntijaId={profile?.id}
-                            />
-
-                            <ScraperModalV2 
-                                isOpen={isScraperV2Open} 
-                                onClose={() => setIsScraperV2Open(false)} 
-                                onApply={injectScrapedDataV2} 
-                                asiantuntijaId={profile?.id}
-                            />
-
+                            <button className="btn" onClick={() => setIsScraperOpen(true)}>🪄 Pura vanha suunnitelma</button>
+                            <button onClick={() => setIsScraperV2Open(true)} className="btn btn--secondary">🚀 Kokeile V2</button>
+                            <ScraperModal isOpen={isScraperOpen} onClose={() => setIsScraperOpen(false)} onApply={injectScrapedData} state={state} actions={actions} asiantuntijaId={profile?.id} />
+                            <ScraperModalV2 isOpen={isScraperV2Open} onClose={() => setIsScraperV2Open(false)} onApply={injectScrapedDataV2} asiantuntijaId={profile?.id} />
                             <section id="osio-suunnitelman-tyyppi"><SuunnitelmanTyyppi state={state} actions={actions} /></section>
                             <section id="osio-suunnitelman-perustiedot"><Perustiedot state={state} actions={actions} planData={dbPlanData} /></section>
                             <section id="osio-tyottomyysturva"><Tyottomyysturva state={state} actions={actions} /></section>
@@ -172,37 +146,48 @@ function EspanCore() {
                             <section id="osio-palveluohjaus"><Palveluunohjaus state={state} actions={actions} /></section>
                             <section id="osio-suunnitelma"><Suunnitelma state={state} actions={actions} planData={dbPlanData} /></section>
                             <section id="osio-tyonhaku"><Tyonhakuvelvollisuus state={state} actions={actions} /></section>
-                            
                             <AiAnalyysi state={state} actions={actions} />
                             <Jalkimarkkinointi state={state} />
                             <hr className="section-divider" /> 
                         </main>
 
                         <div className="summary-sticky-container">
-                            <SignalPanel activeSignals={state.signals || {}} dbPlanData={dbPlanData} actions={actions} />
-                            <SummaryPanel 
-                                state={state} 
-                                actions={actions}  
-                                sections={sectionsForPanel} 
+                            <SignalPanel 
+                                activeSignals={state.signals || {}} 
                                 dbPlanData={dbPlanData} 
-                                dbKnowledge={dbKnowledge}
-                                asiantuntijaId={profile?.id} 
+                                actions={actions}
+                                kesto={state.kesto}
+                                kestoErotus={state.kestoErotus}
+                                kestoTyyppi={state.kestoTyyppi}
+                                kestoTapa={state.kestoTapa} /* 🟢 KORJAUS: Välitetään kestoTapa! */
+                                onClearKesto={() => setState(prev => ({ 
+                                    ...prev, 
+                                    kesto: null, 
+                                    kestoErotus: null, 
+                                    kestoTyyppi: null, 
+                                    kestoTapa: null /* 🟢 KORJAUS: Tyhjennetään myös kestoTapa! */
+                                }))}
                             />
+                            <SummaryPanel state={state} actions={actions} sections={sectionsForPanel} dbPlanData={dbPlanData} dbKnowledge={dbKnowledge} asiantuntijaId={profile?.id} />
                         </div>
+
+                        <SmartTimer 
+                            onSaveTime={handleTimerSave} 
+                            savedKesto={state.kesto} 
+                            savedDiscrepancy={state.kestoErotus} 
+                            savedType={state.kestoTyyppi}
+                            savedMode={state.kestoTapa} 
+                        />
+
                     </div>
                 )}
 
                 {activeTab === 'viestit' && (
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '2rem' }}>
-                            <button className={`btn ${!state.usePuzzleMode ? '' : 'btn--secondary'}`} onClick={() => setState(prev => ({ ...prev, usePuzzleMode: false }))}>
-                                Klassinen generaattori
-                            </button>
-                            <button className={`btn ${state.usePuzzleMode ? '' : 'btn--secondary'}`} onClick={() => setState(prev => ({ ...prev, usePuzzleMode: true }))}>
-                                🧩 Kokeile uutta Puzzle-generaattoria
-                            </button>
+                            <button className={`btn ${!state.usePuzzleMode ? '' : 'btn--secondary'}`} onClick={() => setState(prev => ({ ...prev, usePuzzleMode: false }))}>Klassinen generaattori</button>
+                            <button className={`btn ${state.usePuzzleMode ? '' : 'btn--secondary'}`} onClick={() => setState(prev => ({ ...prev, usePuzzleMode: true }))}>🧩 Kokeile uutta Puzzle-generaattoria</button>
                         </div>
-
                         {state.usePuzzleMode ? <PuzzleGenerator state={state} /> : <MessageGenerator state={state} templates={dbMessages} />}
                     </div>
                 )}
@@ -217,7 +202,6 @@ function EspanCore() {
     );
 }
 
-// --- UUSI RAKENNE: Viedään ulos kääre, joka asettaa Providerin EspanCoren ympärille ---
 export default function App() {
     return (
         <LightSentinelProvider>

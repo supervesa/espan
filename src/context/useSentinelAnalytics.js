@@ -238,9 +238,51 @@ export const useSentinelAnalytics = (lomakeState = {}) => {
                 }
             };
 
+            // --- UUSI: Universaalin keston tallennus (Suojeltu testitilalta) ---
+            const insertKestoAnalytiikka = async () => {
+                // Tallennetaan vain jos aika, tyyppi ja tapa ovat olemassa, EIKÄ olla testitilassa
+                if (state.kesto && state.kestoTyyppi && state.kestoTapa && !isTestMode) {
+                    
+                    // Normalisoidaan avain samalla tavalla kuin asiakkaan yksilöllisessä holvissa
+                    const normalizeKey = (str) => (str || '').toLowerCase()
+                        .replace(/ä/g, 'a')
+                        .replace(/ö/g, 'o')
+                        .replace(/[^a-z0-9]/g, '_')
+                        .replace(/_+/g, '_')
+                        .replace(/^_|_$/g, '');
+                    
+                    const kategoria = `${normalizeKey(state.kestoTyyppi)}_${normalizeKey(state.kestoTapa)}`;
+                    
+                    // Luodaan asettelu 'YYYY-MM' anonyymille pohjalle
+                    const pvm = new Date();
+                    const kuukausiVuosi = `${pvm.getFullYear()}-${String(pvm.getMonth() + 1).padStart(2, '0')}`;
+
+                    const { error } = await supabase
+                        .schema('espan')
+                        .from('universaali_kesto_analytiikka')
+                        .insert([{
+                            asiantuntija_id: asiantuntijaId,
+                            kuukausi_vuosi: kuukausiVuosi,
+                            kategoria: kategoria,
+                            kesto_min: parseInt(state.kesto, 10),
+                            pyoristys_erotus_min: parseInt(state.kestoErotus || 0, 10)
+                        }]);
+
+                    if (error) {
+                        console.error("❌ Sentinel: Virhe universaalin kestoanalytiikan tallennuksessa", error);
+                    } else {
+                        console.log(`📊 Sentinel: Kestoanalytiikka tallennettu Universal-holviin (${kategoria}: ${state.kesto} min, Erotus: ${state.kestoErotus} min)`);
+                    }
+                } else if (state.kesto && isTestMode) {
+                    console.log(`🧪 Sentinel [TESTITILA]: Keston tallennus ohitettu Universaalista tietokannasta, jotta data ei vääristy.`);
+                }
+            };
+
+            // Ajetaan KAIKKI analytiikat saumattomasti samaan aikaan rinnakkain!
             await Promise.all([
                 upsertCounter(currentWeek.year, currentWeek.week, false, extraPayload),
-                upsertCounter(futureWeek.year, futureWeek.week, true, null)
+                upsertCounter(futureWeek.year, futureWeek.week, true, null),
+                insertKestoAnalytiikka() // 🟢 UUSI UNIVERSAALITAULUN PÄIVITYS TÄSSÄ!
             ]);
 
             const paivanTavoite = parseInt(localStorage.getItem('espan_paivan_tyot') || '0', 10) + 1;

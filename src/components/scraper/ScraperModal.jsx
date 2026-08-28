@@ -3,17 +3,14 @@ import { BrainCircuit, CheckCircle, Zap, Loader2 } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
 import { parsePlanText } from './planParser';
 
-// Tuodaan uusi älykäs hook, joka hoitaa kaiken salauksen!
 import { useSentinelIdentity } from '../../hooks/useSentinelIdentity';
 
-// Yhteiset komponentit
 import Modal from '../common/Modal';
 import Tag from '../common/Tag';
 import Checkbox from '../common/Checkbox';
 
-// Imurin omat paneelit
 import ScraperGMServicePanel from './ScraperGMServicePanel'; 
-import ScraperServicesPanel from './ScraperServicesPanel'; // Lisätty asiantuntijapalveluiden paneeli
+import ScraperServicesPanel from './ScraperServicesPanel';
 import ScraperGMEducationPanel from './ScraperGMEducationPanel'; 
 import ScraperPatevyydetPanel from './ScraperPatevyydetPanel';
 import ScraperVariablesPanel from './ScraperVariablesPanel';
@@ -28,10 +25,8 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [activeSections, setActiveSections] = useState({});
     
-    // Tila arkistosta haetuille tiedoille
-    const [sentinelMeta, setSentinelMeta] = useState({ isKnown: false, sources: {} });
+    const [sentinelMeta, setSentinelMeta] = useState({ isKnown: false, sources: {}, kestot: {} });
 
-    // Tuodaan Ovimies-hook suoraan käyttöön
     const { checkIdentity } = useSentinelIdentity();
 
     const [parsedData, setParsedData] = useState({
@@ -72,18 +67,15 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                 };
             }
 
-            // =========================================================
-            // 🕵️ OVIMIEHEN TAUSTAHAKU (Tyhmä ja nopea modal-reititys)
-            // =========================================================
             let isKnown = false;
             const sources = {};
+            let haetutKestot = {}; 
 
             const normalize = (str) => {
                 if (!str || str === 'X' || str === 'XX' || str === 'XXXX' || str === 'XXX') return str; 
                 return String(str).toUpperCase().replace(/[^A-Z0-9ÄÖÅ]/g, '');
             };
 
-            // Rakennetaan väliaikainen avain (Modulo 997)
             let suola = 'XXX', vuosiPari = 'X';
             if (extractedData.variables.tyonhaku_alkanut) {
                 const parts = String(extractedData.variables.tyonhaku_alkanut).split('.');
@@ -109,20 +101,19 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
 
             if (realDataLength >= 4) {
                 try {
-                    // Hook hoitaa nyt kaiken salauksen ja purkamisen!
                     const result = await checkIdentity(idPart);
                     
                     if (result?.found && result?.processed) {
                         isKnown = true;
-                        const { sv, postinro, historia, viimeKayntiKk, latestTapa, signals } = result.processed;
                         
-                        // Yhdistetään tietokannan löydökset (Syntymävuosi)
+                        const { sv, postinro, historia, viimeKayntiKk, latestTapa, signals, kestot } = result.processed;
+                        haetutKestot = kestot || {}; 
+                        
                         if (!extractedData.variables.syntymavuosi && sv) {
                             extractedData.variables.syntymavuosi = sv;
                             sources.syntymavuosi = 'db'; 
                         }
 
-                        // Yhdistetään tietokannan löydökset (Postinumero)
                         if (!extractedData.variables.postinumero && postinro) {
                             extractedData.variables.postinumero = postinro;
                             sources.postinumero = 'db'; 
@@ -135,7 +126,6 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                             }
                         }
 
-                        // Tallennetaan historia
                         if (historia.length > 0) {
                             extractedData.variables.tapaamishistoria = historia;
                         }
@@ -150,7 +140,6 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                             sources.yhteydenottotapa = 'db';
                         }
                         
-                        // Lisätään Ovimiehen luomat älykkäät signaalit (esim. 6kk hälytys)
                         signals.forEach(sig => {
                             if (!extractedData.signals.some(s => s.id === sig.id)) {
                                 extractedData.signals.push(sig);
@@ -161,9 +150,8 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
                     console.error("Sentinel Modal Check Error:", err);
                 }
             }
-            // =========================================================
             
-            setSentinelMeta({ isKnown, sources });
+            setSentinelMeta({ isKnown, sources, kestot: haetutKestot });
 
             const initialActive = {};
             Object.keys(extractedData.customTexts).forEach(key => { initialActive[key] = true; });
@@ -183,28 +171,24 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
     const handleApply = () => {
         if (typeof onApply === 'function') {
             
-            // 1. Viedään uudet Asiantuntijapalvelut (TÄMÄ PUUTTUI!)
             const asiantuntijaToApply = parsedData.services || [];
             if (asiantuntijaToApply.length > 0 && actions?.onUpdateVariable) {
                 const currentAsiantuntija = Array.isArray(state?.services) ? state.services : [];
                 actions.onUpdateVariable('global', 'services', null, [...currentAsiantuntija, ...asiantuntijaToApply]);
             }
 
-            // 2. Viedään vanhat raskaat palvelut
             const servicesToApply = parsedData.sessionServices || [];
             if (servicesToApply.length > 0 && actions?.onUpdateVariable) {
                 const currentServices = Array.isArray(state?.sessionServices) ? state.sessionServices : [];
                 actions.onUpdateVariable('global', 'sessionServices', null, [...currentServices, ...servicesToApply]);
             }
 
-            // 3. Viedään koulutukset
             const edusToApply = parsedData.sessionEducations || [];
             if (edusToApply.length > 0 && actions?.onUpdateVariable) {
                 const currentEdus = Array.isArray(state?.sessionEducations) ? state.sessionEducations : [];
                 actions.onUpdateVariable('global', 'sessionEducations', null, [...currentEdus, ...edusToApply]);
             }
 
-            // 4. Viedään vapaat tekstit
             const filteredCustomTexts = {};
             Object.entries(parsedData.customTexts).forEach(([key, text]) => {
                 if (activeSections[key]) filteredCustomTexts[key] = text;
@@ -212,7 +196,8 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
 
             onApply({ 
                 ...parsedData, 
-                customTexts: filteredCustomTexts 
+              customTexts: filteredCustomTexts,
+                kestot: sentinelMeta.kestot // <--- Varmista että tämä kulkee mukana!
             }); 
         }
         resetAndClose();
@@ -222,7 +207,7 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
         setStep('input');
         setRawText(''); 
         setActiveSections({});
-        setSentinelMeta({ isKnown: false, sources: {} });
+        setSentinelMeta({ isKnown: false, sources: {}, kestot: {} });
         onClose();
     };
 
@@ -278,19 +263,17 @@ const ScraperModal = ({ isOpen, onClose, onApply, state, actions }) => {
             ) : (
                 <div className="flex-col-gap" style={{ paddingTop: '1rem' }}>
                     
-                 {/* UUSI: Älykäs paneeli propseilla ja historialla! */}
                     <ScraperSentinelPanel 
                         variables={parsedData.variables} 
                         isKnownCustomer={sentinelMeta.isKnown}
                         sourceFlags={sentinelMeta.sources}
                         historia={parsedData.variables.tapaamishistoria || []}
+                        kestot={sentinelMeta.kestot || {}}
                     />
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
                         
                         <div className="flex-col-gap">
-                            
-                            {/* LISÄTTY: Asiantuntijapalveluiden auditointipaneeli */}
                             <ScraperServicesPanel 
                                 services={parsedData.services} 
                                 onUpdateService={(newData) => setParsedData(prev => ({ ...prev, services: newData }))}

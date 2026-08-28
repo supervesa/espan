@@ -1,4 +1,3 @@
-// --- src/components/signals/SignalContext.jsx ---
 import React, { createContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../utils/supabaseClient';
 
@@ -11,11 +10,10 @@ const normalize = (str) => {
 };
 
 export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) => {
-    // 1. LISÄTTY uudet taulut alkutilaan
     const [dbData, setDbData] = useState({ 
         signals: [], 
         phrases: [], 
-        sections: [],
+        sections: [], 
         variables: [],
         rules: [],
         knowledgeBase: []
@@ -25,23 +23,22 @@ export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) =
     useEffect(() => {
         const fetchAll = async () => {
             try {
-                // 2. LISÄTTY kolme uutta Supabase-hakua samaan eräajoon
+                // Haetaan kaikki taulut, jotta ohjelman muut osat (esim. Tyonhakuvelvollisuus) saavat dataa
                 const [sig, phr, sec, vars, rulesData, kb] = await Promise.all([
                     supabase.from('system_signals').select('*'),
-                    supabase.from('phrases').select('phrase_key, short_title, section_id'),
+                    supabase.from('phrases').select('id, phrase_key, short_title, section_id'),
                     supabase.from('sections').select('id, title'),
                     supabase.from('variables').select('*'),
                     supabase.from('business_rules').select('*'),
                     supabase.from('knowledge_base').select('*').eq('category', 'Vakiotekstit')
                 ]);
-                
                 setDbData({ 
                     signals: sig.data || [], 
                     phrases: phr.data || [], 
                     sections: sec.data || [],
-                    variables: vars.data || [],           // UUSI
-                    rules: rulesData.data || [],          // UUSI
-                    knowledgeBase: kb.data || []          // UUSI
+                    variables: vars.data || [],
+                    rules: rulesData.data || [],
+                    knowledgeBase: kb.data || []
                 });
             } catch (err) {
                 console.error("Virhe globaalissa signaalidatan haussa:", err);
@@ -53,25 +50,34 @@ export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) =
     }, []);
 
     const dictionary = useMemo(() => {
-        // TÄMÄ ON KOSKEMATON - Vanha logiikka toimii kuten ennenkin
         const dict = {};
         const sectionMap = {};
         dbData.sections.forEach(s => { sectionMap[s.id] = s.title; });
 
+        const varsByPhraseId = {};
+        dbData.variables.forEach(v => {
+            if (!varsByPhraseId[v.phrase_id]) {
+                varsByPhraseId[v.phrase_id] = [];
+            }
+            varsByPhraseId[v.phrase_id].push(v);
+        });
+
         dbData.signals.forEach(s => {
             const cat = s.category || 'Muut';
             if (!dict[cat]) dict[cat] = { title: normalize(cat), options: [] };
-            dict[cat].options.push({ key: s.signal_key, label: normalize(s.label), desc: s.description });
+            dict[cat].options.push({ key: s.signal_key, label: normalize(s.label), desc: s.description, variables: [] });
         });
 
         dbData.phrases.forEach(p => {
             const catName = sectionMap[p.section_id] || 'Lomakevalinnat';
             if (!dict[catName]) dict[catName] = { title: normalize(catName), options: [] };
+            
             if (!dict[catName].options.find(o => o.key === p.phrase_key)) {
                 dict[catName].options.push({ 
                     key: p.phrase_key, 
                     label: normalize(p.short_title || p.phrase_key), 
-                    desc: null 
+                    desc: null,
+                    variables: varsByPhraseId[p.id] || []
                 });
             }
         });
@@ -79,16 +85,15 @@ export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) =
     }, [dbData]);
 
     const getSignalInfo = useCallback((key) => {
-        // TÄMÄ ON KOSKEMATON
         if (key.startsWith('AI_')) {
             const parts = key.split('_');
-            return { label: normalize(parts[parts.length - 1]), cat: 'Tekoäly', isAi: true };
+            return { label: normalize(parts[parts.length - 1]), cat: 'Tekoäly', isAi: true, variables: [] };
         }
         for (const cat in dictionary) {
             const found = dictionary[cat].options.find(o => o.key === key);
             if (found) return { ...found, cat: dictionary[cat].title };
         }
-        return { label: normalize(key.replace(/_/g, ' ')), cat: 'Muut', isAi: false };
+        return { label: normalize(key.replace(/_/g, ' ')), cat: 'Muut', isAi: false, variables: [] };
     }, [dictionary]);
 
     const value = useMemo(() => ({
@@ -97,7 +102,6 @@ export const SignalProvider = ({ children, activeSignals = {}, actions = {} }) =
         activeSignals, 
         actions,       
         loading,
-        // 3. LISÄTTY: Viedään uudet globaalit datat ulos Contextista
         variables: dbData.variables,
         rules: dbData.rules,
         knowledgeBase: dbData.knowledgeBase
