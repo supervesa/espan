@@ -62,14 +62,18 @@ export const analyzeSchedule = ({
 
     // Jos dynamic ei ollut päällä TAI dataa ei löytynyt, käytetään normaaleja "Manuaali" sääntöjä
     if (!isDynamicUsed) {
+        // Ensin katsotaan onko tuttu asiakas (vaikuttaa peruskestoon)
+        if (isFamiliar && settings.kesto_tuttu_asiakas > 0) {
+            expectedDuration = settings.kesto_tuttu_asiakas;
+            kestoSelite = `Kiinteä kesto (Tuttu)`;
+            logs.push({ type: 'success', iconName: 'CheckCircle2', msg: `Tuttu asiakas tunnistettu: Käytetään nopeutettua aikaa (${settings.kesto_tuttu_asiakas} min).` });
+        }
+
+        // Sitten lisätään tulkkilisä perus- tai nopeutetun ajan päälle
         if (needsInterpreter) {
             expectedDuration += settings.tulkki_lisa_minuutit;
             kestoSelite += ` + Tulkki`;
             logs.push({ type: 'info', iconName: 'Info', msg: `Tulkkisuojaus aktiivinen: Aikaa pidennetty (+${settings.tulkki_lisa_minuutit} min).` });
-        } else if (isFamiliar && settings.kesto_tuttu_asiakas > 0) {
-            expectedDuration = settings.kesto_tuttu_asiakas;
-            kestoSelite = `Kiinteä kesto (Tuttu)`;
-            logs.push({ type: 'success', iconName: 'CheckCircle2', msg: `Tuttu asiakas tunnistettu: Käytetään nopeutettua aikaa (${settings.kesto_tuttu_asiakas} min).` });
         }
     } else {
         // Jos tulkki on mukana, annetaan sille TULKKILISÄ puskurina jopa dynaamisessa arviossa.
@@ -126,6 +130,7 @@ export const analyzeSchedule = ({
                 }
             }
             
+            // TÄSSÄ KORJATTU IF/ELSE-RAKENNE
             if (diffDays > settings.lykkays_toleranssi_pv) {
                 isCompromise = true;
                 if (hasAbsence) {
@@ -136,11 +141,12 @@ export const analyzeSchedule = ({
             } else if (diffDays > 0) {
                 if (hasAbsence) {
                     logs.push({ type: 'success', iconName: 'CheckCircle2', msg: `Aika lykätty, mutta osui toleranssiin (+${diffDays} pv). Edeltävä ${absenceType} kierrettiin automaattisesti.` });
-                } else if (diffDays < 0) {
-                    logs.push({ type: 'success', iconName: 'CheckCircle2', msg: `Aikaistettu (${diffDays} pv). Hakeuduttu aktiivisesti "kuoppaan" tasapainotuksen turvaamiseksi.` });
                 } else {
                     logs.push({ type: 'success', iconName: 'CheckCircle2', msg: `Aika löytyi sallitun lykkäystoleranssin sisältä (+${diffDays} pv).` });
                 }
+            } else if (diffDays < 0) {
+                // Kuoppatutka voi nyt trigata tämän!
+                logs.push({ type: 'success', iconName: 'CheckCircle2', msg: `Aikaistettu (${diffDays} pv). Hakeuduttu aktiivisesti "kuoppaan" tasapainotuksen turvaamiseksi.` });
             } else {
                 logs.push({ type: 'success', iconName: 'CheckCircle2', msg: `Optimaalinen sijoitus! Aika tismalleen tavoiteviikolla.` });
             }

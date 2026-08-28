@@ -16,9 +16,11 @@ const IntelAssistant = ({
     needsInterpreter = false, 
     isFamiliar = false,
     expertLocations = [],
-    clientVaultData = {} // 🟢 Asiakkaan repusta tuodut kestot 
+    clientVaultData = {}, // 🟢 Asiakkaan repusta tuodut kestot 
+    injectedSettings = null // 🟢 TÄMÄ LISÄTTY: Mahdollistaa asetusten yliajon hiekkalaatikosta
 }) => {
-    const [settings, setSettings] = useState(null);
+    // Alustetaan settings suoraan injektoiduilla asetuksilla jos ne on annettu
+    const [settings, setSettings] = useState(injectedSettings);
     const [universalData, setUniversalData] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -29,18 +31,28 @@ const IntelAssistant = ({
                 const { data: { user } } = await supabase.auth.getUser();
                 const currentExpertId = user?.id || '85a812b3-5956-42ad-8e49-e1e673ba5f7d';
                 
-                // 1. Haetaan asetukset
-                const { data: setsData, error: setsErr } = await supabase.schema('espan')
-                    .from('settings_ajanvaraus')
-                    .select('*')
-                    .eq('asiantuntija_id', currentExpertId)
-                    .maybeSingle();
+                let activeSettings = injectedSettings;
 
-                if (setsData && !setsErr) {
-                    setSettings(setsData);
+                // 1. Haetaan asetukset vain, jos niitä ei tuotu yläkautta propsina
+                if (!activeSettings) {
+                    const { data: setsData, error: setsErr } = await supabase.schema('espan')
+                        .from('settings_ajanvaraus')
+                        .select('*')
+                        .eq('asiantuntija_id', currentExpertId)
+                        .maybeSingle();
 
+                    if (setsData && !setsErr) {
+                        activeSettings = setsData;
+                        setSettings(setsData);
+                    }
+                } else {
+                    // Pidetään state synkassa propin kanssa, jos se muuttuu
+                    setSettings(injectedSettings);
+                }
+
+                if (activeSettings) {
                     // 2. HOLVI 2: Haetaan Universaali kestoanalytiikka (viimeiset 6 kk) JOS asetus sallii
-                    if (setsData.automaatio?.ajanhallinta?.salli_dynaamiset_kestot) {
+                    if (activeSettings.automaatio?.ajanhallinta?.salli_dynaamiset_kestot) {
                         const d = new Date();
                         d.setMonth(d.getMonth() - 6);
                         const cutoffDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -61,7 +73,7 @@ const IntelAssistant = ({
             }
         };
         fetchData();
-    }, []);
+    }, [injectedSettings]); // Varmistetaan reaktiivisuus, jos simulaation asetukset vaihtuvat
 
     const analysis = useMemo(() => {
         if (!settings) return null;

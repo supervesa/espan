@@ -21,10 +21,10 @@ import { clientTemplates } from './dummy';
 ========================================= */
 
 const calendarScenarios = [
-    { id: 'aito', label: 'Aito kalenteri (Nykytila)', desc: 'Käyttää tietokannan aitoja varauksia, lomia ja lokaatioita sellaisenaan.', icon: Database },
-    { id: 'tetris', label: 'Aito + Tetris-ruuhka (4 kk)', desc: 'Tukkii aitojen sääntöjesi mukaiset ajat 90% täyteen simuloidakseen ruuhkaa.', icon: AlertTriangle },
-    { id: 'loma_2vk', label: 'Simuloitu 2 viikon loma', desc: 'Blokkaa heti seuraavat 14 päivää loma-asetuksella.', icon: Calendar },
-    { id: 'tuuraus_1vk', label: 'Simuloitu 1 viikon poissaolo', desc: 'Blokkaa seuraavat 7 päivää poissaololla/koulutuksella.', icon: Clock }
+    { id: 'aito', label: 'Aito kalenteri (Nykytila)', desc: 'Käyttää tietokannan aitoja varauksia sellaisenaan.', icon: Database },
+    { id: 'loma_2vk', label: 'Simuloitu 2 viikon loma', desc: 'Blokkaa heti seuraavat 14 päivää.', icon: Calendar },
+    { id: 'tuuraus_1vk', label: 'Simuloitu 1 viikon poissaolo', desc: 'Blokkaa seuraavat 7 päivää.', icon: Clock },
+    { id: 'ahky_kuoppa', label: 'Kaikuilmiö: Ruuhka & Kuoppa', desc: 'Asettaa kohdeviikolle ylikuormituksen (15/12), mutta edellisellä viikolla on tyhjää (4/12).', icon: AlertTriangle }
 ];
 
 /* =========================================
@@ -54,17 +54,26 @@ const SandboxResultViewer = ({ res, index, dbRules, dbSettings }) => {
 
     const [offset, setOffset] = useState(calculateInitialOffset());
 
-    const searchStart = new Date();
+const searchStart = new Date();
+    searchStart.setHours(0, 0, 0, 0);
+    
+    // Pakotetaan visuaalisen haun aloituspäivä aina maanantaihin!
+    const currentJsDay = searchStart.getDay() || 7;
+    searchStart.setDate(searchStart.getDate() - currentJsDay + 1);
+    
+    // Nyt lisätään offset-viikot
     searchStart.setDate(searchStart.getDate() + (offset * 7));
     
-    // 🟢 VÄLITETÄÄN expertLocations MOOTTORILLE!
+    // Käytetään visuaaliseen kalenteriin samoja simuloituja asetuksia kuin taustamoottori!
+    const activeSettings = res.simuloituAsetukset || dbSettings;
+
     const liveSlots = findAvailableSlots(
         res.client.type,
         dbRules,
         res.tempBookedAtTheTime,
         searchStart,
         2,
-        dbSettings,
+        activeSettings,
         res.client.is46,
         res.expertLocations 
     );
@@ -87,7 +96,7 @@ const SandboxResultViewer = ({ res, index, dbRules, dbSettings }) => {
             {res.basket.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                     
-                <IntelAssistant 
+                    <IntelAssistant 
                         suggestion={res.mockSuggestion}
                         onApply={() => {}}
                         basket={res.basket}
@@ -96,9 +105,11 @@ const SandboxResultViewer = ({ res, index, dbRules, dbSettings }) => {
                         needsInterpreter={res.client.needsInterpreter}
                         isFamiliar={res.client.isFamiliar}
                         expertLocations={res.expertLocations}
-                        
-                        // 🟢 LISÄÄ TÄMÄ RIVI! Tämä syöttää dummy-kestot IntelAssistantin aivoille!
                         clientVaultData={res.client.mockState.kestot || {}} 
+                        
+                        // 🟢 TÄMÄ ON SE RATKAISEVA SILTA! 
+                        // Syötetään UI:n Assistentille moottorin käyttämät feikkiasetukset
+                        injectedSettings={activeSettings} 
                     />
 
                     <div style={{ marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px dashed var(--color-border)', flex: 1 }}>
@@ -213,7 +224,6 @@ const AjanvarausSandbox = () => {
             let mockLocations = [...dbLocations];
             const today = new Date();
 
-            // Apufunktio lokaalin YYYY-MM-DD -muodon saamiseksi (välttää UTC-aikavyöhykeongelmat)
             const getLocalDateString = (dateObj) => {
                 const y = dateObj.getFullYear();
                 const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -244,7 +254,6 @@ const AjanvarausSandbox = () => {
                     d.setDate(d.getDate() + i);
                     const dateStr = getLocalDateString(d);
                     
-                    // Siivotaan kyseisen päivän aidot toimistomerkinnät pois tieltä
                     mockLocations = mockLocations.filter(loc => loc.date !== dateStr);
                     
                     mockLocations.push({
@@ -259,7 +268,6 @@ const AjanvarausSandbox = () => {
                     d.setDate(d.getDate() + i);
                     const dateStr = getLocalDateString(d);
                     
-                    // Siivotaan kyseisen päivän aidot toimistomerkinnät pois tieltä
                     mockLocations = mockLocations.filter(loc => loc.date !== dateStr);
                     
                     mockLocations.push({
@@ -313,19 +321,43 @@ const AjanvarausSandbox = () => {
                 };
 
                 const tempBookedSnapshot = [...tempBooked];
+                
+                let mockWeeklyLoad = {};
+                let simuloituAsetukset = { ...dbSettings };
 
-                // 🟢 VÄLITETÄÄN mockLocations (mockLocations) MOOTTORILLE!
+                if (selectedScenario === 'ahky_kuoppa') {
+                    simuloituAsetukset = {
+                        ...simuloituAsetukset,
+                        automaatio: {
+                            ...simuloituAsetukset?.automaatio,
+                            tasapainotus: { liukuva_tasaus_aktiivinen: true, hakeudu_kuoppiin: true, tasaus_ikkuna_vko: 2 }
+                        }
+                    };
+
+                    const getIsoWeek = (d) => {
+                        const date = new Date(d.getTime());
+                        date.setHours(0, 0, 0, 0);
+                        date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+                        const week1 = new Date(date.getFullYear(), 0, 4);
+                        return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+                    };
+                    const kohdeVk = getIsoWeek(target);
+                    mockWeeklyLoad[kohdeVk] = 15; 
+                    mockWeeklyLoad[kohdeVk - 1] = 4; 
+                }
+
                 const rawBasket = findAvailableSlots(
                     client.type,
                     dbRules,
                     tempBooked,
                     target,
                     2,
-                    dbSettings,
+                    simuloituAsetukset, 
                     client.is46,
-                    mockLocations
+                    mockLocations,
+                    mockWeeklyLoad  
                 );
-
+                
                 const chosenSlots = rawBasket.slice(0, 1).map(s => ({
                     time: s.time,
                     mode: s.mode,
@@ -352,11 +384,12 @@ const AjanvarausSandbox = () => {
                     tempBookedAtTheTime: tempBookedSnapshot,
                     selectedRule: mockRule,
                     mockSuggestion,
-                    expertLocations: mockLocations, // Välitetään kortille näkyviin
+                    expertLocations: mockLocations,
                     interpreterState: {
                         needsInterpreter: client.needsInterpreter,
                         displayLanguage: client.needsInterpreter ? 'Arabia' : ''
-                    }
+                    },
+                    simuloituAsetukset // 🟢 Palautetaan tämä UI-korttia varten!
                 };
             });
 

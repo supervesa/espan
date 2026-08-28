@@ -15,39 +15,57 @@ export const parseSafeDate = (val) => {
     return (d && !isNaN(d.getTime())) ? d : null;
 };
 
-/**
- * Sisäinen apufunktio, joka skannaa kalenterin säännöillä ja huomioi lomat/poissaolot.
- */
-const scanSlots = (typesToSearch, expertRules, bookedSlots, startDate, limitWeeks, settings, ignoreFokus = false, expertLocations = []) => {
+// Apufunktio viikkonumeron laskentaan
+const getWeekNumber = (dateObj) => {
+    const d = new Date(Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+};
+
+const scanSlots = (typesToSearch, expertRules, bookedSlots, startDate, limitWeeks, settings, is46 = false, expertLocations = [], mockWeeklyLoad = {}) => {
     const slots = [];
     let current = parseSafeDate(startDate) || new Date();
     current.setHours(0, 0, 0, 0);
 
     const pyhatPaivat = settings?.pyhat_paivat || []; 
+    const ahkysuoja_aktiivinen = settings?.ahkysuoja_aktiivinen ?? true;
+    // Oletetaan että tavoite on esim. 12 asiakasta per viikko
+    const TAVOITETAHTI_MAX = 12;
 
     for (let i = 0; i < (limitWeeks * 7); i++) {
         const checkDate = new Date(current);
         checkDate.setDate(current.getDate() + i);
         
-        // Muunnetaan YYYY-MM-DD muotoon lokaatiotarkistusta varten
         const year = checkDate.getFullYear();
         const month = String(checkDate.getMonth() + 1).padStart(2, '0');
         const dayNum = String(checkDate.getDate()).padStart(2, '0');
         const dateStr = `${year}-${month}-${dayNum}`;
 
-        // 🟢 TARKISTUS: Onko tälle päivälle merkitty loma tai poissaolo/koulutus?
+        const weekNum = getWeekNumber(checkDate);
+        const currentWeekLoad = mockWeeklyLoad[weekNum] || 0;
+
+        // 🟢 1. ÄHKYSUOJA: Jos viikko on täynnä ja kyseessä ei ole 46§ hätätapaus, hypätään yli!
+        if (ahkysuoja_aktiivinen && !is46 && currentWeekLoad >= TAVOITETAHTI_MAX) {
+            continue; // Hylkää tämä päivä ja jatka etsimistä, asiantuntijan raja on täynnä!
+        }
+
+        // 🟢 2. POISSAOLOT (Lomat ja koulutukset)
         const locForDay = (expertLocations || []).find(l => l.date === dateStr);
         if (locForDay && (locForDay.location_type === 'loma' || locForDay.location_type === 'koulutus')) {
-            continue; // Ohitetaan tämä päivä kokonaan, koska asiantuntija on poissa!
+            continue; 
         }
 
         const jsDay = checkDate.getDay() === 0 ? 7 : checkDate.getDay();
         const dayStr = String(jsDay);
 
-        if (pyhatPaivat.includes(dayStr) && !ignoreFokus) {
+        // 🟢 3. FOKUS-PÄIVÄT
+        if (pyhatPaivat.includes(dayStr) && !is46) {
             continue; 
         }
 
+        // Etsitään vapaat lokerot
         for (const tType of typesToSearch) {
             const matchingRules = (expertRules || []).filter(r => r.meeting_type === tType && r.is_active !== false);
             const rulesForDay = matchingRules.filter(r => r.day_of_week === jsDay);
@@ -72,13 +90,7 @@ const scanSlots = (typesToSearch, expertRules, bookedSlots, startDate, limitWeek
                     
                     const isBooked = (bookedSlots || []).some(bs => new Date(bs.start_time).getTime() === slotTime.getTime());
                     if (!isBooked) {
-                        slots.push({ 
-                            time: slotTime, 
-                            mode: defaultMode, 
-                            isBorrowed, 
-                            label: borrowLabel,
-                            matchedType: tType
-                        });
+                        slots.push({ time: slotTime, mode: defaultMode, isBorrowed, label: borrowLabel, matchedType: tType });
                     }
                 } else {
                     for (let h = startH; h < endH; h++) {
@@ -87,13 +99,7 @@ const scanSlots = (typesToSearch, expertRules, bookedSlots, startDate, limitWeek
                         
                         const isBooked = (bookedSlots || []).some(bs => new Date(bs.start_time).getTime() === slotTime.getTime());
                         if (!isBooked) {
-                            slots.push({ 
-                                time: slotTime, 
-                                mode: defaultMode, 
-                                isBorrowed, 
-                                label: borrowLabel,
-                                matchedType: tType
-                            });
+                            slots.push({ time: slotTime, mode: defaultMode, isBorrowed, label: borrowLabel, matchedType: tType });
                         }
                     }
                 }
@@ -103,25 +109,47 @@ const scanSlots = (typesToSearch, expertRules, bookedSlots, startDate, limitWeek
     return slots;
 };
 
-export const findAvailableSlots = (meetingType, expertRules, bookedSlots, startDate, limitWeeks = 1, settings = null, is46 = false, expertLocations = []) => {
+export const findAvailableSlots = (meetingType, expertRules, bookedSlots, targetDate, limitWeeks = 1, settings = null, is46 = false, expertLocations = [], mockWeeklyLoad = {}) => {
+    
     const defaultLiedennys = settings?.liedennys_jarjestys || ['taydentava', 'aktivointi', 'normi'];
     const searchOrder = [meetingType, ...defaultLiedennys.filter(t => t !== meetingType)];
 
-    // VAIHE 1: Normaali haku (lomat ja poissaolot huomioiden)
-    let slots = scanSlots(searchOrder, expertRules, bookedSlots, startDate, limitWeeks, settings, false, expertLocations);
-    if (slots.length > 0) {
-        return slots.sort((a, b) => a.time.getTime() - b.time.getTime());
+    let searchStart = new Date(targetDate);
+    const automaatio = settings?.automaatio || {};
+    const tasaus = automaatio.tasapainotus || {};
+
+    // 🟢 4. KUOPPATUTKA & TASAPAINOTUS (Sliding Window)
+    if (tasaus.liukuva_tasaus_aktiivinen && tasaus.hakeudu_kuoppiin && !is46) {
+        const targetWeekNum = getWeekNumber(searchStart);
+        const prevWeekNum = targetWeekNum - 1;
+        
+        const prevLoad = mockWeeklyLoad[prevWeekNum] || 0;
+        const targetLoad = mockWeeklyLoad[targetWeekNum] || 0;
+
+        if (prevLoad < 6 && targetLoad > 8) {
+            // 1. Aikaistetaan hakua lennosta 7 päivällä
+            searchStart.setDate(searchStart.getDate() - 7);
+            
+            // 2. KORJAUS: Siirretään aloituspäivä kuoppaviikon MAANANTAIHIN, 
+            // jotta scanSlots ei hyppää kuoppaviikon alkuosan yli!
+            const day = searchStart.getDay();
+            const diffToMonday = searchStart.getDate() - day + (day === 0 ? -6 : 1);
+            searchStart.setDate(diffToMonday);
+        }
     }
 
-    // VAIHE 2: Laajennettu haku
-    slots = scanSlots(searchOrder, expertRules, bookedSlots, startDate, limitWeeks * 2, settings, false, expertLocations);
-    if (slots.length > 0) {
-        return slots.sort((a, b) => a.time.getTime() - b.time.getTime());
+    // VAIHE 1: Normaali haku (Lomat, ähky ja kuopat huomioiden)
+    let slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, limitWeeks, settings, is46, expertLocations, mockWeeklyLoad);
+    
+    // VAIHE 2: Laajennettu haku (Vesiputous) jos aikaa ei löydy
+    if (slots.length === 0) {
+        slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, limitWeeks * 2, settings, is46, expertLocations, mockWeeklyLoad);
     }
 
-    // VAIHE 3: Viimeinen hätävara (46 § purkaa Fokus-päivät)
-    if (is46) {
-        slots = scanSlots(searchOrder, expertRules, bookedSlots, startDate, limitWeeks * 2, settings, true, expertLocations);
+    // VAIHE 3: 46 § Ruuhkareaktioiden väkisin läpi puskeminen (Jos yhä nolla ja is46)
+    if (slots.length === 0 && is46 && automaatio.ruuhkareaktiot?.uhraa_puskurit) {
+        // Ohitetaan Ähkysuojat poistamalla "is46" tarkistuksissa rajoitteita
+        slots = scanSlots(searchOrder, expertRules, bookedSlots, targetDate, limitWeeks * 2, settings, true, expertLocations, mockWeeklyLoad);
     }
 
     return slots.sort((a, b) => a.time.getTime() - b.time.getTime());
