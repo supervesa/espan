@@ -9,27 +9,31 @@ exports.handler = async (event, context) => {
         return { statusCode: 400, body: 'Missing expert_id' };
     }
 
-    // 2. Yhdistetään Supabaseen (Netlifyn ympäristömuuttujien kautta)
+    // 2. Yhdistetään Supabaseen Service Role -avaimella (ohittaa RLS:n)
     const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     
     if (!supabaseUrl || !supabaseKey) {
-        return { statusCode: 500, body: 'Database configuration missing' };
+        return { statusCode: 500, body: 'Database configuration missing (Service key needed)' };
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     try {
-        // 3. Haetaan sijainnit tietokannasta (otetaan kuukausi taaksepäin ja 15 viikkoa eteenpäin)
+        // 3. Haetaan sijainnit tietokannasta (otetaan kuukausi taaksepäin)
         const today = new Date();
         today.setDate(today.getDate() - 30);
         const queryStart = today.toISOString().split('T')[0];
+
+        // Määritelty yleinen/yhteinen ID
+        const system_expert_id = '00000000-0000-0000-0000-000000000000';
 
         const { data, error } = await supabase
             .schema('espan')
             .from('expert_daily_locations')
             .select('*')
-            .eq('expert_id', expert_id)
+            // MUUTOS: Haetaan sekä URL:sta tullut ID että yleinen 000-ID
+            .in('expert_id', [expert_id, system_expert_id])
             .gte('date', queryStart);
 
         if (error) throw error;
@@ -83,6 +87,11 @@ exports.handler = async (event, context) => {
                 prefix = '🔒 ';
                 statusStr = 'CONFIRMED'; // Kiinteä värilohko
                 description = 'Sijainti lukittu (Asiakastapaaminen, ankkurisääntö tai manuaalinen vahvistus).';
+                
+                // Lisätään maininta kuvaukseen, jos kyseessä on kaikille yhteinen merkintä (000-tunnus)
+                if (loc.expert_id === system_expert_id) {
+                    description = 'Kaikille yhteinen, kiinteästi määritelty sijainti. ' + description;
+                }
             }
 
             const summary = `${prefix}${locName}`;
