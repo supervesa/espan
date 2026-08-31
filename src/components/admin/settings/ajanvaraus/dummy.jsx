@@ -11,15 +11,15 @@ export const clientTemplates = {
     // 1. TÄYDELLINEN RUTIINI (Aikaa on, kaikki rullaa)
     perus: { 
         type: 'taydentava', 
-        name: 'Matti Normaali (Rutiini)', 
+        name: 'Matti Normaali (Malminkatu)', 
         jumpMonths: 3, 
         jumpDays: 0,
         isFamiliar: true, 
         needsInterpreter: false, 
         is46: false,
-        description: 'Lakisääteinen 3 kk rytmi. Ei lähikäyntivelvoitetta, sillä kävi toimistolla 2 kk sitten.',
+        description: 'Lakisääteinen 3 kk rytmi. Postinumero (00100) ohjaa Malminkadulle. Ei lähikäyntivelvoitetta, sillä kävi toimistolla 2 kk sitten.',
         mockState: {
-            asiakas: { postinumero: '00100', asiointikieli: 'suomi' },
+            asiakas: { postinumero: '00100', asiointikieli: 'suomi' }, // 00100 -> Keskinen -> Malminkatu
             activeSignals: {},
             sessionServices: [],
             suunnitelman_perustiedot: {
@@ -30,6 +30,32 @@ export const clientTemplates = {
                             { v: 2026, kk: 5, tapa: 'PUH' }, // Edellinen tapaaminen 3 kk sitten
                             { v: 2026, kk: 6, tapa: 'KÄY' }  // Edellinen lähikäynti 2 kk sitten
                         ]
+                    }
+                }
+            }
+        }
+    },
+
+    // 1B. LOKAATIO-TESTI (Viipurinkatu Matchmaking)
+    viipuri: { 
+        type: 'taydentava', 
+        name: 'Veera Viipuri (Lähikäyntivelvoite)', 
+        jumpMonths: 0, 
+        jumpDays: 5, // Lähiaikoina
+        isFamiliar: false, 
+        needsInterpreter: false, 
+        is46: false,
+        forcedMode: 'kaynti', // Pakotetaan käyntiin, jotta lokaatiotutka aktivoituu
+        description: 'Postinumero (00510) ohjaa asiakkaan Viipurinkadulle. Haku hylkää etäpäivät ja Malminkadun päivät, etsien ensisijaisesti Viipurinkadun työvuoroja.',
+        mockState: {
+            asiakas: { postinumero: '00510', asiointikieli: 'suomi' }, // 00510 -> Keskinen -> VIIPURINKATU (Poikkeus)
+            activeSignals: {},
+            sessionServices: [],
+            suunnitelman_perustiedot: {
+                sect1: {
+                    muuttujat: {
+                        TH_ALKU_PVM: '2025-01-01',
+                        tapaamishistoria: [] // Ei aiempaa historiaa
                     }
                 }
             }
@@ -47,7 +73,7 @@ export const clientTemplates = {
         is46: false,
         description: '3 kk rytmi ok, mutta edellisestä lähikäynnistä on 7 kk. Tekoälyn on pakko asettaa tapaaminen käynniksi.',
         mockState: {
-            asiakas: { postinumero: '00930', asiointikieli: 'suomi' },
+            asiakas: { postinumero: '00930', asiointikieli: 'suomi' }, // 00930 -> Itä -> Itäkeskus
             activeSignals: {},
             sessionServices: [],
             suunnitelman_perustiedot: {
@@ -75,7 +101,7 @@ export const clientTemplates = {
         is46: false,
         description: 'Etuussignaali laukaisee Aktivointijakson. Vaatii 4 viikon välein lähikäynnin.',
         mockState: {
-            asiakas: { postinumero: '00530', asiointikieli: 'suomi' },
+            asiakas: { postinumero: '00530', asiointikieli: 'suomi' }, // 00530 -> Keskinen -> Viipurinkatu
             activeSignals: { ETUUS_TOIMEENTULOTUKI: true }, // Tämä signaali laukaisee aktivoinnin
             sessionServices: [],
             suunnitelman_perustiedot: {
@@ -117,7 +143,7 @@ export const clientTemplates = {
         is46: false,
         description: 'Asiointikieli Arabia. Aikaan pitää lisätä tulkkipuskuri (esim. +15min) eikä tuttua asiakasta voida soveltaa.',
         mockState: {
-            asiakas: { postinumero: '00710', asiointikieli: 'arabia' }, // Kieli laukaisee needsInterpreter-tilan
+            asiakas: { postinumero: '00710', asiointikieli: 'arabia' }, // 00710 -> Pohjoinen -> Malminkatu (Kieli laukaisee needsInterpreter-tilan)
             activeSignals: {},
             sessionServices: [],
             suunnitelman_perustiedot: {
@@ -142,7 +168,7 @@ export const clientTemplates = {
         is46: false,
         description: 'Työnhaku juuri alkanut. Ei tapaamishistoriaa, joten lähikäyntivelvoite iskee päälle ja aika on löydettävä pian.',
         mockState: {
-            asiakas: { postinumero: '00180', asiointikieli: 'suomi' },
+            asiakas: { postinumero: '00180', asiointikieli: 'suomi' }, // 00180 -> Keskinen -> Malminkatu
             activeSignals: { tyonhaku_alkanut: '2026-08-20' }, // Alkanut juuri
             sessionServices: [],
             suunnitelman_perustiedot: {
@@ -150,6 +176,7 @@ export const clientTemplates = {
             }
         }
     },
+
     // 7. LOMA- JA POISSAOLOTESTERI (Kiireellinen perusaika)
     lomatesti: { 
         type: 'taydentava', 
@@ -174,6 +201,7 @@ export const clientTemplates = {
             }
         }
     },
+
     // 8. DATAPERUSTEINEN (Erittäin nopea asiakas)
     nopea_data: { 
         type: 'taydentava', 
@@ -218,6 +246,27 @@ export const clientTemplates = {
             sessionServices: [],
             suunnitelman_perustiedot: {
                 sect1: { muuttujat: { TH_ALKU_PVM: '2025-06-01', tapaamishistoria: [] } }
+            }
+        }
+    },
+
+    // 10. UNIVERSAALI DATA (Holvi 2: ~5min)
+    urpo_universaali: { 
+        type: 'tyonhakukeskustelu', 
+        name: 'Urpo Universaali (Yleisdata: 5min)', 
+        jumpMonths: 1, 
+        jumpDays: 0, 
+        isFamiliar: false, 
+        needsInterpreter: false, 
+        is46: false, 
+        description: 'TESTAA HOLVI 2: Ei henkilökohtaista historiaa. Tekoäly sukeltaa asiantuntijan universaaliin analytiikkaan, löytää sieltä 5 minuutin mediaanin ja murskaa sillä manuaaliset oletusasetukset.',
+        mockState: {
+            asiakas: { postinumero: '00300', asiointikieli: 'suomi' },
+            kestot: {}, // 🟢 TÄRKEÄÄ: Omaa historiaa ei ole!
+            activeSignals: {},
+            sessionServices: [],
+            suunnitelman_perustiedot: {
+                sect1: { muuttujat: { TH_ALKU_PVM: '2026-08-01', tapaamishistoria: [] } }
             }
         }
     }

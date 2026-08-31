@@ -1,11 +1,44 @@
+// --- src/components/sections/Suunnitelma/Tyonhakuprofiili.jsx ---
+
 import React, { useState, useMemo, useEffect } from 'react';
-import { supabase } from "../../../utils/supabaseClient";
-import { planData } from '../../../data/planData';
-import { UserCircle, AlertTriangle, Calendar, FileText, ArrowRight, Lightbulb } from 'lucide-react';
+import { supabase } from '../../../utils/supabaseClient';
+import { 
+    UserCircle, Lightbulb, AlertTriangle, CalendarDays, 
+    CheckCircle, Copy, Check, MessageSquare, Info, Sparkles, Send, Loader2
+} from 'lucide-react';
+import { planData } from '../../../data/planData'; 
+
+// Common-komponentit
+import Button from '../../common/Button';
+import AlertBox from '../../common/AlertBox';
+import Modal from '../../common/Modal';
+import Accordion from '../../common/Accordion';
+
+const transformVariables = (varsArray) => {
+    if (!varsArray || varsArray.length === 0) return null;
+    return varsArray.reduce((acc, curr) => {
+        let parsedOptions = [];
+        try {
+            if (Array.isArray(curr.options)) parsedOptions = curr.options;
+            else if (typeof curr.options === 'string') {
+                let temp = JSON.parse(curr.options);
+                parsedOptions = typeof temp === 'string' ? JSON.parse(temp) : temp;
+            }
+        } catch(e) {}
+
+        let cleanDefault = curr.default_value;
+        if (typeof cleanDefault === 'string' && cleanDefault.startsWith('"') && cleanDefault.endsWith('"')) {
+            cleanDefault = cleanDefault.slice(1, -1);
+        }
+
+        acc[curr.variable_key] = { tyyppi: curr.input_type, oletus: cleanDefault, vaihtoehdot: parsedOptions };
+        return acc;
+    }, {});
+};
 
 const Tyonhakuprofiili = ({ state, actions }) => {
     const UI_KEY = 'tyonhakuprofiili';
-    const { onUpdateVariable, onUpdateCustomText } = actions;
+    const { onUpdateVariable, onSelect, onAddSignal } = actions;
     
     const [phrases, setPhrases] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -13,7 +46,7 @@ const Tyonhakuprofiili = ({ state, actions }) => {
     const selection = state[UI_KEY] || {};
     const isPoikkeus = selection?.avainsana === 'tm_profiili_vapautus';
 
-    // === ÄLYKÄS TUTKA ===
+    // === ÄLYKÄS TUTKA (Signaalit ja Tila) ===
     const signals = state?.signals || {};
     const hasLanguageBarrier = Object.keys(signals).some(key => key.includes('language') || key === 'osallistuu_tulkki');
     const hasDigitalBarrier = signals['puutteelliset_digitaidot'] || signals['ei_pankkitunnuksia'];
@@ -29,42 +62,22 @@ const Tyonhakuprofiili = ({ state, actions }) => {
 
     const needsAssistance = hasLanguageBarrier || hasDigitalBarrier || hasHealthBarrier;
     const isExempt = hasNoObligation || isWorkingOrStudying;
-    // ====================
 
-    // Ymmärtää Supabasen valmiiksi purkamat JSON-taulukot
-    const transformVariables = (varsArray) => {
-        if (!varsArray || varsArray.length === 0) return null;
-        const transformed = {};
-        varsArray.forEach(curr => {
-            let parsedOptions = [];
-            
-            if (curr.options) {
-                if (Array.isArray(curr.options)) {
-                    parsedOptions = curr.options;
-                } else if (typeof curr.options === 'string') {
-                    try { 
-                        let temp = JSON.parse(curr.options); 
-                        if (typeof temp === 'string') temp = JSON.parse(temp);
-                        if (Array.isArray(temp)) parsedOptions = temp;
-                    } catch(e) { console.warn("Virhe valikkojen purussa:", e); }
-                }
-            }
+    // === VIESTIKESKUKSEN JA MODAALIN TILAT ===
+    const [viestit, setViestit] = useState({ muistutus: '', ilmoitus: '' });
+    const [copiedStates, setCopiedStates] = useState({ muistutus: false, ilmoitus: false, profiili: false });
+    const [modalData, setModalData] = useState({ isOpen: false, type: '', title: '', actionText: '', signalKey: '' });
 
-            let oletusArvo = '';
-            if (curr.default_value !== null && curr.default_value !== undefined) {
-                oletusArvo = String(curr.default_value).replace(/^"|"$/g, '');
-            }
+    // === PROFIILIGENERAATTORIN TILAT ===
+    const [genEsco, setGenEsco] = useState('');
+    const [genTaidot, setGenTaidot] = useState('');
+    const [genLuvat, setGenLuvat] = useState('');
+    const [genEsittely, setGenEsittely] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
 
-            transformed[curr.variable_key] = {
-                tyyppi: curr.input_type,
-                oletus: oletusArvo,
-                vaihtoehdot: parsedOptions
-            };
-        });
-        return transformed;
-    };
-
-    // 1. HAETAAN DATA JA PAKOTETAAN SE PÄÄMUISTIIN
+    // ==========================================
+    // 1. DATAN LATAUS JA TULOSTEEN SILTA
+    // ==========================================
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
@@ -75,35 +88,45 @@ const Tyonhakuprofiili = ({ state, actions }) => {
                 ]);
 
                 if (phrasesRes.data) {
+                    const enrichedPhrases = phrasesRes.data.map(phrase => {
+                        const phraseVars = varsRes.data ? varsRes.data.filter(v => v.phrase_id === phrase.id) : [];
+                        return { ...phrase, avainsana: phrase.phrase_key, muuttujat: transformVariables(phraseVars) };
+                    });
+                    setPhrases(enrichedPhrases);
+
+                    // TULOSTUKSEN SILTA (planData injektio)
                     let sectionInPlanData = planData.aihealueet.find(s => s.id === UI_KEY);
                     if (!sectionInPlanData) {
                         sectionInPlanData = { id: UI_KEY, otsikko: 'Työnhakuprofiili', monivalinta: false, fraasit: [] };
                         planData.aihealueet.push(sectionInPlanData);
                     }
-                    
-                    const enrichedPhrases = phrasesRes.data.map(phrase => {
-                        const phraseVars = varsRes.data ? varsRes.data.filter(v => v.phrase_id === phrase.id) : [];
-                        const muuttujatObj = transformVariables(phraseVars);
-                        
-                        const exists = sectionInPlanData.fraasit.find(f => f.avainsana === phrase.phrase_key);
-                        if (!exists) {
+                    enrichedPhrases.forEach(dbPhrase => {
+                        if (!sectionInPlanData.fraasit.find(f => f.avainsana === dbPhrase.avainsana)) {
                             sectionInPlanData.fraasit.push({
-                                avainsana: phrase.phrase_key,
-                                teksti: phrase.base_text,
-                                lyhenne: phrase.short_title,
-                                muuttujat: muuttujatObj
+                                avainsana: dbPhrase.avainsana, teksti: dbPhrase.base_text, lyhenne: dbPhrase.short_title, muuttujat: dbPhrase.muuttujat
                             });
                         }
-
-                        return {
-                            ...phrase,
-                            avainsana: phrase.phrase_key,
-                            teksti: phrase.base_text,
-                            lyhenne: phrase.short_title,
-                            muuttujat: muuttujatObj
-                        };
                     });
-                    setPhrases(enrichedPhrases);
+                }
+
+                // Haetaan Puzzlet (Viestipohjat)
+                const puzzleIds = ['f0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002'];
+                const { data: bps } = await supabase.from('puzzle_blueprints').select('puzzle_id, piece_id, order_index').in('puzzle_id', puzzleIds).order('order_index', { ascending: true });
+
+                if (bps && bps.length > 0) {
+                    const pieceIds = bps.map(bp => bp.piece_id);
+                    const { data: pieces } = await supabase.from('puzzle_pieces').select('id, content').in('id', pieceIds);
+                    const piecesMap = pieces.reduce((acc, curr) => ({ ...acc, [curr.id]: curr.content }), {});
+                    
+                    let muistutusTxt = '', ilmoitusTxt = '';
+                    bps.filter(bp => bp.puzzle_id === 'f0000000-0000-0000-0000-000000000001').forEach(bp => muistutusTxt += (piecesMap[bp.piece_id] || '') + '\n\n');
+                    bps.filter(bp => bp.puzzle_id === 'f0000000-0000-0000-0000-000000000002').forEach(bp => ilmoitusTxt += (piecesMap[bp.piece_id] || '') + '\n\n');
+
+                    const expertName = 'Asiantuntija';
+                    setViestit({
+                        muistutus: muistutusTxt.replace(/{expertName}/g, expertName).trim(),
+                        ilmoitus: ilmoitusTxt.replace(/{expertName}/g, expertName).trim()
+                    });
                 }
             } catch (error) { console.error("Virhe latauksessa:", error); }
             setLoading(false);
@@ -111,203 +134,366 @@ const Tyonhakuprofiili = ({ state, actions }) => {
         fetchData();
     }, []);
 
-    // 2. MUODOSTETAAN ESIKATSELUTEKSTI
-    const ehdotettuTeksti = useMemo(() => {
-        if (!selection?.avainsana) return '';
-        const selectedPhrase = phrases.find(p => p.phrase_key === selection.avainsana);
-        if (!selectedPhrase) return '';
+    // ==========================================
+    // 2. ÄLYKÄS DATAN POIMINTA ESCO-GENERAATTORIIN
+    // ==========================================
+    useEffect(() => {
+        // A. Ammatit (Pääammatti + Vaihtoehtoiset)
+        let ammatit = [];
+        if (state.asiakas?.tavoiteammatti_esco_nimi) ammatit.push(state.asiakas.tavoiteammatti_esco_nimi);
+        try {
+            const altAmmatit = JSON.parse(state['custom-vaihtoehtoiset_ammatit'] || "[]");
+            altAmmatit.forEach(a => ammatit.push(a.nimi));
+        } catch(e) {}
+        setGenEsco(ammatit.join(', '));
 
-        let teksti = selectedPhrase.base_text;
-        
-        if (selectedPhrase.muuttujat) {
-            Object.keys(selectedPhrase.muuttujat).forEach(key => {
-                let val = '';
-                if (selection.muuttujat && selection.muuttujat[key] !== undefined && selection.muuttujat[key] !== '') {
-                    val = selection.muuttujat[key];
-                } else {
-                    val = selectedPhrase.muuttujat[key].oletus || '';
-                }
-                teksti = teksti.replace(`[${key}]`, val);
-            });
-        }
-        return teksti;
-    }, [selection, phrases]);
+        // B. Taidot (ESCO-taidot)
+        try {
+            const escoTaidot = JSON.parse(state['custom-valitut_esco_taidot'] || "[]");
+            setGenTaidot(escoTaidot.map(t => `• ${t}`).join('\n'));
+        } catch(e) {}
 
-    // --- KORJATUT TALLENNUSKÄSITTELIJÄT (GM 3.1 Ohitus) ---
+        // C. Kortit ja Luvat (Signaalit)
+        let luvat = [];
+        Object.keys(signals).forEach(key => {
+            if (key.startsWith('patevyys_')) {
+                let name = key.replace('patevyys_', '').replace(/_/g, ' ');
+                name = name.charAt(0).toUpperCase() + name.slice(1);
+                luvat.push(name);
+            }
+        });
+        setGenLuvat(luvat.join(', '));
+
+    }, [state.asiakas, state['custom-vaihtoehtoiset_ammatit'], state['custom-valitut_esco_taidot'], signals]);
+
+    // ==========================================
+    // 3. KÄSITTELIJÄT JA MODAALI
+    // ==========================================
     const handlePoikkeusToggle = (soveltuu) => {
         const uusiAvainsana = soveltuu ? 'tm_profiili_vapautus' : 'tm_profiili_asiakas_tekee';
-        const uusiTila = { ...selection, avainsana: uusiAvainsana };
-        
-        if (actions.updateSectionData) {
-            actions.updateSectionData(UI_KEY, uusiTila);
-        } else if (actions.updateSection) {
-            actions.updateSection(UI_KEY, uusiTila);
-        }
+        onSelect(UI_KEY, uusiAvainsana, false, { ...selection, avainsana: uusiAvainsana });
     };
 
     const handleTilaSelect = (avainsana) => {
-        const uusiTila = { ...selection, avainsana: avainsana };
+        onSelect(UI_KEY, avainsana, false, { ...selection, avainsana: avainsana });
+    };
 
-        if (actions.updateSectionData) {
-            actions.updateSectionData(UI_KEY, uusiTila);
-        } else if (actions.updateSection) {
-            actions.updateSection(UI_KEY, uusiTila);
+    const handleSmartCopy = (type, text, modalConfig) => {
+        navigator.clipboard.writeText(text).then(() => {
+            setCopiedStates(prev => ({ ...prev, [type]: true }));
+            setTimeout(() => setCopiedStates(prev => ({ ...prev, [type]: false })), 2000);
+            if (modalConfig) setModalData({ isOpen: true, ...modalConfig });
+        });
+    };
+
+    const handleAcceptModal = () => {
+        if (onAddSignal && modalData.signalKey) {
+            onAddSignal(modalData.signalKey);
+        }
+        if (modalData.type === 'ilmoitus') {
+            handleTilaSelect('tm_profiili_julkaistu');
+        }
+        setModalData({ isOpen: false, type: '', title: '', actionText: '', signalKey: '' });
+    };
+
+    // ==========================================
+    // 4. TEKOÄLYN MYYNTIPUHE (GENERAATTORI)
+    // ==========================================
+    const handleGenerateAIPitch = async () => {
+        setIsGenerating(true);
+        setGenEsittely('Generoidaan anonyymiä profiilia...');
+        
+        try {
+            const response = await fetch('/.netlify/functions/generateProfile', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ammatit: genEsco,
+                    taidot: genTaidot,
+                    luvat: genLuvat
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const avainsanatText = data.avainsanat && data.avainsanat.length > 0 ? `\n\n*Avainsanat: ${data.avainsanat.join(', ')}*` : '';
+                const finalPitch = `**${data.otsikko}**\n\n${data.esittelyteksti}${avainsanatText}`;
+                setGenEsittely(finalPitch);
+            } else {
+                setGenEsittely('Virhe generoinnissa. Yritä uudelleen.');
+            }
+        } catch (error) {
+            console.error("AI Generointi virhe:", error);
+            setGenEsittely('Yhteysvirhe. Tekoälyyn ei saatu yhteyttä.');
+        } finally {
+            setIsGenerating(false);
         }
     };
-    // -----------------------------------------------------
 
-    const handleSiirraSuunnitelmaan = () => {
-        if (!ehdotettuTeksti) return;
-        const currentText = state['custom-suunnitelma'] || '';
-        const newText = currentText ? `${ehdotettuTeksti}\n\n${currentText}` : ehdotettuTeksti;
-        if (onUpdateCustomText) onUpdateCustomText('suunnitelma', newText);
-    };
+    const valmisProfiiliTeksti = useMemo(() => {
+        if (!genEsco && !genTaidot && !genLuvat && !genEsittely) return '';
+        let profiili = `**Osaaminen ja ammattitaito**\n${genEsco || '-'}\n\n`;
+        if (genTaidot) profiili += `**Erityisosaaminen**\n${genTaidot}\n\n`;
+        profiili += `**Koulutus, luvat ja kortit**\n${genLuvat || '-'}\n\n**Esittely**\n${genEsittely || '-'}`;
+        return profiili;
+    }, [genEsco, genTaidot, genLuvat, genEsittely]);
 
-    if (loading) return <div className="section-container"><p style={{ color: 'var(--color-text-secondary)' }}>Ladataan profiilin asetuksia...</p></div>;
 
-    const asiakasTekeePhrase = phrases.find(p => p.phrase_key === 'tm_profiili_asiakas_tekee');
-    const vapautusPhrase = phrases.find(p => p.phrase_key === 'tm_profiili_vapautus');
+    if (loading) return <div className="section-container"><p className="text-secondary">Ladataan profiilin asetuksia...</p></div>;
+
+    const asiakasTekeePhrase = phrases.find(p => p.avainsana === 'tm_profiili_asiakas_tekee');
+    const vapautusPhrase = phrases.find(p => p.avainsana === 'tm_profiili_vapautus');
 
     return (
-        <section className="section-container" style={{ borderColor: 'var(--color-primary)', borderWidth: '2px', borderStyle: 'solid', paddingBottom: '1.5rem', marginBottom: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
-                <h2 className="icon-heading" style={{ margin: 0, color: 'var(--color-primary)' }}>
-                    <UserCircle size={28} />
-                    Työnhakuprofiili (Lakisääteinen)
-                </h2>
-                <span className="tag" style={{ backgroundColor: 'rgba(255,107,0,0.1)', color: 'var(--color-primary)' }}>UUSI: 1.9. alkaen</span>
-            </div>
-
-            <p style={{ color: 'var(--color-text-secondary)', marginBottom: '2rem' }}>
-                Työnhakijalla on velvollisuus julkaista nimetön työnhakuprofiili Työmarkkinatorilla 15 arkipäivän kuluessa työnhaun alusta, ellei poikkeus täyty.
-            </p>
-
-            {/* PÄÄVALINTA: Poikkeus vai ei */}
-            <div className="side-bordered-panel" style={{ borderLeftColor: isPoikkeus ? 'var(--color-warning)' : 'var(--color-border)' }}>
-                
-                {(needsAssistance || isExempt) && !isPoikkeus && (
-                    <div className="alert-box alert-box--warning" style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#fffbeb', borderColor: '#f59e0b' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#b45309', fontWeight: 'bold', marginBottom: '0.5rem' }}>
-                            <Lightbulb size={20} /> Järjestelmän havainnot:
-                        </div>
-                        <span style={{ fontSize: '0.9rem', color: '#92400e' }}>
-                            Harkitse "Poikkeus soveltuu" -vaihtoehdon valitsemista seuraavin perustein:
-                        </span>
-                        <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0, fontSize: '0.9rem', color: '#92400e' }}>
-                            {hasNoObligation && <li>Työnhakuvelvollisuutta ei ole asetettu (lkm 0).</li>}
-                            {hasHealthBarrier && <li>Asiakkaalla on alentunut työkyky.</li>}
-                            {hasLanguageBarrier && <li>Asiakkaalla on merkintä heikosta kielitaidosta.</li>}
-                            {hasDigitalBarrier && <li>Asiakkaalla on puutteelliset digitaidot tai puuttuva tunnistautuminen.</li>}
-                            {isWorkingOrStudying && <li>Asiakas on ohjattu tai on jo työssä/opiskelemassa päätoimisesti.</li>}
-                        </ul>
-                    </div>
-                )}
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                    <h3 className="icon-heading" style={{ margin: 0 }}>Vapautusperusteet</h3>
-                    <div className="boolean-buttons" style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button 
-                            type="button"
-                            className={!isPoikkeus ? 'selected' : ''} 
-                            onClick={() => handlePoikkeusToggle(false)}
-                        >Ei poikkeusta</button>
-                        <button 
-                            type="button"
-                            className={isPoikkeus ? 'selected' : ''} 
-                            onClick={() => handlePoikkeusToggle(true)}
-                            style={{ backgroundColor: isPoikkeus ? '#f59e0b' : '', color: isPoikkeus ? 'white' : '' }}
-                        >Poikkeus soveltuu</button>
+        <section className="section-container">
+            {/* LAKI-INFO */}
+            <AlertBox type="info" customStyle={{ marginBottom: '1.5rem', borderLeft: '4px solid var(--color-primary)' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                    <Info size={20} className="text-primary" />
+                    <div>
+                        <strong className="text-primary block" style={{ marginBottom: '0.25rem' }}>Huom! Lakimuutos 1.1.2026</strong>
+                        <span className="text-sm">Työnhakuprofiilin laatiminen Työmarkkinatorille on pakollista, mutta sen julkaiseminen <strong>ei täytä</strong> kuukausittaista työnhakuvelvollisuutta (THV).</span>
                     </div>
                 </div>
+            </AlertBox>
 
-                {isPoikkeus && vapautusPhrase && (
-                    <div style={{ marginTop: '1.5rem', animation: 'fadeIn 0.3s ease' }}>
-                        <p style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Valitse virallinen peruste:</p>
-                        <select 
-                            className="form-input" 
-                            style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', padding: '0.75rem', borderRadius: '6px', width: '100%' }}
-                            value={selection?.muuttujat?.POIKKEUS_SYY || ''}
-                            onChange={(e) => onUpdateVariable(UI_KEY, 'tm_profiili_vapautus', 'POIKKEUS_SYY', e.target.value)}
-                        >
-                            <option value="">-- Valitse peruste --</option>
-                            {vapautusPhrase.muuttujat?.POIKKEUS_SYY?.vaihtoehdot?.map(opt => (
-                                <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                        </select>
-                    </div>
-                )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h2 className="icon-heading" style={{ margin: 0 }}>
+                    <UserCircle size={28} className="text-primary" />
+                    Työnhakuprofiili (Lakisääteinen)
+                </h2>
+                <div className="boolean-buttons">
+                    <button type="button" className={!isPoikkeus ? 'selected' : ''} onClick={() => handlePoikkeusToggle(false)}>Lakisääteinen</button>
+                    <button type="button" className={isPoikkeus ? 'selected' : ''} onClick={() => handlePoikkeusToggle(true)} style={{ backgroundColor: isPoikkeus ? 'var(--color-warning)' : '', color: isPoikkeus ? 'white' : '' }}>Poikkeus soveltuu</button>
+                </div>
             </div>
 
-            {/* NORMAALITILANNE: Profiilin tila */}
-            {!isPoikkeus && (
-                <div className="side-bordered-panel" style={{ marginTop: '1.5rem', borderLeftColor: selection?.avainsana === 'tm_profiili_viranomainen_tekee' ? 'var(--color-danger)' : 'var(--color-success)', animation: 'fadeIn 0.3s ease' }}>
-                    <h3 className="icon-heading" style={{ margin: 0, marginBottom: '1rem' }}>Profiilin tilanne ja aikataulu</h3>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                        <label className="modern-checkbox-label" style={{ border: selection?.avainsana === 'tm_profiili_julkaistu' ? '2px solid var(--color-success)' : '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px', backgroundColor: 'var(--color-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                            <input type="radio" name="profiili_tila" checked={selection?.avainsana === 'tm_profiili_julkaistu'} onChange={() => handleTilaSelect('tm_profiili_julkaistu')} style={{ margin: 0 }} />
-                            <span style={{ fontWeight: 600 }}>Jo julkaistu</span>
-                        </label>
-                        <label className="modern-checkbox-label" style={{ border: selection?.avainsana === 'tm_profiili_asiakas_tekee' ? '2px solid var(--color-primary)' : '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px', backgroundColor: 'var(--color-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                            <input type="radio" name="profiili_tila" checked={selection?.avainsana === 'tm_profiili_asiakas_tekee'} onChange={() => handleTilaSelect('tm_profiili_asiakas_tekee')} style={{ margin: 0 }} />
-                            <span style={{ fontWeight: 600 }}>Asiakas tekee</span>
-                        </label>
-                        <label className="modern-checkbox-label" style={{ border: selection?.avainsana === 'tm_profiili_viranomainen_tekee' ? '2px solid var(--color-danger)' : '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px', backgroundColor: 'var(--color-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', textAlign: 'center', cursor: 'pointer' }}>
-                            <input type="radio" name="profiili_tila" checked={selection?.avainsana === 'tm_profiili_viranomainen_tekee'} onChange={() => handleTilaSelect('tm_profiili_viranomainen_tekee')} style={{ margin: 0 }} />
-                            <span style={{ fontWeight: 600 }}>Viranomainen tekee</span>
-                        </label>
-                    </div>
-
-                    {selection?.avainsana === 'tm_profiili_asiakas_tekee' && asiakasTekeePhrase && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#f9fafb', padding: '1rem', borderRadius: '6px', animation: 'fadeIn 0.2s ease' }}>
-                            <Calendar size={20} color="var(--color-primary)" />
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flexGrow: 1 }}>
-                                <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Aseta määräpäivä</label>
-                                <input 
-                                    type="text" 
-                                    className="form-input text-mono" 
-                                    placeholder={asiakasTekeePhrase.muuttujat?.PÄIVÄMÄÄRÄ?.oletus || "esim. 15.9.2026"}
-                                    value={selection?.muuttujat?.PÄIVÄMÄÄRÄ !== undefined ? selection.muuttujat.PÄIVÄMÄÄRÄ : ''} 
-                                    onChange={(e) => onUpdateVariable(UI_KEY, 'tm_profiili_asiakas_tekee', 'PÄIVÄMÄÄRÄ', e.target.value)} 
-                                    style={{ maxWidth: '350px' }}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {selection?.avainsana === 'tm_profiili_viranomainen_tekee' && (
-                        <div className="alert-box alert-box--warning" style={{ backgroundColor: 'rgba(227, 74, 74, 0.05)', borderColor: 'rgba(227, 74, 74, 0.2)', animation: 'fadeIn 0.2s ease' }}>
-                            <h4 style={{ color: 'var(--color-danger)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                                <AlertTriangle size={18} /> Viranomaisen tekemän profiilin säännöt
-                            </h4>
-                            <ul style={{ margin: 0, paddingLeft: '1.5rem', fontSize: '0.85rem', color: 'var(--color-text-primary)' }}>
-                                <li><strong>Vain nimettömiä tietoja:</strong> Ei työnantajaa tai oppilaitosta yksilöiviä tietoja.</li>
-                                <li><strong>Sallitut tiedot:</strong> Olennainen työkokemus, koulutus, luvat, pätevyydet, työtoiveet ja kielitaito.</li>
-                                <li><em>Huom: Laiminlyönnistä ei tule asettaa työttömyysturvaseuraamusta.</em></li>
-                            </ul>
+            {/* --- POIKKEUS SOVELTUU --- */}
+            {isPoikkeus && (
+                <div className="side-bordered-panel" style={{ borderLeftColor: 'var(--color-warning)', animation: 'fadeIn 0.3s ease' }}>
+                    <h3 className="text-lg fw-semibold" style={{ marginBottom: '1rem' }}>Vapautuksen kirjaus</h3>
+                    {vapautusPhrase && (
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <label className="text-sm fw-semibold block" style={{ marginBottom: '0.5rem' }}>Valitse virallinen peruste:</label>
+                            <select 
+                                className="modern-select" 
+                                value={selection?.muuttujat?.POIKKEUS_SYY || ''}
+                                onChange={(e) => onUpdateVariable(UI_KEY, 'tm_profiili_vapautus', 'POIKKEUS_SYY', e.target.value)}
+                            >
+                                <option value="">-- Valitse peruste --</option>
+                                {vapautusPhrase.muuttujat?.POIKKEUS_SYY?.vaihtoehdot?.map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                            </select>
                         </div>
                     )}
                 </div>
             )}
 
-            <div style={{ marginTop: '2rem', padding: '1.5rem', backgroundColor: '#eff6ff', borderRadius: 'var(--border-radius)', border: '1px dashed var(--color-primary)' }}>
-                <h3 className="icon-heading" style={{ marginBottom: '1rem', color: '#1e40af' }}>
-                    <FileText size={20} /> Generoitu kirjaus
-                </h3>
-                <p style={{ whiteSpace: 'pre-wrap', fontSize: '0.95rem', color: 'var(--color-text-primary)', marginBottom: '1.5rem', fontStyle: 'italic' }}>
-                    {ehdotettuTeksti || "Tee valinta yläpuolelta nähdäksesi tekstin."}
-                </p>
-                
-                <button 
-                    type="button"
-                    className="btn" 
-                    onClick={handleSiirraSuunnitelmaan}
-                    disabled={!ehdotettuTeksti}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#1e40af', color: 'white', border: 'none', opacity: !ehdotettuTeksti ? 0.5 : 1 }}
-                >
-                    <ArrowRight size={18} /> Siirrä teksti suunnitelman lisätietoihin
-                </button>
-            </div>
+            {/* --- NORMAALI TILA (Ei poikkeusta) --- */}
+            {!isPoikkeus && (
+                <div className="side-bordered-panel" style={{ borderLeftColor: selection?.avainsana === 'tm_profiili_viranomainen_tekee' ? 'var(--color-ai)' : 'var(--color-success)', animation: 'fadeIn 0.3s ease' }}>
+                    
+                    {/* Älykäs tutka */}
+                    {(needsAssistance || isExempt) && (
+                        <AlertBox type="warning" customStyle={{ marginBottom: '1.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
+                                <Lightbulb size={18} /> Järjestelmän havainnot:
+                            </div>
+                            <span className="text-sm">Harkitse "Poikkeus soveltuu" -vaihtoehdon valitsemista yläpuolelta seuraavin perustein:</span>
+                            <ul className="text-sm" style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
+                                {hasNoObligation && <li>Työnhakuvelvollisuutta ei ole asetettu (lkm 0).</li>}
+                                {hasHealthBarrier && <li>Asiakkaalla on alentunut työkyky.</li>}
+                                {hasLanguageBarrier && <li>Asiakkaalla on merkintä heikosta kielitaidosta.</li>}
+                                {hasDigitalBarrier && <li>Asiakkaalla on puutteelliset digitaidot tai puuttuva tunnistautuminen.</li>}
+                                {isWorkingOrStudying && <li>Asiakas on ohjattu tai on jo työssä/opiskelemassa päätoimisesti.</li>}
+                            </ul>
+                        </AlertBox>
+                    )}
+
+                    <h3 className="text-lg fw-semibold" style={{ marginBottom: '1rem' }}>Profiilin tilanne ja vastuu</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <label className="modern-checkbox-label" style={{ border: selection?.avainsana === 'tm_profiili_julkaistu' ? '2px solid var(--color-success)' : '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px', backgroundColor: 'var(--color-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                            <input type="radio" name="profiili_tila" checked={selection?.avainsana === 'tm_profiili_julkaistu'} onChange={() => handleTilaSelect('tm_profiili_julkaistu')} style={{ margin: 0 }} />
+                            <span className="fw-semibold text-center">Jo julkaistu<br/><small className="text-muted fw-normal">(Kunnossa)</small></span>
+                        </label>
+                        <label className="modern-checkbox-label" style={{ border: selection?.avainsana === 'tm_profiili_asiakas_tekee' ? '2px solid var(--color-primary)' : '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px', backgroundColor: 'var(--color-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                            <input type="radio" name="profiili_tila" checked={selection?.avainsana === 'tm_profiili_asiakas_tekee'} onChange={() => handleTilaSelect('tm_profiili_asiakas_tekee')} style={{ margin: 0 }} />
+                            <span className="fw-semibold text-center text-primary">Asiakas tekee<br/><small className="text-muted fw-normal text-primary">(Myyntitila)</small></span>
+                        </label>
+                        <label className="modern-checkbox-label" style={{ border: selection?.avainsana === 'tm_profiili_viranomainen_tekee' ? '2px solid var(--color-ai)' : '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px', backgroundColor: 'var(--color-surface)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                            <input type="radio" name="profiili_tila" checked={selection?.avainsana === 'tm_profiili_viranomainen_tekee'} onChange={() => handleTilaSelect('tm_profiili_viranomainen_tekee')} style={{ margin: 0 }} />
+                            <span className="fw-semibold text-center text-ai">Viranomainen tekee<br/><small className="text-muted fw-normal text-ai">(Generaattori)</small></span>
+                        </label>
+                    </div>
+
+                    {/* === SKENAARIO A: ASIAKAS TEKEE (Myyntitila) === */}
+                    {selection?.avainsana === 'tm_profiili_asiakas_tekee' && (
+                        <div style={{ animation: 'fadeIn 0.3s ease' }}>
+                            {asiakasTekeePhrase && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', padding: '1rem', borderRadius: 'var(--border-radius)', marginBottom: '1.5rem' }}>
+                                    <CalendarDays size={20} className="text-primary" />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', flexGrow: 1 }}>
+                                        <label className="text-sm fw-semibold">Aseta määräpäivä suunnitelmaan</label>
+                                        <input 
+                                            type="text" 
+                                            className="form-input text-mono" 
+                                            placeholder={asiakasTekeePhrase.muuttujat?.PÄIVÄMÄÄRÄ?.oletus || "15 arkipäivän kuluessa"}
+                                            value={selection?.muuttujat?.PÄIVÄMÄÄRÄ !== undefined ? selection.muuttujat.PÄIVÄMÄÄRÄ : ''} 
+                                            onChange={(e) => onUpdateVariable(UI_KEY, 'tm_profiili_asiakas_tekee', 'PÄIVÄMÄÄRÄ', e.target.value)} 
+                                            style={{ maxWidth: '350px' }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            <Accordion title="Myyntiargumentit asiakkaalle (Miksi profiili kannattaa tehdä?)" defaultOpen={false}>
+                                <ul className="text-sm text-slate-700" style={{ paddingLeft: '1.5rem', margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    <li><strong>Piilotyöpaikat:</strong> Työnantajat voivat olla suoraan yhteydessä ja tarjota paikkoja, joita ei ole julkisessa haussa.</li>
+                                    <li><strong>Anonyymiys:</strong> Profiili on nimetön, ellet itse lisää sinne some-linkkejä. Osaamisesi puhuu puolestasi.</li>
+                                    <li><strong>Osuvammat ehdotukset:</strong> Mitä tarkemmin kuvaat osaamistasi, sitä paremmin järjestelmä ehdottaa sinulle sopivia paikkoja.</li>
+                                    <li><strong>Kansainvälisyys (EURES):</strong> Voit laajentaa profiilisi näkymään koko Euroopan alueelle.</li>
+                                </ul>
+                            </Accordion>
+
+                            <div className="ai-workspace" style={{ marginTop: '1.5rem' }}>
+                                <h4 className="icon-label"><MessageSquare size={18} /> Asiakasviestintä (Pikakaista)</h4>
+                                <p className="text-sm text-secondary mb-4">Lähetä asiakkaalle kannustava muistutus profiilin laatimisesta.</p>
+                                
+                                <div className="ai-preview-box text-sm">
+                                    {viestit.muistutus || "Ladataan viestipohjaa..."}
+                                </div>
+                                
+                                <Button 
+                                    variant="primary" 
+                                    icon={copiedStates.muistutus ? Check : Copy}
+                                    onClick={() => handleSmartCopy('muistutus', viestit.muistutus, {
+                                        type: 'muistutus',
+                                        title: 'Lisätäänkö toimenpide?',
+                                        actionText: 'Kyllä, lisää toimenpide',
+                                        signalKey: 'toimi_tm_profiili_laadinta'
+                                    })}
+                                    style={{ backgroundColor: copiedStates.muistutus ? 'var(--color-success)' : '' }}
+                                >
+                                    {copiedStates.muistutus ? 'Kopioitu leikepöydälle!' : 'Kopioi muistutusviesti'}
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* === SKENAARIO B: VIRANOMAINEN TEKEE (Generaattori) === */}
+                    {selection?.avainsana === 'tm_profiili_viranomainen_tekee' && (
+                        <div style={{ animation: 'fadeIn 0.3s ease' }}>
+                            <AlertBox type="warning" customStyle={{ backgroundColor: 'rgba(227, 74, 74, 0.05)', borderColor: 'rgba(227, 74, 74, 0.2)', marginBottom: '1.5rem' }}>
+                                <h4 className="text-danger icon-label" style={{ margin: 0 }}><AlertTriangle size={18} /> Viranomaisen tekemän profiilin säännöt</h4>
+                                <ul className="text-sm text-slate-700" style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.5rem' }}>
+                                    <li><strong>Vain nimettömiä tietoja:</strong> Ei työnantajaa tai oppilaitosta yksilöiviä tietoja.</li>
+                                    <li><strong>Sallitut tiedot:</strong> Olennainen työkokemus, koulutus, luvat, pätevyydet, työtoiveet ja kielitaito.</li>
+                                </ul>
+                            </AlertBox>
+
+                            <div className="panel-ai-work">
+                                <h4 className="icon-label text-ai"><Sparkles size={18} /> Anonyymi Profiiligeneraattori</h4>
+                                <p className="text-sm text-secondary">Järjestelmä on poiminut tiedot asiakkaan ESCO-ammatin, taitojen ja lupakorttien perusteella. Täydennä tarvittaessa ja generoi esittely.</p>
+                                
+                                <div className="split-textarea-container" style={{ flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                                    <div>
+                                        <label className="text-sm fw-semibold block mb-2">Pääosaaminen (ESCO-ammatit)</label>
+                                        <input type="text" className="form-input text-primary fw-medium" placeholder="Esim. Autonasentaja, Parturi-kampaaja" value={genEsco} onChange={e => setGenEsco(e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="text-sm fw-semibold block mb-2">Erityisosaaminen (ESCO-taidot)</label>
+                                        <textarea className="form-input text-sm text-secondary" rows="2" value={genTaidot} onChange={e => setGenTaidot(e.target.value)} placeholder="• Osaaminen 1&#10;• Osaaminen 2" />
+                                    </div>
+                                    <div>
+                                        <label className="text-sm fw-semibold block mb-2">Kortit, luvat ja pätevyydet</label>
+                                        <input type="text" className="form-input text-success fw-medium" placeholder="Esim. Työturvallisuuskortti, B-ajokortti" value={genLuvat} onChange={e => setGenLuvat(e.target.value)} />
+                                    </div>
+                                    <div style={{ marginTop: '0.5rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '0.5rem' }}>
+                                            <label className="text-sm fw-semibold block mb-0 text-ai">Tekoälyn generoima esittely (Myyntipuhe)</label>
+                                            <Button variant="secondary" size="sm" onClick={handleGenerateAIPitch} disabled={isGenerating} icon={isGenerating ? Loader2 : Sparkles} style={{ color: 'var(--color-ai)', borderColor: 'var(--color-ai-border)' }}>
+                                                {isGenerating ? 'Generoidaan...' : 'Generoi'}
+                                            </Button>
+                                        </div>
+                                        <textarea className="form-input" rows="4" style={{ borderLeft: '3px solid var(--color-ai)' }} placeholder="Paina 'Generoi' luodaksesi tekstin..." value={genEsittely} onChange={e => setGenEsittely(e.target.value)}></textarea>
+                                    </div>
+                                </div>
+
+                                {/* Generoitu lopputulos kopioitavaksi */}
+                                {valmisProfiiliTeksti && (
+                                    <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px dashed var(--color-border)' }}>
+                                        <h4 className="text-sm fw-semibold mb-2">Valmis anonyymi profiili (Kopioi Työmarkkinatorille):</h4>
+                                        <div className="ai-preview-box text-sm font-mono" style={{ backgroundColor: '#f8fafc', borderColor: '#cbd5e1', color: 'var(--color-text-primary)' }}>
+                                            {valmisProfiiliTeksti}
+                                        </div>
+                                        <Button 
+                                            variant="secondary" 
+                                            icon={copiedStates.profiili ? Check : Copy}
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(valmisProfiiliTeksti);
+                                                setCopiedStates(prev => ({ ...prev, profiili: true }));
+                                                setTimeout(() => setCopiedStates(prev => ({ ...prev, profiili: false })), 2000);
+                                            }}
+                                        >
+                                            {copiedStates.profiili ? 'Kopioitu!' : 'Kopioi profiiliteksti'}
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Jälkimarkkinointi (Ilmoitus) */}
+                            <div className="ai-workspace" style={{ marginTop: '1.5rem', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }}>
+                                <h4 className="icon-label text-success"><Send size={18} /> Asiakasviestintä (Jälkimarkkinointi)</h4>
+                                <p className="text-sm text-secondary mb-4">Kun olet julkaissut profiilin, muista lähettää lakisääteinen ilmoitus asiakkaalle.</p>
+                                
+                                <div className="ai-preview-box text-sm" style={{ backgroundColor: '#ffffff', borderColor: '#bbf7d0', color: 'var(--color-text-primary)' }}>
+                                    {viestit.ilmoitus || "Ladataan viestipohjaa..."}
+                                </div>
+                                
+                                <Button 
+                                    variant="primary" 
+                                    icon={copiedStates.ilmoitus ? Check : Copy}
+                                    onClick={() => handleSmartCopy('ilmoitus', viestit.ilmoitus, {
+                                        type: 'ilmoitus',
+                                        title: 'Päivitetäänkö profiilin tila?',
+                                        actionText: 'Kyllä, merkitse julkaistuksi',
+                                        signalKey: 'toimi_tm_profiili_ilmoitus'
+                                    })}
+                                    style={{ backgroundColor: copiedStates.ilmoitus ? 'var(--color-success)' : 'var(--color-success)', borderColor: 'var(--color-success)' }}
+                                >
+                                    {copiedStates.ilmoitus ? 'Kopioitu leikepöydälle!' : 'Kopioi lakisääteinen ilmoitus'}
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ÄLYKÄS POP-UP MODAALI */}
+            <Modal 
+                isOpen={modalData.isOpen} 
+                onClose={() => setModalData({ isOpen: false, type: '', title: '', actionText: '', signalKey: '' })}
+                title={modalData.title}
+                icon={CheckCircle}
+                maxWidth="550px"
+            >
+                <div style={{ padding: '0.5rem 0' }}>
+                    <p className="text-base" style={{ marginBottom: '1.5rem' }}>
+                        Kopioit viestin onnistuneesti leikepöydälle. Haluatko, että järjestelmä päivittää asiakkaan suunnitelmaa tämän perusteella?
+                    </p>
+                    <AlertBox type="info" customStyle={{ marginBottom: '1.5rem' }}>
+                        Tämä valinta auttaa pitämään suunnitelman ajan tasalla ja säästää sinulta manuaalisen kirjaamisen vaivan.
+                    </AlertBox>
+                    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                        <Button variant="secondary" onClick={() => setModalData({ isOpen: false, type: '', title: '', actionText: '', signalKey: '' })}>
+                            Ei, pelkkä kopiointi riittää
+                        </Button>
+                        <Button variant="primary" onClick={handleAcceptModal}>
+                            {modalData.actionText}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </section>
     );
 };

@@ -1,24 +1,20 @@
-// src/components/admin/settings/ajanvaraus/AjanvarausSandbox.jsx
-
-import React, { useState, useEffect } from 'react';
-import { Play, Users, Calendar, Trash2, AlertTriangle, Zap, Clock, Bot, Database } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Play, Users, Calendar, Trash2, AlertTriangle, Zap, Clock, Bot, Database, Save, CheckCircle2 } from 'lucide-react';
 import Card from '../../../common/Card';
 
-// SUPABASE-YHTEYS
+import { useSignal } from '../../../signals/useSignal';
 import { supabase } from '../../../../utils/supabaseClient';
 
-// KOMPONENTIT & MOOTTORIT
 import TilausAssistenttiPaneeli from '../../../AikatauluEhdotus/TilausAssistenttiPaneeli';
-import BasketSlotPicker from '../../../AikatauluEhdotus/BasketSlotPicker';
+import IntelBasketSlotPicker from '../../../AikatauluEhdotus/IntelBasketSlotPicker';
 import IntelAssistant from '../../../AikatauluEhdotus/IntelAssistant';
 
 import { findAvailableSlots } from '../../../AikatauluEhdotus/IntelSchedulingUtils';
 import { generateGreetingToken } from '../../../../utils/tokenGenerator';
+import { calculateExpectedDuration } from '../../../AikatauluEhdotus/IntelAssistant/IntelEngine';
 import { clientTemplates } from './dummy';
 
-/* =========================================
-   MOCK DATA: Skenaariot
-========================================= */
+import { analyzeSchedule as priorityAnalyze } from '../../../AikatauluEhdotus/schedulePriorityEngine';
 
 const calendarScenarios = [
     { id: 'aito', label: 'Aito kalenteri (Nykytila)', desc: 'Käyttää tietokannan aitoja varauksia sellaisenaan.', icon: Database },
@@ -27,13 +23,12 @@ const calendarScenarios = [
     { id: 'ahky_kuoppa', label: 'Kaikuilmiö: Ruuhka & Kuoppa', desc: 'Asettaa kohdeviikolle ylikuormituksen (15/12), mutta edellisellä viikolla on tyhjää (4/12).', icon: AlertTriangle }
 ];
 
-/* =========================================
-   DYNAAMINEN TULOSKATSELIJA (YKSI GRIDIN KORTTI)
-========================================= */
 const SandboxResultViewer = ({ res, index, dbRules, dbSettings }) => {
     const defaultMode = res.basket.length > 0 ? res.basket[0].mode : 'puhelu';
     const [mode, setMode] = useState(defaultMode);
     
+    const [simLog, setSimLog] = useState(null);
+
     const calculateInitialOffset = () => {
         if (!res.basket || res.basket.length === 0) return 0;
         const now = new Date();
@@ -54,29 +49,75 @@ const SandboxResultViewer = ({ res, index, dbRules, dbSettings }) => {
 
     const [offset, setOffset] = useState(calculateInitialOffset());
 
-const searchStart = new Date();
+    const searchStart = new Date();
     searchStart.setHours(0, 0, 0, 0);
-    
-    // Pakotetaan visuaalisen haun aloituspäivä aina maanantaihin!
     const currentJsDay = searchStart.getDay() || 7;
     searchStart.setDate(searchStart.getDate() - currentJsDay + 1);
-    
-    // Nyt lisätään offset-viikot
     searchStart.setDate(searchStart.getDate() + (offset * 7));
     
-    // Käytetään visuaaliseen kalenteriin samoja simuloituja asetuksia kuin taustamoottori!
     const activeSettings = res.simuloituAsetukset || dbSettings;
 
+    // Hiekkalaatikon sisäinen moottorikutsu tuloskatselijaa varten (Kun offset muuttuu)
     const liveSlots = findAvailableSlots(
         res.client.type,
         dbRules,
         res.tempBookedAtTheTime,
         searchStart,
+        res.expectedDuration, 
         2,
         activeSettings,
         res.client.is46,
-        res.expertLocations 
+        res.expertLocations,
+        {}, // weeklyload on jo suoritettu alkuperäisessä varsinaisessa haussa
+        mode, // Päivitetään haku valittuun moodiin
+        res.mockSuggestion.toimipiste // Välitetään alkuperäinen lokaatio
     );
+
+    const handleDummySave = () => {
+        if (!res.basket || res.basket.length === 0) return;
+
+        const slot = res.basket[0];
+        const meetingType = res.client.type;
+        const meetingMode = slot.mode; 
+
+        const mockDuration = res.expectedDuration; 
+        const mockErotus = -3; 
+
+        const dateStr = new Date(slot.time).toISOString();
+        const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+        
+        const norm = (s) => (s||'').toLowerCase().replace(/ä/g,'a').replace(/ö/g,'o');
+        const kategoriaStr = `${norm(meetingType)}_${norm(meetingMode)}`;
+
+        const logs = {
+            availability: {
+                table: 'espan.availability',
+                data: {
+                    start_time: dateStr,
+                    meeting_type: meetingType,
+                    contact_method: meetingMode,
+                    sync_token: slot.sync_token,
+                    duration_minutes: mockDuration,
+                    is_blocked: true
+                }
+            },
+            analytics: {
+                table: 'espan.universaali_kesto_analytiikka',
+                data: {
+                    kuukausi_vuosi: currentMonth,
+                    kategoria: kategoriaStr,
+                    kesto_min: mockDuration,
+                    pyoristys_erotus_min: mockErotus
+                }
+            },
+            vault: {
+                action: 'Sentinel Hybrid Encryption',
+                description: `Asiakkaan JSONB-reppuun päivitetty rengaspuskuri kategorialla '${kategoriaStr}': [${mockDuration}, ...aiemmat].slice(0, 18)`
+            }
+        };
+
+        setSimLog(logs);
+    };
 
     return (
         <div className="ai-workspace" style={{ padding: '1.5rem', margin: 0, borderTop: '4px solid var(--color-primary)', display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -105,17 +146,14 @@ const searchStart = new Date();
                         needsInterpreter={res.client.needsInterpreter}
                         isFamiliar={res.client.isFamiliar}
                         expertLocations={res.expertLocations}
-                        clientVaultData={res.client.mockState.kestot || {}} 
-                        
-                        // 🟢 TÄMÄ ON SE RATKAISEVA SILTA! 
-                        // Syötetään UI:n Assistentille moottorin käyttämät feikkiasetukset
+                        clientVaultData={res.client.mockState?.kestot || {}} 
                         injectedSettings={activeSettings} 
                     />
 
                     <div style={{ marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px dashed var(--color-border)', flex: 1 }}>
                         <h4 className="text-sm fw-bold text-secondary mb-1">Moottorin näkemä kalenteritilanne:</h4>
                         <div style={{ opacity: 0.9 }}>
-                            <BasketSlotPicker 
+                            <IntelBasketSlotPicker 
                                 slots={liveSlots}
                                 basket={res.basket}
                                 bookedSlots={res.tempBookedAtTheTime}
@@ -141,6 +179,44 @@ const searchStart = new Date();
                             virallinenTeksti={`Simuloitu virallinen kutsu asiakkaalle ${res.client.name}...`}
                             smsTeksti={`Hei ${res.client.name}, tässä on pika-kutsusi...`}
                         />
+
+                        <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--color-border)', paddingTop: '1rem' }}>
+                            {!simLog ? (
+                                <button 
+                                    onClick={handleDummySave}
+                                    className="btn"
+                                    style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', backgroundColor: '#0f172a', color: '#fff', border: 'none' }}
+                                >
+                                    <Save size={16} /> Röntgen: Vahvista ja simuloi tallennus
+                                </button>
+                            ) : (
+                                <div className="smart-analysis-box" style={{ backgroundColor: '#f8fafc', borderColor: '#cbd5e1', padding: '1rem', animation: 'fadeIn 0.3s ease-out' }}>
+                                    <h4 className="flex items-center gap-2 m-0 mb-3" style={{ color: '#0f172a', fontSize: '1rem' }}>
+                                        <CheckCircle2 size={20} className="text-success" /> Dual-Save Simulaatio Onnistui!
+                                    </h4>
+                                    
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        <div style={{ backgroundColor: '#0f172a', color: '#10b981', padding: '0.75rem', borderRadius: '6px', fontFamily: 'monospace', fontSize: '0.75rem', overflowX: 'auto' }}>
+                                            <div style={{ color: '#94a3b8', marginBottom: '4px' }}>// 1. VARAUS KALENTERIIN</div>
+                                            <span style={{ color: '#fb923c' }}>INSERT INTO</span> {simLog.availability.table} <br/>
+                                            {JSON.stringify(simLog.availability.data, null, 2)}
+                                        </div>
+
+                                        <div style={{ backgroundColor: '#0f172a', color: '#38bdf8', padding: '0.75rem', borderRadius: '6px', fontFamily: 'monospace', fontSize: '0.75rem', overflowX: 'auto' }}>
+                                            <div style={{ color: '#94a3b8', marginBottom: '4px' }}>// 2. UNIVERSAALI KESTOANALYTIIKKA</div>
+                                            <span style={{ color: '#fb923c' }}>INSERT INTO</span> {simLog.analytics.table} <br/>
+                                            {JSON.stringify(simLog.analytics.data, null, 2)}
+                                        </div>
+
+                                        <div style={{ backgroundColor: '#1e1b4b', color: '#a78bfa', padding: '0.75rem', borderRadius: '6px', fontFamily: 'monospace', fontSize: '0.75rem', border: '1px solid #4c1d95' }}>
+                                            <div style={{ color: '#a78bfa', marginBottom: '4px', fontWeight: 'bold' }}>// 3. SENTINEL VAULT</div>
+                                            {simLog.vault.action}<br/>
+                                            <span style={{ color: '#ddd' }}>{simLog.vault.description}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             ) : (
@@ -156,21 +232,41 @@ const searchStart = new Date();
     );
 };
 
-/* =========================================
-   HIEKKALAATIKON PÄÄKOMPONENTTI
-========================================= */
+const AjanvarausSandbox = ({ state = {}, actions = {} }) => {
+    const { activeSignals, getSignalInfo } = useSignal() || { activeSignals: {}, getSignalInfo: () => null };
 
-const AjanvarausSandbox = () => {
+    const [kbRules, setKbRules] = useState([]); 
     const [dbRules, setDbRules] = useState([]);
     const [dbBooked, setDbBooked] = useState([]);
     const [dbLocations, setDbLocations] = useState([]);
     const [dbSettings, setDbSettings] = useState(null);
+    const [dbUniversalData, setDbUniversalData] = useState([]); 
     const [isLoadingData, setIsLoadingData] = useState(true);
 
     const [selectedScenario, setSelectedScenario] = useState('aito');
     const [clientQueue, setClientQueue] = useState([]);
     const [isRunning, setIsRunning] = useState(false);
     const [simulationResults, setSimulationResults] = useState(null);
+
+    const liveInterpreterState = useMemo(() => {
+        let lang = state?.asiakas?.asiointikieli || state?.asiakas?.aidinkieli || 'suomi';
+        let explicitTulkki = false;
+
+        Object.keys(activeSignals || {}).forEach(key => {
+            const val = activeSignals[key];
+            if (!val || val.isMuted) return; 
+
+            if (key === 'osallistuu_tulkki') explicitTulkki = true;
+
+            const info = getSignalInfo ? getSignalInfo(key) : null;
+            if (info && (info.cat === 'Äidinkieli' || info.cat === 'Asiointikieli')) {
+                lang = info.label;
+            }
+        });
+
+        const isDomestic = ['suomi', 'ruotsi', 'englanti'].includes(lang?.toLowerCase().trim());
+        return !isDomestic || explicitTulkki;
+    }, [state?.asiakas, activeSignals, getSignalInfo]);
 
     useEffect(() => {
         const loadDbData = async () => {
@@ -180,17 +276,21 @@ const AjanvarausSandbox = () => {
                 const currentExpertId = user?.id || '85a812b3-5956-42ad-8e49-e1e673ba5f7d';
                 const queryIds = [currentExpertId, '00000000-0000-0000-0000-000000000000'];
 
-                const [er, av, locs, sets] = await Promise.all([
+                const [kb, er, av, locs, sets, uni] = await Promise.all([
+                    supabase.schema('espan').from('knowledge_base').select('*'),
                     supabase.schema('espan').from('expert_availability_rules').select('*').in('expert_id', queryIds),
                     supabase.schema('espan').from('availability').select('*').in('expert_id', queryIds),
                     supabase.schema('espan').from('expert_daily_locations').select('*').in('expert_id', queryIds),
-                    supabase.schema('espan').from('settings_ajanvaraus').select('*').in('asiantuntija_id', queryIds)
+                    supabase.schema('espan').from('settings_ajanvaraus').select('*').in('asiantuntija_id', queryIds),
+                    supabase.schema('espan').from('universaali_kesto_analytiikka').select('*').in('asiantuntija_id', queryIds)
                 ]);
 
+                setKbRules(kb.data || []);
                 setDbRules(er.data || []);
                 setDbBooked(av.data || []);
                 setDbLocations(locs.data || []);
                 setDbSettings(sets.data?.[0] || null);
+                setDbUniversalData(uni.data || []); 
             } catch (err) {
                 console.error("Virhe tietojen haussa:", err);
             } finally {
@@ -207,6 +307,59 @@ const AjanvarausSandbox = () => {
         };
         setClientQueue(prev => [...prev, newClient]);
         setSimulationResults(null); 
+    };
+
+    const handleAddLiveClient = () => {
+        const perustiedotVars = Object.values(state?.suunnitelman_perustiedot || {}).reduce((acc, curr) => {
+            if (curr && typeof curr === 'object' && curr.muuttujat) return { ...acc, ...curr.muuttujat };
+            return acc;
+        }, {});
+
+        const services = Array.isArray(state?.sessionServices) ? state.sessionServices : [];
+        const analysis = priorityAnalyze(kbRules, activeSignals, services, perustiedotVars);
+        const suggestion = analysis?.suggestion;
+
+        if (!suggestion) {
+            alert("Moottori ei löytänyt staten perusteella mitään säännöllistä tarvetta.");
+            return;
+        }
+
+        const tapaamisHistoria = perustiedotVars?.tapaamishistoria || [];
+        const isFamiliar = tapaamisHistoria.length > 0;
+
+        const now = new Date();
+        now.setHours(0,0,0,0);
+        const target = new Date(suggestion.targetDate);
+        target.setHours(0,0,0,0);
+        const diffTime = target.getTime() - now.getTime();
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+        let type = 'normi';
+        if (suggestion.rule?.metadata?.triggers?.require_yleistuki) type = 'aktivointi';
+        else if (suggestion.rule?.title?.toLowerCase().includes('täydentävä')) type = 'taydentava';
+
+        const liveClient = {
+            id: `client-LIVE-${Date.now()}`,
+            type: type,
+            name: '🔥 LIVE-Asiakas (State)',
+            jumpMonths: 0, 
+            jumpDays: diffDays > 0 ? diffDays : 0, 
+            isFamiliar: isFamiliar, 
+            needsInterpreter: liveInterpreterState, 
+            is46: suggestion.priority === 1, 
+            description: suggestion.reason || 'Moottorin live-analyysi', 
+            forcedMode: suggestion.forcedMode || null, 
+            mockState: {
+                asiakas: state?.asiakas || {},
+                kestot: state?.asiakas?.kestot || {},
+                activeSignals: activeSignals || {},
+                sessionServices: services,
+                suunnitelman_perustiedot: state?.suunnitelman_perustiedot || {}
+            }
+        };
+        
+        setClientQueue(prev => [...prev, liveClient]);
+        setSimulationResults(null);
     };
 
     const handleRunSimulation = () => {
@@ -244,7 +397,7 @@ const AjanvarausSandbox = () => {
                             let slot = new Date(d);
                             const [startH, startM] = rule.start_time.split(':');
                             slot.setHours(parseInt(startH), parseInt(startM), 0, 0);
-                            tempBooked.push({ start_time: slot.toISOString(), sync_token: 'tetris-block' });
+                            tempBooked.push({ start_time: slot.toISOString(), sync_token: 'tetris-block', duration_minutes: 60 });
                         }
                     });
                 }
@@ -255,12 +408,7 @@ const AjanvarausSandbox = () => {
                     const dateStr = getLocalDateString(d);
                     
                     mockLocations = mockLocations.filter(loc => loc.date !== dateStr);
-                    
-                    mockLocations.push({
-                        date: dateStr,
-                        location_type: 'loma',
-                        location_name: 'Simuloitu 2 vko Loma'
-                    });
+                    mockLocations.push({ date: dateStr, location_type: 'loma', location_name: 'Simuloitu 2 vko Loma' });
                 }
             } else if (selectedScenario === 'tuuraus_1vk') {
                 for (let i = 0; i < 7; i++) {
@@ -269,12 +417,7 @@ const AjanvarausSandbox = () => {
                     const dateStr = getLocalDateString(d);
                     
                     mockLocations = mockLocations.filter(loc => loc.date !== dateStr);
-                    
-                    mockLocations.push({
-                        date: dateStr,
-                        location_type: 'koulutus',
-                        location_name: 'Simuloitu Tuuraus / Poissaolo'
-                    });
+                    mockLocations.push({ date: dateStr, location_type: 'koulutus', location_name: 'Simuloitu Tuuraus / Poissaolo' });
                 }
             }
 
@@ -296,42 +439,47 @@ const AjanvarausSandbox = () => {
                 let reasonText = 'Lakisääteinen 3 kk rytmi';
                 let prio = 3;
 
-                if (client.is46) {
-                    prio = 1;
-                    reasonText = '46 § Kriittinen lakisääteinen määräaika';
-                } else if (client.type === 'aktivointi') {
-                    prio = 2;
-                    reasonText = 'Aktivointijakso (Etuus havaittu)';
-                    forcedMode = 'kaynti';
-                } else if (client.name.includes('Lähivelvoite')) {
-                    reasonText = 'Lakisääteinen 6 kk lähikäyntivelvoite ylittynyt';
-                    forcedMode = 'kaynti';
-                } else if (client.name.includes('Uusi')) {
-                    reasonText = 'Työnhaku alkanut (Ei aiempaa historiaa)';
-                    forcedMode = 'kaynti';
+                if (client.name.includes('LIVE')) {
+                    reasonText = client.description;
+                    forcedMode = client.forcedMode || null;
+                } else {
+                    if (client.is46) {
+                        prio = 1;
+                        reasonText = '46 § Kriittinen lakisääteinen määräaika';
+                    } else if (client.type === 'aktivointi') {
+                        prio = 2;
+                        reasonText = 'Aktivointijakso (Etuus havaittu)';
+                        forcedMode = 'kaynti';
+                    } else if (client.name.includes('Lähivelvoite')) {
+                        reasonText = 'Lakisääteinen 6 kk lähikäyntivelvoite ylittynyt';
+                        forcedMode = 'kaynti';
+                    } else if (client.name.includes('Uusi') || client.name.includes('Urpo')) {
+                        reasonText = 'Työnhaku alkanut (Ei aiempaa historiaa)';
+                        forcedMode = 'kaynti';
+                    }
                 }
 
-                const mockSuggestion = {
-                    priority: prio,
-                    rule: mockRule,
-                    reason: reasonText,
-                    targetDate: target,
-                    toimipiste: 'Malminkatu (Oletus)',
-                    forcedMode: forcedMode
-                };
+                // Lokaatio päättely täällä (Dummya varten)
+                let idealLocation = 'Malminkatu';
+                const pno = client.mockState?.asiakas?.postinumero;
+                if (pno === '00510' || pno === '00530') idealLocation = 'Viipurinkatu';
+                else if (pno === '00930') idealLocation = 'Itäkeskus';
 
-                const tempBookedSnapshot = [...tempBooked];
-                
                 let mockWeeklyLoad = {};
                 let simuloituAsetukset = { ...dbSettings };
 
+                simuloituAsetukset.automaatio = {
+                    ...simuloituAsetukset.automaatio,
+                    ajanhallinta: {
+                        ...simuloituAsetukset.automaatio?.ajanhallinta,
+                        salli_dynaamiset_kestot: true
+                    }
+                };
+
                 if (selectedScenario === 'ahky_kuoppa') {
-                    simuloituAsetukset = {
-                        ...simuloituAsetukset,
-                        automaatio: {
-                            ...simuloituAsetukset?.automaatio,
-                            tasapainotus: { liukuva_tasaus_aktiivinen: true, hakeudu_kuoppiin: true, tasaus_ikkuna_vko: 2 }
-                        }
+                    simuloituAsetukset.automaatio = {
+                        ...simuloituAsetukset.automaatio,
+                        tasapainotus: { liukuva_tasaus_aktiivinen: true, hakeudu_kuoppiin: true, tasaus_ikkuna_vko: 2 }
                     };
 
                     const getIsoWeek = (d) => {
@@ -346,21 +494,47 @@ const AjanvarausSandbox = () => {
                     mockWeeklyLoad[kohdeVk - 1] = 4; 
                 }
 
+                const durationData = calculateExpectedDuration({
+                    settings: simuloituAsetukset,
+                    clientType: client.type,
+                    mode: forcedMode || 'puhelu',
+                    needsInterpreter: client.needsInterpreter,
+                    isFamiliar: client.isFamiliar,
+                    clientVaultData: client.mockState?.kestot || {},
+                    universalData: dbUniversalData 
+                });
+                const targetDuration = durationData.expectedDuration;
+
+                const mockSuggestion = {
+                    priority: prio,
+                    rule: mockRule,
+                    reason: reasonText,
+                    targetDate: target,
+                    toimipiste: idealLocation, // 🟢 Suositus!
+                    forcedMode: forcedMode
+                };
+
+                const tempBookedSnapshot = [...tempBooked];
+
                 const rawBasket = findAvailableSlots(
                     client.type,
                     dbRules,
                     tempBooked,
                     target,
+                    targetDuration, 
                     2,
                     simuloituAsetukset, 
                     client.is46,
                     mockLocations,
-                    mockWeeklyLoad  
+                    mockWeeklyLoad,
+                    forcedMode || 'puhelu',
+                    idealLocation // 🟢 Viedään moottorille!
                 );
                 
                 const chosenSlots = rawBasket.slice(0, 1).map(s => ({
                     time: s.time,
                     mode: s.mode,
+                    locationName: s.locationName, // 🟢 Talteen koriin
                     isBorrowed: s.isBorrowed,
                     label: s.label
                 }));
@@ -374,7 +548,12 @@ const AjanvarausSandbox = () => {
                     let safeToken = 'Oletus-Token';
                     try { safeToken = generateGreetingToken(item.time, existingForDay); } catch(e) {}
                     
-                    tempBooked.push({ start_time: new Date(item.time).toISOString(), sync_token: safeToken });
+                    tempBooked.push({ 
+                        start_time: new Date(item.time).toISOString(), 
+                        sync_token: safeToken,
+                        duration_minutes: targetDuration 
+                    });
+                    
                     return { ...item, sync_token: safeToken };
                 });
 
@@ -387,9 +566,10 @@ const AjanvarausSandbox = () => {
                     expertLocations: mockLocations,
                     interpreterState: {
                         needsInterpreter: client.needsInterpreter,
-                        displayLanguage: client.needsInterpreter ? 'Arabia' : ''
+                        displayLanguage: client.needsInterpreter ? 'Tulkki (Asetettu)' : ''
                     },
-                    simuloituAsetukset // 🟢 Palautetaan tämä UI-korttia varten!
+                    simuloituAsetukset,
+                    expectedDuration: targetDuration 
                 };
             });
 
@@ -450,6 +630,15 @@ const AjanvarausSandbox = () => {
 
                 <Card title="2. Syötä testiasiakkaita jonoon" icon={Users}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                        
+                        <button 
+                            onClick={handleAddLiveClient} 
+                            className="btn btn--primary text-sm fw-bold"
+                            style={{ backgroundColor: 'var(--color-primary)', color: '#fff', boxShadow: '0 0 10px rgba(139, 92, 246, 0.4)' }}
+                        >
+                            + 🔥 LIVE-ASIAKAS (Nykyinen State)
+                        </button>
+
                         {Object.entries(clientTemplates).map(([key, tpl]) => (
                             <button 
                                 key={key} 

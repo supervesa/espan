@@ -15,23 +15,35 @@ import { findAvailableSlots } from './schedulingUtils';
 
 import { generateSmartDraft } from './draftingEngine';
 import { getAlueJaToimipiste } from '../../hooks/usePostinumero';
-import { FlaskConical, Calendar, User, Activity, CheckCircle2, Phone, Database, Link, AlertCircle, History, Download } from 'lucide-react';
+import { FlaskConical, Calendar, User, Activity, CheckCircle2, Phone, Database, Link, AlertCircle, History, Download, Zap, Beaker } from 'lucide-react';
 
 import { useViestiKokoamo } from '../../hooks/useViestiKokoamo';
 import TilausAssistenttiPaneeli from './TilausAssistenttiPaneeli';
 import { getInterpretedWeekSlots } from './locationInterpreter';
 
-// Pehmeän migraation vanha ID
+// UUDEN ÄLYKALENTERIN IMPORTIT
+import IntelAssistant from './IntelAssistant';
+import IntelBasketSlotPicker from './IntelBasketSlotPicker';
+import { findAvailableSlots as findIntelSlots } from './IntelSchedulingUtils';
+import { calculateExpectedDuration } from './IntelAssistant/IntelEngine';
+
 const LEGACY_ID = '00000000-0000-0000-0000-000000000000';
 
 const AikatauluEhdotus = ({ state, actions }) => {
     const { activeSignals, getSignalInfo } = useSignal();
 
     const [expertId, setExpertId] = useState(null);
-
+    const [useIntelEngine, setUseIntelEngine] = useState(false);
+    
+    // 🟢 UUSI: Testitilan kytkin (Oletuksena true, jotta vältytään vahingoilta)
+    const [isTestMode, setIsTestMode] = useState(true);
+    
     const [rules, setRules] = useState([]);
     const [expertRules, setExpertRules] = useState([]);
     const [bookedSlots, setBookedSlots] = useState([]);
+    const [expertLocations, setExpertLocations] = useState([]);
+    const [dbSettings, setDbSettings] = useState(null); 
+    const [dbUniversalData, setDbUniversalData] = useState([]); 
     const [loading, setLoading] = useState(true);
 
     const [selectedRule, setSelectedRule] = useState(null);
@@ -40,14 +52,13 @@ const AikatauluEhdotus = ({ state, actions }) => {
     const [count, setCount] = useState(1);
     const [period, setPeriod] = useState(3);
     const [activeForcedMode, setActiveForcedMode] = useState(null);
-    const [debugMode, setDebugMode] = useState(false);
     
     const [weekOffset, setWeekOffset] = useState(0);
     const [basket, setBasket] = useState([]);
     const [isMandatory, setIsMandatory] = useState(true);
-    const [expertLocations, setExpertLocations] = useState([]);
     
     const [viewMode, setViewMode] = useState('puhelu');
+    const [intelDuration, setIntelDuration] = useState(60); 
 
     const prevPhraseRef = useRef("");
 
@@ -59,14 +70,10 @@ const AikatauluEhdotus = ({ state, actions }) => {
             const val = activeSignals[key];
             if (!val || val.isMuted) return; 
 
-            if (key === 'osallistuu_tulkki') {
-                explicitTulkki = true;
-            }
+            if (key === 'osallistuu_tulkki') explicitTulkki = true;
 
             const info = getSignalInfo(key);
-            if (info && (info.cat === 'Äidinkieli' || info.cat === 'Asiointikieli')) {
-                lang = info.label;
-            }
+            if (info && (info.cat === 'Äidinkieli' || info.cat === 'Asiointikieli')) lang = info.label;
         });
 
         const isDomestic = ['suomi', 'ruotsi', 'englanti'].includes(lang.toLowerCase().trim());
@@ -92,28 +99,27 @@ const AikatauluEhdotus = ({ state, actions }) => {
         const loadData = async () => {
             setLoading(true);
             try {
-                // 1. Haetaan oikea, sisäänkirjautunut käyttäjä
                 const { data: { user } } = await supabase.auth.getUser();
-                
-                // Jos testiympäristössä ei ole auth-sessiota, käytetään oikeaa ID:tä varotoimena
                 const currentExpertId = user?.id || '85a812b3-5956-42ad-8e49-e1e673ba5f7d';
                 setExpertId(currentExpertId);
 
-                // Määritellään ID:t joilla dataa haetaan (Oikea + Vanha nollasarja)
                 const queryIds = [currentExpertId, LEGACY_ID];
 
-                // 2. Haetaan data .in() metodilla molemmilla ID:illä
-                const [kb, er, av, locs] = await Promise.all([
+                const [kb, er, av, locs, sets, uni] = await Promise.all([
                     supabase.schema('espan').from('knowledge_base').select('*'),
                     supabase.schema('espan').from('expert_availability_rules').select('*').in('expert_id', queryIds),
                     supabase.schema('espan').from('availability').select('*').in('expert_id', queryIds),
-                    supabase.schema('espan').from('expert_daily_locations').select('*').in('expert_id', queryIds)
+                    supabase.schema('espan').from('expert_daily_locations').select('*').in('expert_id', queryIds),
+                    supabase.schema('espan').from('settings_ajanvaraus').select('*').in('asiantuntija_id', queryIds),
+                    supabase.schema('espan').from('universaali_kesto_analytiikka').select('*').in('asiantuntija_id', queryIds)
                 ]);
                 
                 setRules(kb.data || []);
                 setExpertRules(er.data || []);
                 setBookedSlots(av.data || []);
                 setExpertLocations(locs.data || []); 
+                setDbSettings(sets.data?.[0] || null);
+                setDbUniversalData(uni.data || []);
             } catch (err) { 
                 console.error("Tietokantavirhe:", err); 
             }
@@ -147,6 +153,24 @@ const AikatauluEhdotus = ({ state, actions }) => {
         return result;
     }, [rules, activeSignals, state.sessionServices, perustiedotVars, state?.asiakas?.postinumero]);
 
+    const getIdealLocation = () => {
+        const postinro = state?.asiakas?.postinumero;
+        return postinro ? getAlueJaToimipiste(postinro).toimipiste : 'Malminkatu (Oletus)';
+    };
+
+    const getTargetDuration = (type, modeOverride) => {
+        const durationData = calculateExpectedDuration({
+            settings: dbSettings,
+            clientType: type,
+            mode: modeOverride,
+            needsInterpreter: interpreterState.needsInterpreter,
+            isFamiliar: state?.suunnitelman_perustiedot?.tapaamishistoria?.length > 0,
+            clientVaultData: state?.asiakas?.kestot || {},
+            universalData: dbUniversalData
+        });
+        return durationData.expectedDuration;
+    };
+
     useEffect(() => {
         if (!selectedRule) { setProposedSlots([]); return; }
         let type = 'normi';
@@ -155,45 +179,52 @@ const AikatauluEhdotus = ({ state, actions }) => {
         
         const searchStart = new Date();
         searchStart.setDate(searchStart.getDate() + (weekOffset * 7));
-        
-        const slots = getInterpretedWeekSlots(type, expertRules, bookedSlots, searchStart, expertLocations, viewMode);
-        setProposedSlots(slots);
-    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion, expertLocations, viewMode]);
 
-    // ==========================================
-    // UUSI: Älykäs korin päivitys, joka arpoo sync_tokenin reaaliajassa!
-    // ==========================================
+        if (useIntelEngine) {
+            const idealLocation = getIdealLocation();
+            const targetDur = getTargetDuration(type, activeForcedMode || viewMode);
+            setIntelDuration(targetDur);
+
+            const slots = findIntelSlots(
+                type, expertRules, bookedSlots, searchStart, targetDur, 2, 
+                dbSettings, activeSuggestion?.priority === 1, expertLocations, {}, 
+                activeForcedMode || viewMode, idealLocation
+            );
+            setProposedSlots(slots);
+        } else {
+            const slots = getInterpretedWeekSlots(type, expertRules, bookedSlots, searchStart, expertLocations, viewMode);
+            setProposedSlots(slots);
+        }
+    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion, expertLocations, viewMode, useIntelEngine, dbSettings, dbUniversalData, interpreterState, state?.asiakas, state?.suunnitelman_perustiedot]);
+
     const handleBasketUpdate = (newBasketAction) => {
         setBasket(prevBasket => {
-            const newBasket = typeof newBasketAction === 'function' ? newBasketAction(prevBasket) : newBasketAction;
+            let newBasket = typeof newBasketAction === 'function' ? newBasketAction(prevBasket) : newBasketAction;
             
+            if (useIntelEngine && count === 1 && newBasket.length > 1) {
+                newBasket = [newBasket[newBasket.length - 1]];
+            }
+
             const updatedBasket = [];
-            const newlyUsedTokens = []; // Tämän silmukan aikana generoidut tokenit
+            const newlyUsedTokens = [];
 
             for (const item of newBasket) {
-                // Jos token on jo arvottu (esim. poistettiin jotain muuta korista), säilytetään se!
                 if (item.sync_token) {
                     updatedBasket.push(item);
                     newlyUsedTokens.push({ dateStr: new Date(item.time).toISOString().split('T')[0], token: item.sync_token });
                     continue;
                 }
 
-                // Luodaan uusi token tälle uudelle varaukselle
                 const dateStr = new Date(item.time).toISOString().split('T')[0];
-                
-                // 1. Katsotaan tietokannasta (bookedSlots) jo löytyvät tokenit tälle päivälle
                 const existingForDay = bookedSlots
                     .filter(b => b.start_time && b.start_time.startsWith(dateStr) && b.sync_token)
                     .map(b => b.sync_token);
 
-                // 2. Katsotaan tässä samassa silmukassa aiemmin generoidut (jottei koriin tule duplikaatteja)
                 const newlyGeneratedForDay = newlyUsedTokens
                     .filter(t => t.dateStr === dateStr)
                     .map(t => t.token);
 
                 const allUsed = [...existingForDay, ...newlyGeneratedForDay];
-                
-                // 3. Arvotaan token turvallisesti!
                 const safeToken = generateGreetingToken(item.time, allUsed);
                 
                 updatedBasket.push({ ...item, sync_token: safeToken });
@@ -204,16 +235,48 @@ const AikatauluEhdotus = ({ state, actions }) => {
         });
     };
 
+    const runSmartDraft = (ruleObj, newCount, newPeriod, forcedMode, passedTargetDate) => {
+        if (!ruleObj) return;
+        let type = 'normi';
+        if (ruleObj.metadata?.triggers?.require_yleistuki) type = 'aktivointi';
+        else if (ruleObj.title.toLowerCase().includes('täydentävä')) type = 'taydentava';
+
+        let draftBasket = [];
+
+        if (useIntelEngine) {
+            const mode = forcedMode || 'puhelu';
+            const duration = getTargetDuration(type, mode);
+            const idealLoc = getIdealLocation();
+            
+            draftBasket = generateSmartDraft(
+                ruleObj, expertRules, bookedSlots, newCount, newPeriod, passedTargetDate, 
+                expertLocations, dbSettings, mode, idealLoc, duration
+            );
+        } else {
+            draftBasket = generateSmartDraft(ruleObj, expertRules, bookedSlots, newCount, newPeriod, passedTargetDate, expertLocations);
+        }
+
+        handleBasketUpdate(draftBasket);
+    };
+
     const handleRuleChange = (ruleId, suggestedCount = 1, suggestedPeriod = 3, forcedMode = null) => {
         const rule = rules.find(r => r.id === ruleId);
         setSelectedRule(rule);
         if (rule) {
-            setCount(suggestedCount);
+            let finalCount = suggestedCount;
+            let finalMode = forcedMode;
+            if (rule.metadata?.triggers?.require_yleistuki) {
+                finalCount = 2; 
+                finalMode = 'kaynti';
+            }
+
+            setCount(finalCount);
             setPeriod(suggestedPeriod);
-            setActiveForcedMode(forcedMode);
-            if (forcedMode) setViewMode(forcedMode);
+            setActiveForcedMode(finalMode);
+            if (finalMode) setViewMode(finalMode);
             
-            setIsMandatory(rule.title.toLowerCase().includes('alkuhaastattelu') || rule.title.toLowerCase().includes('työnhakukeskustelu'));
+            setIsMandatory(rule.title.toLowerCase().includes('alkuhaastattelu') || rule.title.toLowerCase().includes('työnhakukeskustelu') || rule.metadata?.triggers?.require_yleistuki);
+            
             const passedTargetDate = (activeSuggestion && rule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
             
             let newOffset = 0;
@@ -222,17 +285,13 @@ const AikatauluEhdotus = ({ state, actions }) => {
                 now.setHours(0,0,0,0);
                 const target = new Date(passedTargetDate);
                 target.setHours(0,0,0,0);
-                
                 if (target > now) {
-                    const diffTime = target.getTime() - now.getTime();
-                    newOffset = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-                    if (newOffset < 0) newOffset = 0;
+                    newOffset = Math.max(0, Math.floor((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 7)));
                 }
             }
             setWeekOffset(newOffset);
             
-            const finalBasket = generateSmartDraft(rule, expertRules, bookedSlots, suggestedCount, suggestedPeriod, passedTargetDate, expertLocations);
-            handleBasketUpdate(finalBasket);
+            runSmartDraft(rule, finalCount, suggestedPeriod, finalMode, passedTargetDate);
         } else {
             handleBasketUpdate([]);
             setActiveForcedMode(null);
@@ -243,15 +302,13 @@ const AikatauluEhdotus = ({ state, actions }) => {
     const handleCountChange = (newCount) => {
         setCount(newCount);
         const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
-        const finalBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, newCount, period, passedTargetDate, expertLocations);
-        handleBasketUpdate(finalBasket);
+        runSmartDraft(selectedRule, newCount, period, activeForcedMode, passedTargetDate);
     };
 
     const handlePeriodChange = (newPeriod) => {
         setPeriod(newPeriod);
         const passedTargetDate = (activeSuggestion && selectedRule && selectedRule.id === activeSuggestion.rule.id) ? activeSuggestion.targetDate : null;
-        const finalBasket = generateSmartDraft(selectedRule, expertRules, bookedSlots, count, newPeriod, passedTargetDate, expertLocations);
-        handleBasketUpdate(finalBasket);
+        runSmartDraft(selectedRule, count, newPeriod, activeForcedMode, passedTargetDate);
     };
 
     const handleBooking = async () => {
@@ -261,14 +318,16 @@ const AikatauluEhdotus = ({ state, actions }) => {
         if (selectedRule.metadata?.triggers?.require_yleistuki) type = 'aktivointi';
         else if (selectedRule.title.toLowerCase().includes('täydentävä')) type = 'taydentava';
         
-        // Tallennus on nyt täysin triviaali, koska korissa on JO tokenit!
+        // 🟢 Välitetään kantaan "testi": isTestMode !
         const inserts = basket.map(item => ({ 
             expert_id: expertId, 
             start_time: item.time.toISOString(), 
             meeting_type: type, 
             contact_method: item.mode, 
             is_blocked: true,
-            sync_token: item.sync_token // Otetaan valmis token korista
+            sync_token: item.sync_token,
+            duration_minutes: useIntelEngine ? intelDuration : 60,
+            testi: isTestMode // Tästä näkee kummalla tallennettiin
         }));
         
         try {
@@ -316,6 +375,34 @@ const AikatauluEhdotus = ({ state, actions }) => {
 
     return (
         <Card title="Sentinel Guardian: Aikatauluavustaja">
+            
+            {/* 🟢 YLÄRIVIN KYTKIMET: Testi-tila ja BETA */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
+                <label className="custom-checkbox-row" style={{ padding: '0.4rem 0.8rem', background: isTestMode ? '#fefce8' : '#f8fafc', border: `1px solid ${isTestMode ? '#fde047' : '#e2e8f0'}`, borderRadius: '8px', margin: 0 }}>
+                    <input 
+                        type="checkbox" 
+                        className="modern-checkbox" 
+                        checked={isTestMode} 
+                        onChange={(e) => setIsTestMode(e.target.checked)} 
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Beaker size={16} className={isTestMode ? "text-warning" : "text-secondary"} />
+                        <span className={`text-sm fw-semibold ${isTestMode ? 'text-warning' : 'text-secondary'}`} style={{ color: isTestMode ? '#a16207' : '' }}>
+                            Testivaraus (Haamudata)
+                        </span>
+                    </div>
+                </label>
+
+                <button 
+                    className={`btn ${useIntelEngine ? '' : 'btn--secondary'}`} 
+                    onClick={() => setUseIntelEngine(!useIntelEngine)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                    <Zap size={16} fill={useIntelEngine ? '#fff' : 'none'} color={useIntelEngine ? '#fff' : 'var(--color-primary)'}/> 
+                    {useIntelEngine ? 'Palaa perinteiseen kalenteriin' : 'Kokeile uutta Älykalenteria (BETA)'}
+                </button>
+            </div>
+
             {!selectedRule && (
                 <SmartSuggestionBox suggestion={activeSuggestion} onApply={handleRuleChange} />
             )}
@@ -351,7 +438,28 @@ const AikatauluEhdotus = ({ state, actions }) => {
 
             {selectedRule && (
                 <>
-                    {hasTranslatedSlots && (
+                    {useIntelEngine && (
+                        <div style={{ marginBottom: '1.5rem', marginTop: '1rem' }}>
+                            <IntelAssistant 
+                                suggestion={{
+                                    ...activeSuggestion,
+                                    toimipiste: state?.asiakas?.postinumero ? getAlueJaToimipiste(state.asiakas.postinumero).toimipiste : 'Malminkatu (Oletus)',
+                                    forcedMode: activeForcedMode || viewMode
+                                }}
+                                onApply={() => {}} 
+                                basket={basket}
+                                clientType={selectedRule.metadata?.triggers?.require_yleistuki ? 'aktivointi' : (selectedRule.title.toLowerCase().includes('täydentävä') ? 'taydentava' : 'normi')}
+                                is46={activeSuggestion?.priority === 1}
+                                needsInterpreter={interpreterState.needsInterpreter}
+                                isFamiliar={state?.suunnitelman_perustiedot?.tapaamishistoria?.length > 0}
+                                expertLocations={expertLocations}
+                                clientVaultData={state?.asiakas?.kestot || {}}
+                                injectedSettings={dbSettings}
+                            />
+                        </div>
+                    )}
+
+                    {!useIntelEngine && hasTranslatedSlots && (
                         <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                             <AlertCircle size={18} color="#1d4ed8" style={{ flexShrink: 0, marginTop: '2px' }} />
                             <div style={{ fontSize: '0.85rem', color: '#1e3a8a', lineHeight: 1.4 }}>
@@ -360,21 +468,36 @@ const AikatauluEhdotus = ({ state, actions }) => {
                         </div>
                     )}
 
-                    {/* Viedään uusi älykäs handleBasketUpdate koriin! */}
-                    <BasketSlotPicker 
-                        slots={proposedSlots} 
-                        basket={basket}
-                        bookedSlots={bookedSlots}
-                        setBasket={handleBasketUpdate} 
-                        onBook={handleBooking} 
-                        isAktivointi={selectedRule.metadata?.triggers?.require_yleistuki} 
-                        forcedMode={activeForcedMode}
-                        confirmedCount={confirmedSlots.length} 
-                        weekOffset={weekOffset}
-                        onOffsetChange={(val) => setWeekOffset(prev => Math.max(0, prev + val))}
-                        currentMode={viewMode}
-                        onModeChange={setViewMode}
-                    />
+                    {useIntelEngine ? (
+                        <IntelBasketSlotPicker 
+                            slots={proposedSlots} 
+                            basket={basket}
+                            bookedSlots={bookedSlots}
+                            setBasket={handleBasketUpdate} 
+                            onBook={handleBooking} 
+                            isAktivointi={selectedRule.metadata?.triggers?.require_yleistuki} 
+                            confirmedCount={confirmedSlots.length} 
+                            weekOffset={weekOffset}
+                            onOffsetChange={(val) => setWeekOffset(prev => Math.max(0, prev + val))}
+                            currentMode={viewMode}
+                            onModeChange={setViewMode}
+                        />
+                    ) : (
+                        <BasketSlotPicker 
+                            slots={proposedSlots} 
+                            basket={basket}
+                            bookedSlots={bookedSlots}
+                            setBasket={handleBasketUpdate} 
+                            onBook={handleBooking} 
+                            isAktivointi={selectedRule.metadata?.triggers?.require_yleistuki} 
+                            forcedMode={activeForcedMode}
+                            confirmedCount={confirmedSlots.length} 
+                            weekOffset={weekOffset}
+                            onOffsetChange={(val) => setWeekOffset(prev => Math.max(0, prev + val))}
+                            currentMode={viewMode}
+                            onModeChange={setViewMode}
+                        />
+                    )}
                     
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '1.5rem' }}>
                         <NumericSelector label="Määrä:" options={[1, 2, 3, 4, 5]} value={count} onChange={handleCountChange} />

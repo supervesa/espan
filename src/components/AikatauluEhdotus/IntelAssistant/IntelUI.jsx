@@ -55,11 +55,19 @@ const IntelUI = ({ suggestion, onApply, basket, analysis }) => {
                                 <Calendar size={12} /> Kohdeviikko: {formattedDate}
                             </span>
                         )}
-                        {suggestion.toimipiste && (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--color-primary)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <MapPin size={12} /> {suggestion.toimipiste}
-                            </span>
-                        )}
+                       {/* 🟢 Nyt näytetään lokaatio vain, jos se on aidosti pakotettu tai asiakkaan lokaatio tiedetään! */}
+                    {suggestion.forcedMode === 'kaynti' && suggestion.toimipiste && (
+                        <p style={{ fontSize: '0.75rem', color: 'var(--color-primary)', marginTop: '4px', fontWeight: 'bold' }}>
+                            <MapPin size={12} style={{ display: 'inline', marginRight: '4px', position: 'relative', top: '2px' }}/>
+                            Ihannesijainti: {suggestion.toimipiste}
+                        </p>
+                    )}
+
+                    {suggestion.forcedMode && (
+                        <p style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                            Pakotettu tapa: {suggestion.forcedMode === 'kaynti' ? 'Käynti' : 'Puhelu'}
+                        </p>
+                    )}
                         {suggestion.forcedMode && (
                             <span style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: '600', textTransform: 'uppercase' }}>
                                 Pakotettu: {suggestion.forcedMode === 'kaynti' ? 'Käynti' : 'Puhelu'}
