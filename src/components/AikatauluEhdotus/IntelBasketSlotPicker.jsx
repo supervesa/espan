@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-// 🟢 LISÄTTY: Clock-ikoni
 import { CalendarCheck, Lock, ChevronLeft, ChevronRight, Phone, MapPin, Trash2, AlertTriangle, CalendarX, Star, Info, AlertCircle, Clock } from 'lucide-react';
 
 const IntelBasketSlotPicker = ({ 
@@ -78,8 +77,11 @@ const IntelBasketSlotPicker = ({
                 isAnchor: slotObj.isAnchor,
                 isBorrowed: slotObj.isBorrowed,
                 label: slotObj.label,
-                locationName: slotObj.locationName, // Viedään Lokaatio mukana koriin!
-                duration_minutes: slotObj.duration || 60 // 🟢 LISÄTTY: Viedään Kesto mukana koriin!
+                locationName: slotObj.locationName,
+                duration_minutes: slotObj.duration || 60,
+                // 🟢 LISÄTTY: Viedään huonetieto mukaan ostoskoriin!
+                hasRoom: slotObj.hasRoom,
+                roomName: slotObj.roomName
             }]);
         }
     };
@@ -289,15 +291,21 @@ const IntelBasketSlotPicker = ({
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                                             <strong>{item.time.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m}</strong>
                                             
-                                            {/* 🟢 LISÄTTY: Keston näyttö korissa */}
                                             <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                                                 <Clock size={10} /> Varataan {item.duration_minutes || 60} min
                                             </span>
 
-                                            {item.mode === 'kaynti' && item.locationName && (
-                                                <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                                                    <MapPin size={10} /> {item.locationName}
-                                                </span>
+                                            {/* 🟢 TÄSSÄ ON UUSI HUONELOGIIKKA! */}
+                                            {item.mode === 'kaynti' && (
+                                                item.hasRoom ? (
+                                                    <span style={{ fontSize: '0.7rem', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px', fontWeight: 600 }}>
+                                                        <MapPin size={10} /> {item.roomName}
+                                                    </span>
+                                                ) : (
+                                                    <span style={{ fontSize: '0.7rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px', fontWeight: 600, background: '#fef3c7', padding: '2px 4px', borderRadius: '4px', border: '1px solid #fde68a', width: 'max-content' }}>
+                                                        <AlertTriangle size={10} /> Muista varata tila!
+                                                    </span>
+                                                )
                                             )}
                                         </div>
                                     </div>

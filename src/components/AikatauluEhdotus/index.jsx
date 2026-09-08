@@ -44,6 +44,7 @@ const AikatauluEhdotus = ({ state, actions }) => {
     const [expertLocations, setExpertLocations] = useState([]);
     const [dbSettings, setDbSettings] = useState(null); 
     const [dbUniversalData, setDbUniversalData] = useState([]); 
+    const [roomBookings, setRoomBookings] = useState([]); // 🟢 UUSI: Huonevaraukset tilamuuttujaan
     const [loading, setLoading] = useState(true);
 
     const [selectedRule, setSelectedRule] = useState(null);
@@ -105,13 +106,15 @@ const AikatauluEhdotus = ({ state, actions }) => {
 
                 const queryIds = [currentExpertId, LEGACY_ID];
 
-                const [kb, er, av, locs, sets, uni] = await Promise.all([
+                // 🟢 LISÄTTY: Haetaan myös room_bookings
+                const [kb, er, av, locs, sets, uni, rooms] = await Promise.all([
                     supabase.schema('espan').from('knowledge_base').select('*'),
                     supabase.schema('espan').from('expert_availability_rules').select('*').in('expert_id', queryIds),
                     supabase.schema('espan').from('availability').select('*').in('expert_id', queryIds),
                     supabase.schema('espan').from('expert_daily_locations').select('*').in('expert_id', queryIds),
                     supabase.schema('espan').from('settings_ajanvaraus').select('*').in('asiantuntija_id', queryIds),
-                    supabase.schema('espan').from('universaali_kesto_analytiikka').select('*').in('asiantuntija_id', queryIds)
+                    supabase.schema('espan').from('universaali_kesto_analytiikka').select('*').in('asiantuntija_id', queryIds),
+                    supabase.schema('espan').from('room_bookings').select('*').in('expert_id', queryIds)
                 ]);
                 
                 setRules(kb.data || []);
@@ -120,6 +123,7 @@ const AikatauluEhdotus = ({ state, actions }) => {
                 setExpertLocations(locs.data || []); 
                 setDbSettings(sets.data?.[0] || null);
                 setDbUniversalData(uni.data || []);
+                setRoomBookings(rooms.data || []); // 🟢 Tallennetaan huonevaraukset
             } catch (err) { 
                 console.error("Tietokantavirhe:", err); 
             }
@@ -185,17 +189,18 @@ const AikatauluEhdotus = ({ state, actions }) => {
             const targetDur = getTargetDuration(type, activeForcedMode || viewMode);
             setIntelDuration(targetDur);
 
+            // 🟢 LISÄTTY: Välitetään roomBookings älymoottorille viimeisenä parametrina!
             const slots = findIntelSlots(
                 type, expertRules, bookedSlots, searchStart, targetDur, 2, 
                 dbSettings, activeSuggestion?.priority === 1, expertLocations, {}, 
-                activeForcedMode || viewMode, idealLocation
+                activeForcedMode || viewMode, idealLocation, roomBookings
             );
             setProposedSlots(slots);
         } else {
             const slots = getInterpretedWeekSlots(type, expertRules, bookedSlots, searchStart, expertLocations, viewMode);
             setProposedSlots(slots);
         }
-    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion, expertLocations, viewMode, useIntelEngine, dbSettings, dbUniversalData, interpreterState, state?.asiakas, state?.suunnitelman_perustiedot]);
+    }, [selectedRule, expertRules, bookedSlots, weekOffset, activeSuggestion, expertLocations, viewMode, useIntelEngine, dbSettings, dbUniversalData, interpreterState, state?.asiakas, state?.suunnitelman_perustiedot, roomBookings]); // 🟢 Varmistettu, että useEffect päivittyy huoneiden muuttuessa
 
     const handleBasketUpdate = (newBasketAction) => {
         setBasket(prevBasket => {
@@ -250,7 +255,7 @@ const AikatauluEhdotus = ({ state, actions }) => {
             
             draftBasket = generateSmartDraft(
                 ruleObj, expertRules, bookedSlots, newCount, newPeriod, passedTargetDate, 
-                expertLocations, dbSettings, mode, idealLoc, duration
+                expertLocations, dbSettings, mode, idealLoc, duration, roomBookings // 🟢 Lisätty huoneet tähänkin
             );
         } else {
             draftBasket = generateSmartDraft(ruleObj, expertRules, bookedSlots, newCount, newPeriod, passedTargetDate, expertLocations);
@@ -319,6 +324,7 @@ const AikatauluEhdotus = ({ state, actions }) => {
         else if (selectedRule.title.toLowerCase().includes('täydentävä')) type = 'taydentava';
         
         // 🟢 Välitetään kantaan "testi": isTestMode !
+        // 🟢 KORJATTU keston luku: item.duration_minutes || ...
         const inserts = basket.map(item => ({ 
             expert_id: expertId, 
             start_time: item.time.toISOString(), 
@@ -326,8 +332,8 @@ const AikatauluEhdotus = ({ state, actions }) => {
             contact_method: item.mode, 
             is_blocked: true,
             sync_token: item.sync_token,
-            duration_minutes: useIntelEngine ? intelDuration : 60,
-            testi: isTestMode // Tästä näkee kummalla tallennettiin
+            duration_minutes: item.duration_minutes || (useIntelEngine ? intelDuration : 60),
+            testi: isTestMode 
         }));
         
         try {
