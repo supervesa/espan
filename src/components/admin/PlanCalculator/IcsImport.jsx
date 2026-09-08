@@ -181,7 +181,15 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 // 3. Vanha ID tai Muu Työ
                 if (idMatch) {
                     const maskedSummary = summary.replace(idMatch[0], `${idMatch[0].substring(0, 4)}*******${idMatch[0].substring(11)}`);
-                    insertsLegacy.push({ ...baseEvent, masked_summary: maskedSummary, status: 'pending' });
+                    // KORJAUS TÄSSÄ: Vain sallitut sarakkeet ics_review_queue -tauluun!
+                    insertsLegacy.push({ 
+                        expert_id: asiantuntijaId, 
+                        ics_uid: finalUid, 
+                        start_time: startTimeIso, 
+                        end_time: endTimeIso, 
+                        masked_summary: maskedSummary, 
+                        status: 'pending' 
+                    });
                 } else if (lowerSummary.match(/malminkatu|viipurinkatu|itäkeskus|etä/)) {
                     insertsReady.push({ ...baseEvent, event_category: 'sijainti', location_name: summary });
                 } else if (lowerSummary.match(/loma|tuuraus/)) {
@@ -192,13 +200,14 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
-            // TALLENNETAAN PUHTAAT KANTAAN (Ei 400-virheitä, koska sarakkeet on täsmätty!)
+            // TALLENNETAAN PUHTAAT KANTAAN
             if (insertsReady.length > 0) {
                 const { error } = await supabase.schema('espan').from('ics_events').upsert(insertsReady, { onConflict: 'expert_id, ics_uid' });
                 if (error) throw error;
             }
             if (insertsRooms.length > 0) {
-                const { error } = await supabase.schema('espan').from('room_bookings').insert(insertsRooms);
+                // MUUTOS TÄSSÄ: Käytetään UPSERT-komentoa tuplien estämiseksi tilavarauksissa
+                const { error } = await supabase.schema('espan').from('room_bookings').upsert(insertsRooms, { onConflict: 'expert_id, room_name, start_time' });
                 if (error) throw error;
             }
             if (insertsLegacy.length > 0) {
@@ -220,11 +229,10 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
     };
 
     // ==========================================
-    // UI-TOIMINNOT: PAIIKALLINEN JONO JA LEGACY
+    // UI-TOIMINNOT: PAIKALLINEN JONO JA LEGACY
     // ==========================================
     const resolveLocalItem = async (item, cat, method) => {
         try {
-            // Vain sallitut sarakkeet kantaan!
             const dbEvent = {
                 expert_id: item.expert_id,
                 ics_uid: item.ics_uid,
@@ -240,7 +248,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
             const { error } = await supabase.schema('espan').from('ics_events').upsert(dbEvent, { onConflict: 'expert_id, ics_uid' });
             if (error) throw error;
 
-            // Oppiminen
             if (item.queueType === 'teach' && learnChecks[item.id]) {
                 const cleanPrefix = item.original_summary.split('-')[0].trim();
                 const newDict = { ...learnedDictionary, [cleanPrefix]: { cat, method, isCancel: dbEvent.is_cancelled } };
@@ -308,7 +315,7 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                     {results?.error && <AlertBox type="error">{results.error}</AlertBox>}
                 </div>
 
-                {/* RATKAISUKESKUS (Yhdistetty paikallinen ja DB jono) */}
+                {/* RATKAISUKESKUS */}
                 {(reviewQueue.length > 0 || localQueue.length > 0) && (
                     <div style={{ marginTop: '1rem', paddingTop: '1.5rem', borderTop: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem' }}>
