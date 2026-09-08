@@ -1,32 +1,95 @@
-import React from 'react';
-import { Briefcase, GraduationCap, CalendarClock, Layers, Info, Tag as TagIcon } from 'lucide-react';
+// --- src/components/sections/Suunnitelma/UraAnalyzer/Step2Results.jsx ---
+import React, { useState } from 'react';
+import { Briefcase, GraduationCap, CalendarClock, Layers, Info, Tag as TagIcon, Sparkles, Loader2, Lightbulb } from 'lucide-react';
 import Tag from '../../../common/Tag';
 import AlertBox from '../../../common/AlertBox';
-import { ENTITY_DEFINITIONS } from '../../../../data/entityDefinitions'; // LISÄTTY SANAKIRJA
+import { ENTITY_DEFINITIONS } from '../../../../data/entityDefinitions'; 
 
 const Step2Results = ({ 
-    aiResult, 
+    aiResult, setAiResult, 
     finescoSector, setFinescoSector, 
     escoProfession, setEscoProfession, 
     tilaTyoton, aktiivisetPalvelut,
     activeTriggers, setActiveTriggers 
 }) => {
 
-    const {
-        tyohistoria, suoritetut_koulutukset, tyokokeilut_pvm,
-        vaihtoehtoiset_ammatit, koulutusehdotukset,
-        nykyinen_opiskelija, nykyinen_yrittaja
+    const [isGeneratingStory, setIsGeneratingStory] = useState(false);
+    const [storyError, setStoryError] = useState(null);
+
+    const { 
+        tyohistoria, 
+        suoritetut_koulutukset, 
+        vaihtoehtoiset_ammatit, 
+        koulutusehdotukset 
     } = aiResult;
+
+    // VAIHE 2: PILVI (Sanallinen asiantuntija-arvio ja ideointi Geminillä)
+    const handleGenerateStory = async () => {
+        setIsGeneratingStory(true);
+        setStoryError(null);
+        try {
+            // Vain anonyymi, paikallisesti pureskeltu data lähtee pilveen!
+            const cleanPayload = {
+                tyopaikat: tyohistoria, // Tämä sisältää Qwenin tekemän ranskalaisen viivan listan
+                esco_pääammatti: escoProfession,
+                koulutukset: suoritetut_koulutukset,
+                palvelut: aktiivisetPalvelut,
+                huomiot: activeTriggers
+            };
+
+            const response = await fetch('/.netlify/functions/analyze_ura_story', {
+                method: 'POST',
+                body: JSON.stringify(cleanPayload)
+            });
+
+            if (!response.ok) throw new Error("Yhteys pilven AI-rajapintaan epäonnistui.");
+            const data = await response.json();
+            
+            // Geminin kirjoittama teksti korvaa Qwenin listauksen ja lisää uudet ideat
+            setAiResult(prev => ({ 
+                ...prev, 
+                tyohistoria: data.tyohistoria,
+                vaihtoehtoiset_ammatit: data.vaihtoehtoiset_ammatit,
+                koulutusehdotukset: data.koulutusehdotukset
+            }));
+
+        } catch (e) {
+            setStoryError(e.message);
+        } finally {
+            setIsGeneratingStory(false);
+        }
+    };
 
     return (
         <div className="grid-cols-2-tight">
             
-            <div className="panel-ai-work">
-                <label className="icon-label"><Briefcase size={16} /> Työ- ja palveluhistoria</label>
-                <textarea className="form-input" rows="8" value={tyohistoria || ''} readOnly />
+            {/* VAIHE 2 - GEMINI KIRJOITTAA */}
+            <div className="panel-ai-work" style={{ borderLeft: '4px solid var(--color-ai)', backgroundColor: '#faf5ff', gridColumn: 'span 2' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <label className="icon-label text-ai" style={{ margin: 0 }}><Sparkles size={16} /> 2. Laadi sanallinen asiantuntija-arvio (Pilvi / Gemini)</label>
+                    <button 
+                        className="btn btn--secondary" 
+                        onClick={handleGenerateStory} 
+                        disabled={isGeneratingStory}
+                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--color-ai)', borderColor: 'var(--color-ai-border)', backgroundColor: '#fff' }}
+                    >
+                        {isGeneratingStory ? <><Loader2 size={14} className="animate-spin"/> Generoidaan...</> : 'Tilaa yhteenveto ja ideat'}
+                    </button>
+                </div>
+                
+                <p className="text-xs text-secondary mb-3">Tilaamalla yhteenvedon lähetät yllä olevat, paikallisesti anonymisoidut faktat pilveen muotoiltavaksi sujuvaksi asiantuntijatekstiksi ja ideoitavaksi.</p>
+                {storyError && <AlertBox type="danger" customStyle={{ padding: '0.5rem', marginBottom: '0.5rem' }}>{storyError}</AlertBox>}
+                
+                <textarea 
+                    className="form-input" 
+                    rows="8" 
+                    value={tyohistoria || ''} 
+                    onChange={e => setAiResult(prev => ({...prev, tyohistoria: e.target.value}))}
+                    placeholder={isGeneratingStory ? "Gemini kirjoittaa..." : "Voit muokata paikallisen mallin palauttamaa listaa, tilata Geminiltä asiantuntija-arvion, tai kirjoittaa itse."}
+                />
             </div>
             
-            {/* KOULUTUSHISTORIA LISTANA */}
+            {/* KOULUTUSHISTORIA JA EHDOTUKSET */}
             <div className="panel-ai-edu" style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                 <label className="icon-label"><GraduationCap size={16} /> Suoritetut koulutukset</label>
                 {suoritetut_koulutukset && suoritetut_koulutukset.length > 0 ? (
@@ -37,16 +100,56 @@ const Step2Results = ({
                                 <span style={{ color: '#64748b' }}>{edu.vuosi}</span>
                             </div>
                         ))}
-                        <span style={{ fontSize: '0.7rem', color: 'var(--color-primary)', marginTop: '5px' }}>Siirtyvät suoraan Koulutus-välilehdelle.</span>
                     </div>
                 ) : (
                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>Ei selkeitä tutkintoja havaittu.</p>
                 )}
+
+                {/* GEMININ KOULUTUSEHDOTUKSET */}
+                {koulutusehdotukset && koulutusehdotukset.length > 0 && (
+                    <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px dashed #cbd5e1' }}>
+                        <label className="icon-label" style={{ color: '#b45309' }}><Lightbulb size={16} /> Tekoälyn koulutusideat</label>
+                        <ul style={{ margin: '0.5rem 0 0 1rem', padding: 0, fontSize: '0.85rem', color: '#b45309', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {koulutusehdotukset.map((ehdotus, idx) => (
+                                <li key={idx}>{ehdotus}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
             </div>
 
-            {/* AKTIIVISET PALVELUT LISTANA */}
+            {/* TAVOITEAMMATTI JA IDEAT */}
+            <div className="card-inner-sm">
+                <label className="icon-label text-success"><Briefcase size={16} /> Tavoiteammatti (ESCO)</label>
+                {escoProfession ? (
+                    <Tag type="success" onRemove={() => setEscoProfession('')}>{escoProfession}</Tag>
+                ) : <span className="stat-label" style={{ fontStyle: 'italic' }}>Ei tunnistettu.</span>}
+                
+                {/* GEMININ VAIHTOEHTOISET AMMATIT */}
+                {vaihtoehtoiset_ammatit && vaihtoehtoiset_ammatit.length > 0 && (
+                    <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed var(--color-border)' }}>
+                        <span className="stat-label mb-2 block">Vaihtoehtoiset urapolut (AI:n ideat):</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                            {vaihtoehtoiset_ammatit.map((alt, idx) => (
+                                <Tag key={idx} type="primary" customStyle={{ backgroundColor: '#fff', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                                    {alt}
+                                </Tag>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Status työtön */}
+                {tilaTyoton && (
+                    <div style={{ marginTop: '1rem' }}>
+                        <Tag type="warning" onRemove={() => {}}>Työtön työnhakija</Tag>
+                    </div>
+                )}
+            </div>
+
+            {/* AKTIIVISET PALVELUT */}
             {aktiivisetPalvelut && aktiivisetPalvelut.length > 0 && (
-                <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-success)', marginBottom: '1rem', gridColumn: 'span 2', backgroundColor: '#f0fdf4' }}>
+                <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-success)', gridColumn: 'span 2', backgroundColor: '#f0fdf4' }}>
                     <label className="icon-label text-success"><CalendarClock size={16} /> Havaitut aktiiviset palvelut ja opinnot</label>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
                         {aktiivisetPalvelut.map((srv, idx) => {
@@ -55,94 +158,27 @@ const Step2Results = ({
                                 <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '6px', border: '1px solid #bbf7d0', fontSize: '0.85rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <strong style={{ color: '#166534' }}>{def ? def.label : srv.entity_key}</strong>
-                                        {srv.tarkenne && <span style={{ color: '#64748b', fontStyle: 'italic' }}>({srv.tarkenne})</span>}
+                                        {/* KORJAUS: srv.tarkenne -> srv.data?.tarkenne */}
+                                        {srv.data?.tarkenne && <span style={{ color: '#64748b', fontStyle: 'italic' }}>({srv.data.tarkenne})</span>}
                                     </div>
                                     <span style={{ backgroundColor: '#f0fdf4', padding: '2px 8px', borderRadius: '12px', color: '#166534', fontWeight: 'bold' }}>
-                                        {srv.alku} – {srv.loppu}
+                                        {/* KORJAUS: srv.alku ja srv.loppu -> srv.data?.alku ja srv.data?.loppu */}
+                                        {srv.data?.alku} – {srv.data?.loppu}
                                     </span>
                                 </div>
                             );
                         })}
-                        <span style={{ fontSize: '0.7rem', color: 'var(--color-success)' }}>Siirtyvät automaattisesti taulukoihin ja kalenteriavustajalle.</span>
                     </div>
                 </div>
             )}
 
-            {/* Työtön-status */}
-            {tilaTyoton && (
-                <div className="card-inner-sm" style={{ borderLeft: '4px solid var(--color-warning)', gridColumn: 'span 2' }}>
-                    <label className="icon-label" style={{ color: '#b45309' }}><Layers size={16} /> Asiakkaan status</label>
-                    <div style={{ marginTop: '0.5rem' }}><Tag type="warning">✓ Työtön työnhakija</Tag></div>
-                </div>
-            )}
-
-            {tyokokeilut_pvm && (
-                <div className="panel-ai-tk" style={{ gridColumn: 'span 2' }}>
-                    <label className="icon-label"><CalendarClock size={16} /> Menneet työkokeilut (Palkkatukilaskuri)</label>
-                    <textarea className="form-input text-mono" rows="2" value={tyokokeilut_pvm} readOnly />
-                </div>
-            )}
-
-            {koulutusehdotukset?.length > 0 && (
-                <div className="panel-ai-edu" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', gridColumn: 'span 2' }}>
-                    <Info size={20} color="#b45309" style={{ flexShrink: 0 }} />
-                    <span style={{ fontSize: '0.9rem', color: '#b45309' }}>
-                        <strong>Tekoäly ideoi {koulutusehdotukset.length} uutta koulutuspolkua.</strong> Nämä siirretään Koulutus-välilehdelle.
-                    </span>
-                </div>
-            )}
-
-            <div className="card-inner-sm">
-                <label className="icon-label text-success"><Layers size={16} /> Tunnistettu ammattialue</label>
-                {finescoSector && (
-                    <div style={{ marginBottom: '1rem' }}>
-                        <Tag type="primary" onRemove={() => setFinescoSector('')} customStyle={{ backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', color: '#334155' }}>
-                            {finescoSector}
-                        </Tag>
-                    </div>
-                )}
-
-                <label className="icon-label text-success" style={{ marginTop: finescoSector ? '0' : '0' }}><Briefcase size={16} /> Tavoiteammatti (ESCO)</label>
-                {escoProfession ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        <Tag type="success" onRemove={() => setEscoProfession('')}>
-                            {escoProfession}
-                        </Tag>
-                        
-                        {vaihtoehtoiset_ammatit?.length > 0 && (
-                            <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed var(--color-border)' }}>
-                                <span className="stat-label">Muut kiinnostuksen kohteet (Pelkkä ehdotus):</span>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem' }}>
-                                    {vaihtoehtoiset_ammatit.map((alt, idx) => (
-                                        <Tag key={idx} type="primary" customStyle={{ backgroundColor: 'var(--color-background)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
-                                            {alt}
-                                        </Tag>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                ) : <span className="stat-label" style={{ fontStyle: 'italic', marginBottom: '1rem', display: 'block' }}>Ei tunnistettu.</span>}
-
-                {(nykyinen_opiskelija || nykyinen_yrittaja) && (
-                    <AlertBox type="purple" customStyle={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', borderColor: 'rgba(139, 92, 246, 0.3)', color: '#6d28d9', marginTop: '1rem' }}>
-                        Tekoäly havaitsi asiakkaan olevan tällä hetkellä: 
-                        <strong>{nykyinen_opiskelija ? ' Opiskelija' : ''}</strong>
-                        <strong>{nykyinen_opiskelija && nykyinen_yrittaja ? ' ja ' : ''}</strong>
-                        <strong>{nykyinen_yrittaja ? ' Yrittäjä' : ''}</strong>. 
-                        Tieto siirretään Työttömyysturva-osiolle.
-                    </AlertBox>
-                )}
-            </div>
-
-            <div className="card-inner-sm">
-                <label className="icon-label text-primary"><TagIcon size={16} /> Automaattiset signaalit</label>
+            {/* AMMATILLISET HUOMIOT */}
+            <div className="card-inner-sm" style={{ gridColumn: 'span 2' }}>
+                <label className="icon-label text-primary"><TagIcon size={16} /> Ammatilliset huomiot (Paikallinen AI)</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                     {activeTriggers.length > 0 ? activeTriggers.map((trigger, idx) => (
-                        <Tag key={idx} type="primary" onRemove={() => setActiveTriggers(prev => prev.filter(t => t !== trigger))}>
-                            {trigger}
-                        </Tag>
-                    )) : <span className="stat-label" style={{ fontStyle: 'italic' }}>Ei signaaleja.</span>}
+                        <Tag key={idx} type="primary" onRemove={() => setActiveTriggers(prev => prev.filter(t => t !== trigger))}>{trigger}</Tag>
+                    )) : <span className="stat-label" style={{ fontStyle: 'italic' }}>Tekoäly ei tehnyt erityishuomioita.</span>}
                 </div>
             </div>
             

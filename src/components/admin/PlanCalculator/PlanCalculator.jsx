@@ -5,6 +5,7 @@ import { useTargetCalculator } from './useTargetCalculator';
 import ProjectionChart from './ProjectionChart';
 import IcsImport from './IcsImport';
 import OutCalendar from './OutCalendar';
+import AiStrategicForecast from './AiStrategicForecast';
 import Card from '../../common/Card';
 import MetricBox from '../../common/MetricBox';
 import SmartInput from '../../common/SmartInput';
@@ -280,6 +281,9 @@ const PlanCalculator = ({ asiantuntijaId }) => {
 
             {/* TYÖTTÖMYYSTURVAN 16 VIIKON HORISONTTI */}
             <ProjectionChart asiantuntijaId={asiantuntijaId} />
+
+            {/* UUSI AI-STRATEGINEN ENNUSTE */}
+<AiStrategicForecast asiantuntijaId={asiantuntijaId} />
 
             <OutCalendar asiantuntijaId={asiantuntijaId} />
 

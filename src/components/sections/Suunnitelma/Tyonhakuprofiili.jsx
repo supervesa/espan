@@ -200,34 +200,96 @@ const Tyonhakuprofiili = ({ state, actions }) => {
     // 4. TEKOÄLYN MYYNTIPUHE (GENERAATTORI)
     // ==========================================
     const handleGenerateAIPitch = async () => {
-        setIsGenerating(true);
-        setGenEsittely('Generoidaan anonyymiä profiilia...');
-        
-        try {
-            const response = await fetch('/.netlify/functions/generateProfile', {
-                method: 'POST',
-                body: JSON.stringify({
-                    ammatit: genEsco,
-                    taidot: genTaidot,
-                    luvat: genLuvat
-                })
-            });
+    setIsGenerating(true);
+    setGenEsittely('Valmistellaan pyyntöä...');
 
-            if (response.ok) {
-                const data = await response.json();
-                const avainsanatText = data.avainsanat && data.avainsanat.length > 0 ? `\n\n*Avainsanat: ${data.avainsanat.join(', ')}*` : '';
-                const finalPitch = `**${data.otsikko}**\n\n${data.esittelyteksti}${avainsanatText}`;
-                setGenEsittely(finalPitch);
-            } else {
-                setGenEsittely('Virhe generoinnissa. Yritä uudelleen.');
-            }
-        } catch (error) {
-            console.error("AI Generointi virhe:", error);
-            setGenEsittely('Yhteysvirhe. Tekoälyyn ei saatu yhteyttä.');
-        } finally {
+    try {
+        // 1. Kerätään tiedot yhteen pötköön "tyhmää fronttia" varten
+        const koottuData = `
+            AMMATIT: ${genEsco || 'Ei ilmoitettu'}
+            TAIDOT: ${genTaidot || 'Ei ilmoitettu'}
+            LUVAT: ${genLuvat || 'Ei ilmoitettu'}
+        `.trim();
+
+        // 2. Luodaan universaali ohjeistus agentille (System Persona + Data)
+        const dynaaminenPrompt = `
+            Olet työllisyyspalveluiden asiantuntija. 
+            ÄÄNENSÄVY: Ammattimainen, asiallinen ja ohjaava. Käytä asiakas-passiivia, sinuttele! vastaa lyhyesti, älä lisää omiasi.
+            
+            TEHTÄVÄ: Kirjoita iskevä anonyymi esittelyteksti työnhakuprofiiliin alla olevien tietojen pohjalta.
+            SÄÄNNÖT: Älä käytä nimiä (henkilö, yritys tai koulu). Muotoile myyntipuheeksi. Vastaa suomeksi.
+
+            DATA:
+            ${koottuData}
+        `.trim();
+
+        // 3. Syötetään tehtävä odotushuoneeseen
+        const { data: newTask, error: insertError } = await supabase
+            .schema('espan')
+            .from('waiting_room')
+            .insert([{
+                model: 'gemma2',
+                system_prompt: dynaaminenPrompt,
+                status: 'waiting',
+                schedule_slot: 'immediate',
+                source_config: { type: "direct_prompt" }, // Merkintä agentille
+                output_config: { type: "ui_component", component: "Tyonhakuprofiili" }
+            }])
+            .select()
+            .single();
+
+        if (insertError) throw insertError;
+        const taskId = newTask.id;
+
+        // 4. Asetetaan 180 sekunnin timeout
+        const timeoutDuration = 180000; 
+        const timeoutTimer = setTimeout(() => {
+            supabase.removeChannel(channel);
             setIsGenerating(false);
-        }
-    };
+            setGenEsittely('Pyyntö aikakatkaistiin (180s). Tekoäly on ruuhkautunut tai offline-tilassa. Voit kokeilla hetken kuluttua uudelleen.');
+        }, timeoutDuration);
+
+        // 5. Kuunnellaan Realtime-yhteydellä juuri tätä tehtävää
+        const channel = supabase
+            .channel(`task-${taskId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'espan',
+                    table: 'waiting_room',
+                    filter: `id=eq.${taskId}`
+                },
+                (payload) => {
+                    const status = payload.new.status;
+                    
+                    if (status === 'processing') {
+                        setGenEsittely('Tekoäly laatii profiilia... (Gemma 2)');
+                    }
+
+                    if (status === 'done') {
+                        clearTimeout(timeoutTimer);
+                        setGenEsittely(payload.new.last_result);
+                        setIsGenerating(false);
+                        supabase.removeChannel(channel);
+                    }
+
+                    if (status === 'error') {
+                        clearTimeout(timeoutTimer);
+                        setGenEsittely(`Virhe: ${payload.new.error_log}`);
+                        setIsGenerating(false);
+                        supabase.removeChannel(channel);
+                    }
+                }
+            )
+            .subscribe();
+
+    } catch (error) {
+        console.error("Generointivirhe:", error);
+        setGenEsittely('Yhteysvirhe. Varmista, että tietokantayhteys on kunnossa.');
+        setIsGenerating(false);
+    }
+};
 
     const valmisProfiiliTeksti = useMemo(() => {
         if (!genEsco && !genTaidot && !genLuvat && !genEsittely) return '';

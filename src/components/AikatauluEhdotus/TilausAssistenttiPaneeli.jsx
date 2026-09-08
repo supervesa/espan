@@ -1,15 +1,23 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Copy, Calendar, MessageSquare, AlertTriangle, ExternalLink, MapPin, ShieldCheck } from 'lucide-react';
-// UUSI IMPORTTI LISÄTTY (Tarkista tarvittaessa kansiopolku oikeaksi)
+// 🟢 LISÄTTY: Clock-ikoni
+import { Copy, Calendar, MessageSquare, AlertTriangle, ExternalLink, MapPin, ShieldCheck, Clock } from 'lucide-react';
 import AutocompleteInterpreterInput from '../common/AutocompleteInterpreterInput';
+// 🟢 LISÄTTY: CopyButton
+import CopyButton from '../common/CopyButton';
 
 function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiICS, smsTeksti, selectedRule, expertLocations = [], resolvedAddress = '', interpreterState = {} }) {
   const activeSlot = basket && basket.length > 0 ? basket[0] : null;
   const meetingType = activeSlot?.mode || 'puhelu'; 
   
+  // 🟢 LISÄTTY: Luetaan kesto korista (tai oletuksena 60)
+  const slotDuration = activeSlot?.duration_minutes || 60;
+  
   const slotDateObj = activeSlot ? new Date(activeSlot.time) : new Date();
   const dateParts = slotDateObj.toLocaleDateString('fi-FI').split('.'); 
   const timeStr = slotDateObj.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' }).replace('.', ':'); 
+
+  // 🟢 LISÄTTY: Muotoillaan päivämäärä muodossa 01.01.2026 kopiointia varten
+  const copyableDateStr = `${dateParts[0].padStart(2, '0')}.${dateParts[1].padStart(2, '0')}.${dateParts[2]}`;
 
   const currentDayRow = useMemo(() => {
     if (!activeSlot || !expertLocations || expertLocations.length === 0) return null;
@@ -86,7 +94,9 @@ function TilausAssistenttiPaneeli({ basket, virallinenTeksti, virallinenTekstiIC
 
     basket.forEach((slotItem, index) => {
       const startObj = new Date(slotItem.time);
-      const endObj = new Date(startObj.getTime() + 60 * 60 * 1000); 
+      // 🟢 KORJATTU: Käytetään dynaamista kestoa korista (tai 60 min hätävarana)
+      const loopDuration = slotItem.duration_minutes || 60;
+      const endObj = new Date(startObj.getTime() + loopDuration * 60 * 1000); 
       
       const loopYyyy = startObj.getFullYear();
       const loopMm = String(startObj.getMonth() + 1).padStart(2, '0');
@@ -172,9 +182,19 @@ ${alarmBlock}END:VEVENT\n`;
         <span style={{ fontWeight: 'bold', color: '#334155' }}>{currentLocName || 'Ei määritelty'}</span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'bold', fontSize: '0.9rem', color: '#0f172a' }}>
-        {meetingType === 'puhelu' ? <MessageSquare size={16} color="var(--color-primary)" /> : <MapPin size={16} color="var(--color-primary)" />}
-        <span>{meetingType === 'puhelu' ? 'Puheluaika' : 'Lähitapaaminen'}: {dateParts[0]}.{dateParts[1]}. klo {timeStr}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'bold', fontSize: '0.9rem', color: '#0f172a' }}>
+          {meetingType === 'puhelu' ? <MessageSquare size={16} color="var(--color-primary)" /> : <MapPin size={16} color="var(--color-primary)" />}
+          <span>{meetingType === 'puhelu' ? 'Puheluaika' : 'Lähitapaaminen'}: {dateParts[0]}.{dateParts[1]}. klo {timeStr}</span>
+        </div>
+        {/* 🟢 LISÄTTY: Pyöreä kopiointinappula päivämäärälle */}
+        <CopyButton textToCopy={copyableDateStr} variant="circle" label="Kopioi päivämäärä" successLabel="Kopioitu" />
+      </div>
+
+      {/* 🟢 LISÄTTY: Keston näyttö paneelissa */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: '#64748b', marginTop: '-0.5rem', marginBottom: '0.2rem' }}>
+        <Clock size={12} />
+        <span>Varattu aika kalenteriin: <strong>{slotDuration} minuuttia</strong></span>
       </div>
 
       {hasLocationConflict && (

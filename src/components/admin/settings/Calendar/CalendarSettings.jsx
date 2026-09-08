@@ -6,8 +6,9 @@ import Card from '../../../common/Card';
 import Button from '../../../common/Button';
 import AlertBox from '../../../common/AlertBox';
 import RangeSlider from '../../../common/RangeSlider';
+import Checkbox from '../../../common/Checkbox';
 
-import { Sliders, Flag, Server, CalendarClock, Building2, AlertTriangle, Printer } from 'lucide-react';
+import { Sliders, Flag, Server, CalendarClock, Building2, Printer } from 'lucide-react';
 import ReportModal from '../../ReportModal/index.jsx';
 
 const LEGACY_ID = '00000000-0000-0000-0000-000000000000';
@@ -101,79 +102,28 @@ const CalendarSettings = () => {
         }
     };
 
-    const handleOptimizeCalendar = async () => {
+   const handleOptimizeCalendar = async () => {
         if (!expertId) return;
         setActionLoading(true);
         try {
             const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:8888' : '';
-            const response = await fetch(`${baseUrl}/.netlify/functions/optimize-calendar`, { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ expert_id: expertId }) 
-            });
             
-            if (!response.ok) throw new Error('Palvelin palautti virheen.');
-            alert("Tekoälyn optimointi suoritettu onnistuneesti!");
+            // AJO 1: Sijainnit
+            const locResponse = await fetch(`${baseUrl}/.netlify/functions/optimize-calendar`, { 
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expert_id: expertId }) 
+            });
+            if (!locResponse.ok) throw new Error('Sijaintien optimointi kaatui.');
+
+            // AJO 2: Matkat lokaatioiden perusteella
+            const journeyResponse = await fetch(`${baseUrl}/.netlify/functions/optimize-journeys`, { 
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expert_id: expertId }) 
+            });
+            if (!journeyResponse.ok) throw new Error('Matkojen generointi kaatui.');
+            
+            alert("Tekoälyn optimointi suoritettu! (Sijainnit ja matkat generoitu)");
         } catch (e) { 
             console.error(e); 
-            alert("Optimointi epäonnistui. Varmista että käynnistit projektin 'netlify dev' -komennolla."); 
-        } finally {
-            setActionLoading(false);
-        }
-    };
-
-    const handleLockCurrentWeek = async () => {
-        const today = new Date();
-        const day = today.getDay();
-        const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-        const monday = new Date(today.setDate(diff));
-
-        setActionLoading(true);
-        try {
-            const datesToLock = [];
-            for (let i = 0; i < 5; i++) {
-                const d = new Date(monday);
-                d.setDate(d.getDate() + i);
-                d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-                datesToLock.push(d.toISOString().split('T')[0]);
-            }
-
-            const { data } = await supabase.schema('espan')
-                .from('expert_daily_locations')
-                .select('id')
-                .in('expert_id', queryIds)
-                .in('date', datesToLock)
-                .eq('is_auto_generated', true);
-
-            if (data && data.length > 0) {
-                const idsToUpdate = data.map(l => l.id);
-                await supabase.schema('espan')
-                    .from('expert_daily_locations')
-                    .update({ is_auto_generated: false })
-                    .in('id', idsToUpdate);
-                alert(`${data.length} ehdotusta lukittu onnistuneesti virallisiksi paikoiksi.`);
-            } else {
-                alert("Ei lukittavia automaattisia ehdotuksia kuluvalle viikolle.");
-            }
-        } catch (e) {
-            console.error("Virhe viikon lukituksessa:", e);
-        } finally {
-            setActionLoading(false);
-        }
-    };
-
-    const handleResetSuggestions = async () => {
-        if (!window.confirm("VAROITUS: Haluatko varmasti pyyhkiä kalenterista kaikki automaattisesti luodut haamuehdotukset? Tätä ei voi peruuttaa.")) return;
-        setActionLoading(true);
-        try { 
-            await supabase.schema('espan')
-                .from('expert_daily_locations')
-                .delete()
-                .in('expert_id', queryIds)
-                .eq('is_auto_generated', true); 
-            alert("Automaattiset ehdotukset nollattu!");
-        } catch (e) { 
-            console.error("Virhe nollauksessa:", e); 
+            alert(`Optimointi epäonnistui: ${e.message}`); 
         } finally {
             setActionLoading(false);
         }
@@ -208,7 +158,7 @@ const CalendarSettings = () => {
 
                     <div style={{ height: '1px', backgroundColor: 'var(--color-border)', margin: '0 -0.5rem' }} />
 
-                    {/* KORJAUS: Maanantai Kytkin käyttäen turvallista HTML:ää! */}
+                    {/* Maanantai Kytkin */}
                     <div>
                         <label className="modern-checkbox-label" style={{ marginBottom: 0 }}>
                             <input 
@@ -321,7 +271,7 @@ const CalendarSettings = () => {
                             Optimoi kalenteri (Aja automaatio nyt)
                         </Button>
                         <div className="text-xs text-secondary lh-tight ml-2">
-                            Laskee rullaavalla algoritmilla saarekkeettoman ja asiantuntijan jaksamiseen (tavoitearvoon) pohjautuvan runkosuunnitelman 6 kuukautta eteenpäin asettamiesi arvojen mukaisesti.
+                            Laskee rullaavalla algoritmilla saarekkeettoman runkosuunnitelman 6 kuukautta eteenpäin asettamiesi arvojen mukaisesti.
                         </div>
 
                         <div style={{ borderTop: '1px dashed var(--color-border)', margin: '0.5rem 0' }}></div>

@@ -1,8 +1,8 @@
+// --- src/components/sections/Suunnitelma/UraAnalyzer/Step1Input.jsx ---
 import React, { useRef } from 'react';
 import { Eye, ShieldAlert, ShieldCheck, FileText } from 'lucide-react';
 import { COMPANY_PATTERN, SCHOOL_PATTERN, HETU_PATTERN, SINGLE_DATE_PATTERN } from '../../../../utils/regex/core';
 
-// UUSI: Osaa ottaa vastaan protectedDates-listan propseista
 const Step1Input = ({ rawData, setRawData, hasRisks, onAutoAnonymize, isAnalyzing, protectedDates = [] }) => {
     const textareaRef = useRef(null);
 
@@ -38,7 +38,7 @@ const Step1Input = ({ rawData, setRawData, hasRisks, onAutoAnonymize, isAnalyzin
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
-                Liitä asiakkaan URA-historia alle. Tietosuoja turvataan ja tarkat päivämäärät yksinkertaistetaan automaattisesti tekoälyä varten.
+                Liitä asiakkaan URA-historia alle. Paikallinen tekoäly ja säännöt pesevät tekstin anonyymiksi ennen käsittelyä.
             </p>
 
             <div 

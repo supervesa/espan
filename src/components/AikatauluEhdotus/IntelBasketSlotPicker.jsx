@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarCheck, Lock, ChevronLeft, ChevronRight, Phone, MapPin, Trash2, AlertTriangle, CalendarX, Star, Info, AlertCircle } from 'lucide-react';
+// 🟢 LISÄTTY: Clock-ikoni
+import { CalendarCheck, Lock, ChevronLeft, ChevronRight, Phone, MapPin, Trash2, AlertTriangle, CalendarX, Star, Info, AlertCircle, Clock } from 'lucide-react';
 
 const IntelBasketSlotPicker = ({ 
     slots, basket, setBasket, onBook, isAktivointi, confirmedCount, 
@@ -77,7 +78,8 @@ const IntelBasketSlotPicker = ({
                 isAnchor: slotObj.isAnchor,
                 isBorrowed: slotObj.isBorrowed,
                 label: slotObj.label,
-                locationName: slotObj.locationName // 🟢 Viedään Lokaatio mukana koriin!
+                locationName: slotObj.locationName, // Viedään Lokaatio mukana koriin!
+                duration_minutes: slotObj.duration || 60 // 🟢 LISÄTTY: Viedään Kesto mukana koriin!
             }]);
         }
     };
@@ -284,9 +286,14 @@ const IntelBasketSlotPicker = ({
                                             {item.isBorrowed && (isSevere ? <AlertCircle size={14} color="#ef4444" /> : <AlertTriangle size={14} color="#f97316" />)}
                                         </div>
                                         
-                                        {/* 🟢 TÄSSÄ NÄKYY LOKAATIO KORISSA! */}
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                                             <strong>{item.time.toLocaleDateString('fi-FI', { weekday: 'short', day: 'numeric', month: 'numeric' })} klo {h}:{m}</strong>
+                                            
+                                            {/* 🟢 LISÄTTY: Keston näyttö korissa */}
+                                            <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                                                <Clock size={10} /> Varataan {item.duration_minutes || 60} min
+                                            </span>
+
                                             {item.mode === 'kaynti' && item.locationName && (
                                                 <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                                                     <MapPin size={10} /> {item.locationName}
@@ -296,7 +303,6 @@ const IntelBasketSlotPicker = ({
                                     </div>
                                     
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        {/* TÄRKEÄÄ: Mode-painikkeet ovat toimivia ja näyttävät valitun tilan aktiivisena! */}
                                         <div style={{ display: 'flex', gap: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2px' }}>
                                             <button 
                                                 onClick={() => updateBasketMode(item.time, 'puhelu')} 
