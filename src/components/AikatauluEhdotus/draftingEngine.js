@@ -60,13 +60,16 @@ export const generateSmartDraft = (
             const selectedIndex = draft.length % rawAvailable.length;
             const selected = rawAvailable[selectedIndex]; 
             
-            // Tallennetaan koriin kaikki uuden moottorin rikkaat tiedot (esim. locationName)
+            // 🟢 TÄSSÄ OLI VIKA: Nyt pakataan kesto ja huonetiedot mukaan koriin!
             draft.push({ 
                 time: selected.time, 
                 mode: selected.mode,
                 locationName: selected.locationName,
                 isBorrowed: selected.isBorrowed,
-                label: selected.label 
+                label: selected.label,
+                duration_minutes: selected.duration || targetDuration,
+                hasRoom: selected.hasRoom,
+                roomName: selected.roomName
             });
             
             // Varataan aika tilapäisesti seuraavaa luuppia varten

@@ -5,26 +5,24 @@ import Card from '../../common/Card';
 import Button from '../../common/Button';
 import Badge from '../../common/Badge';
 import AlertBox from '../../common/AlertBox';
-import { Calendar, Upload, Loader2, CheckCircle, AlertTriangle, UserCheck, PhoneCall, Trash2, Save, BookOpen, Briefcase, DoorOpen } from 'lucide-react';
+import { Calendar, Upload, Loader2, CheckCircle, AlertTriangle, UserCheck, PhoneCall, Trash2, DoorOpen } from 'lucide-react';
 
 const LEGACY_ID = '00000000-0000-0000-0000-000000000000';
 
 const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
     const [isProcessing, setIsProcessing] = useState(false);
-    const [reviewQueue, setReviewQueue] = useState([]);
-    
-    // UUSI: Välitilan (Staging Area) tilamuuttujat
-    const [stagedData, setStagedData] = useState(null);
+    const [results, setResults] = useState(null);
+    const [reviewQueue, setReviewQueue] = useState([]); // Tietokannan legacy-jono
+    const [localQueue, setLocalQueue] = useState([]); // Uusi paikallinen jono (opetettavat & muu työ)
     const [learnedDictionary, setLearnedDictionary] = useState({});
-    
+    const [learnChecks, setLearnChecks] = useState({}); // Pitää kirjaa ruksatuista opetus-checbokseista
+
     const fileInputRef = useRef(null);
 
-    // Ladataan opittu sanakirja selaimen muistista
+    // Ladataan opitut sanat selaimesta
     useEffect(() => {
         const savedDict = localStorage.getItem('espan_ics_dictionary');
-        if (savedDict) {
-            setLearnedDictionary(JSON.parse(savedDict));
-        }
+        if (savedDict) setLearnedDictionary(JSON.parse(savedDict));
     }, []);
 
     const fetchReviewQueue = async () => {
@@ -62,12 +60,7 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
             const min = cleanStr.substring(11, 13);
             const s = cleanStr.substring(13, 15);
             const isUTC = cleanStr.endsWith('Z');
-            
-            if (isUTC) {
-                return new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`).toISOString();
-            } else {
-                return new Date(`${y}-${m}-${d}T${h}:${min}:${s}`).toISOString();
-            }
+            return isUTC ? new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`).toISOString() : new Date(`${y}-${m}-${d}T${h}:${min}:${s}`).toISOString();
         }
         return null;
     };
@@ -93,8 +86,7 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
             } else if (currentEvent) {
                 const colonIndex = line.indexOf(':');
                 if (colonIndex > -1) {
-                    const propFull = line.substring(0, colonIndex);
-                    const propName = propFull.split(';')[0].toUpperCase(); 
+                    const propName = line.substring(0, colonIndex).split(';')[0].toUpperCase(); 
                     const value = line.substring(colonIndex + 1).trim();
 
                     if (propName === 'UID') currentEvent.uid = value;
@@ -110,133 +102,17 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
         return events;
     };
 
-    // ==========================================
-    // UUSI ÄLYKÄS LUOKITTELU (STAGING)
-    // ==========================================
-    const stageEvents = (rawEvents) => {
-        const staged = {
-            rooms: [],       // Huonevaraukset
-            ready: [],       // 100% varmat osumat
-            teach: [],       // Token löytyi, mutta otsikossa on poikkeama
-            other: [],       // Ei tokenia, ei asiakasID:tä (muu työ)
-            legacyQueue: []  // Vanha ratkaisukeskus
-        };
-
-        rawEvents.forEach(event => {
-            const datePart = event.start ? (event.start.includes(':') ? event.start.split(':').pop().trim() : event.start.trim()) : '';
-            const finalUid = event.uid ? `${event.uid}_${datePart}` : null;
-            if (!finalUid) return;
-
-            const startTimeIso = parseIcsDate(event.start);
-            const endTimeIso = parseIcsDate(event.end) || startTimeIso; 
-            const isAllDay = datePart.length === 8 || (event.start && event.start.includes('VALUE=DATE'));
-
-            // 1. Onko tämä fyysinen tilavaraus?
-            if (event.isResource || (event.location && event.location.startsWith('RES'))) {
-                staged.rooms.push({
-                    expert_id: asiantuntijaId,
-                    room_name: event.location || 'Tuntematon tila',
-                    start_time: startTimeIso,
-                    end_time: endTimeIso
-                });
-                return;
-            }
-
-            const baseEvent = {
-                id: finalUid, // Käytetään avaimena UI:ssa
-                expert_id: asiantuntijaId,
-                ics_uid: finalUid,
-                start_time: startTimeIso, 
-                end_time: endTimeIso,
-                is_all_day: isAllDay,
-                sync_token: event.sync_token || null,
-                original_summary: event.summary || ''
-            };
-
-            const summary = event.summary || '';
-            const lowerSummary = summary.toLowerCase();
-            const idMatch = summary.match(/\d{14}/);
-            const customerId = idMatch ? idMatch[0] : null;
-
-            // Katsotaan, löytyykö koko otsikko sanakirjasta (opittu muoto)
-            const learnedPrefixMatch = Object.keys(learnedDictionary).find(prefix => lowerSummary.startsWith(prefix.toLowerCase()));
-
-            // ================= VIP: Stealth Token tai Opittu Muoto =================
-            if (event.sync_token || learnedPrefixMatch) {
-                let cat = 'tapaaminen';
-                let method = lowerSummary.includes('puhelu') || lowerSummary.includes('soitto') ? 'soitto' : 'lasna';
-                let isCancel = false;
-
-                if (learnedPrefixMatch) {
-                    const learnedData = learnedDictionary[learnedPrefixMatch];
-                    cat = learnedData.cat;
-                    method = learnedData.method;
-                    isCancel = learnedData.isCancel;
-                } else if (lowerSummary.startsWith('peruttu')) {
-                    cat = 'peruttu';
-                    isCancel = true;
-                }
-
-                // Jos otsikossa on ylimääräistä tekstiä ja sitä ei ole opittu -> menee Opetukseen
-                const isCleanSummary = lowerSummary.startsWith('ajanvaraus') || lowerSummary.startsWith('peruttu');
-                
-                if (event.sync_token && !isCleanSummary && !learnedPrefixMatch) {
-                    staged.teach.push({
-                        ...baseEvent,
-                        selectedCat: 'peruttu', // Oletusarvaus
-                        selectedMethod: null,
-                        learnNew: true
-                    });
-                } else {
-                    staged.ready.push({ 
-                        ...baseEvent, 
-                        event_category: cat, 
-                        contact_method: method,
-                        is_cancelled: isCancel
-                    });
-                }
-                return;
-            }
-
-            // ================= LEGACY / MUUT =================
-            if (customerId) {
-                // Vanha ratkaisukeskus-logiikka
-                const maskedSummary = summary.replace(customerId, `${customerId.substring(0, 4)}*******${customerId.substring(11)}`);
-                staged.legacyQueue.push({ 
-                    ...baseEvent,
-                    masked_summary: maskedSummary, 
-                    status: 'pending' 
-                });
-            } else if (lowerSummary.match(/malminkatu|viipurinkatu|itäkeskus|etä|loma|tuuraus/)) {
-                // Sijainnit & Poissaolot -> Suoraan vihreään
-                staged.ready.push({ 
-                    ...baseEvent, 
-                    event_category: lowerSummary.match(/loma|tuuraus/) ? 'poissaolo' : 'sijainti', 
-                    location_name: summary 
-                });
-            } else {
-                // Muu työ (Ei asiakasta, ei tokenia) -> Siniseen koriin
-                staged.other.push({
-                    ...baseEvent,
-                    selectedCat: 'sisainen_palaveri' // Oletus
-                });
-            }
-        });
-
-        return staged;
-    };
-
     const handleFileChange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
         setIsProcessing(true);
+        setResults(null);
 
         try {
             const text = await file.text();
             const rawEvents = parseICS(text);
             
-            // Haetaan kannasta jo tallennetut tapahtumat päällekkäisyyksien estämiseksi
             const fileUids = rawEvents.map(ev => ev.uid ? `${ev.uid}_${ev.start ? ev.start.split(':').pop().trim() : ''}` : null).filter(Boolean);
             const { data: existingData } = await supabase.schema('espan').from('ics_events').select('ics_uid').in('ics_uid', fileUids).in('expert_id', [asiantuntijaId, LEGACY_ID]);
             const existingUids = new Set(existingData?.map(d => d.ics_uid) || []);
@@ -246,12 +122,97 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 return fUid && !existingUids.has(fUid);
             });
             
-            const staged = stageEvents(newEvents);
-            setStagedData(staged); // Avataan välitila (Staging Area)
+            const skippedCount = rawEvents.length - newEvents.length;
+
+            const insertsReady = [];
+            const insertsRooms = [];
+            const insertsLegacy = [];
+            const newLocalQueue = [];
+
+            newEvents.forEach(event => {
+                const datePart = event.start ? (event.start.includes(':') ? event.start.split(':').pop().trim() : event.start.trim()) : '';
+                const finalUid = event.uid ? `${event.uid}_${datePart}` : null;
+                if (!finalUid) return;
+
+                const startTimeIso = parseIcsDate(event.start);
+                const endTimeIso = parseIcsDate(event.end) || startTimeIso; 
+                const isAllDay = datePart.length === 8 || (event.start && event.start.includes('VALUE=DATE'));
+                const summary = event.summary || '';
+                const lowerSummary = summary.toLowerCase();
+
+                // 1. Huonevaraukset
+                if (event.isResource || (event.location && event.location.startsWith('RES'))) {
+                    insertsRooms.push({ expert_id: asiantuntijaId, room_name: event.location || 'Tuntematon tila', start_time: startTimeIso, end_time: endTimeIso });
+                    return;
+                }
+
+                const baseEvent = { expert_id: asiantuntijaId, ics_uid: finalUid, start_time: startTimeIso, end_time: endTimeIso, is_all_day: isAllDay, sync_token: event.sync_token || null };
+                const learnedPrefix = Object.keys(learnedDictionary).find(p => lowerSummary.startsWith(p.toLowerCase()));
+                const idMatch = summary.match(/\d{14}/);
+
+                // 2. Token tai opittu (VIP)
+                if (event.sync_token || learnedPrefix) {
+                    let cat = 'tapaaminen';
+                    let method = lowerSummary.includes('puhelu') || lowerSummary.includes('soitto') ? 'soitto' : 'lasna';
+                    let isCancel = false;
+
+                    if (learnedPrefix) {
+                        const learnedData = learnedDictionary[learnedPrefix];
+                        cat = learnedData.cat;
+                        method = learnedData.method;
+                        isCancel = learnedData.isCancel;
+                    } else if (lowerSummary.startsWith('peruttu')) {
+                        cat = 'peruttu';
+                        isCancel = true;
+                    }
+
+                    const isClean = lowerSummary.startsWith('ajanvaraus') || lowerSummary.startsWith('peruttu');
+                    
+                    if (event.sync_token && !isClean && !learnedPrefix) {
+                        // Tuntematon etuliite + Token = Opetettava (Menee UI jonoon)
+                        newLocalQueue.push({ ...baseEvent, id: finalUid, original_summary: summary, queueType: 'teach' });
+                    } else {
+                        // Varma osuma = Suoraan kantaan
+                        insertsReady.push({ ...baseEvent, event_category: cat, contact_method: method, is_cancelled: isCancel });
+                    }
+                    return;
+                }
+
+                // 3. Vanha ID tai Muu Työ
+                if (idMatch) {
+                    const maskedSummary = summary.replace(idMatch[0], `${idMatch[0].substring(0, 4)}*******${idMatch[0].substring(11)}`);
+                    insertsLegacy.push({ ...baseEvent, masked_summary: maskedSummary, status: 'pending' });
+                } else if (lowerSummary.match(/malminkatu|viipurinkatu|itäkeskus|etä/)) {
+                    insertsReady.push({ ...baseEvent, event_category: 'sijainti', location_name: summary });
+                } else if (lowerSummary.match(/loma|tuuraus/)) {
+                    insertsReady.push({ ...baseEvent, event_category: 'poissaolo' });
+                } else {
+                    // Muu työ = Menee UI jonoon
+                    newLocalQueue.push({ ...baseEvent, id: finalUid, original_summary: summary, queueType: 'other' });
+                }
+            });
+
+            // TALLENNETAAN PUHTAAT KANTAAN (Ei 400-virheitä, koska sarakkeet on täsmätty!)
+            if (insertsReady.length > 0) {
+                const { error } = await supabase.schema('espan').from('ics_events').upsert(insertsReady, { onConflict: 'expert_id, ics_uid' });
+                if (error) throw error;
+            }
+            if (insertsRooms.length > 0) {
+                const { error } = await supabase.schema('espan').from('room_bookings').insert(insertsRooms);
+                if (error) throw error;
+            }
+            if (insertsLegacy.length > 0) {
+                const { error } = await supabase.schema('espan').from('ics_review_queue').upsert(insertsLegacy, { onConflict: 'expert_id, ics_uid' });
+                if (error) throw error;
+            }
+
+            setLocalQueue(newLocalQueue);
+            setResults({ success: insertsReady.length, rooms: insertsRooms.length, review: insertsLegacy.length + newLocalQueue.length, skipped: skippedCount });
+            await fetchReviewQueue();
 
         } catch (error) {
-            console.error("Virhe parsinnassa:", error);
-            alert("Kalenterin luku epäonnistui.");
+            console.error("Virhe tuonnissa:", error);
+            setResults({ error: "Kalenterin luku tai tallennus epäonnistui." });
         } finally {
             setIsProcessing(false);
             if (fileInputRef.current) fileInputRef.current.value = ''; 
@@ -259,218 +220,171 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
     };
 
     // ==========================================
-    // VAHVISTA JA TALLENNA (Commit)
+    // UI-TOIMINNOT: PAIIKALLINEN JONO JA LEGACY
     // ==========================================
-    const commitStagedEvents = async () => {
-        setIsProcessing(true);
+    const resolveLocalItem = async (item, cat, method) => {
         try {
-            const inserts = [...stagedData.ready];
-            const newDictionary = { ...learnedDictionary };
-            let hasDictUpdates = false;
+            // Vain sallitut sarakkeet kantaan!
+            const dbEvent = {
+                expert_id: item.expert_id,
+                ics_uid: item.ics_uid,
+                start_time: item.start_time,
+                end_time: item.end_time,
+                is_all_day: item.is_all_day,
+                sync_token: item.sync_token,
+                event_category: cat,
+                contact_method: method || null,
+                is_cancelled: cat === 'peruttu' || cat === 'noshow'
+            };
 
-            // 1. Käsitellään Opetettavat
-            stagedData.teach.forEach(item => {
-                inserts.push({
-                    expert_id: asiantuntijaId,
-                    ics_uid: item.ics_uid,
-                    start_time: item.start_time,
-                    end_time: item.end_time,
-                    is_all_day: item.is_all_day,
-                    sync_token: item.sync_token,
-                    event_category: item.selectedCat,
-                    contact_method: item.selectedMethod,
-                    is_cancelled: item.selectedCat === 'peruttu' || item.selectedCat === 'noshow'
-                });
+            const { error } = await supabase.schema('espan').from('ics_events').upsert(dbEvent, { onConflict: 'expert_id, ics_uid' });
+            if (error) throw error;
 
-                if (item.learnNew) {
-                    const cleanPrefix = item.original_summary.split('-')[0].trim(); // Nappaa tekstin ennen väliviivaa jos on
-                    newDictionary[cleanPrefix] = { cat: item.selectedCat, method: item.selectedMethod, isCancel: (item.selectedCat === 'peruttu' || item.selectedCat === 'noshow') };
-                    hasDictUpdates = true;
-                }
-            });
-
-            // 2. Käsitellään Muu työ
-            stagedData.other.forEach(item => {
-                inserts.push({
-                    expert_id: asiantuntijaId,
-                    ics_uid: item.ics_uid,
-                    start_time: item.start_time,
-                    end_time: item.end_time,
-                    is_all_day: item.is_all_day,
-                    event_category: item.selectedCat
-                });
-            });
-
-            // A. Tallennetaan tapahtumat (ics_events)
-            if (inserts.length > 0) {
-                const { error: eventError } = await supabase.schema('espan').from('ics_events').upsert(inserts, { onConflict: 'expert_id, ics_uid' });
-                if (eventError) throw eventError;
+            // Oppiminen
+            if (item.queueType === 'teach' && learnChecks[item.id]) {
+                const cleanPrefix = item.original_summary.split('-')[0].trim();
+                const newDict = { ...learnedDictionary, [cleanPrefix]: { cat, method, isCancel: dbEvent.is_cancelled } };
+                localStorage.setItem('espan_ics_dictionary', JSON.stringify(newDict));
+                setLearnedDictionary(newDict);
             }
 
-            // B. Tallennetaan tilavaraukset (room_bookings)
-            if (stagedData.rooms.length > 0) {
-                // Poistetaan isResource apumuuttuja
-                const cleanRooms = stagedData.rooms.map(({ expert_id, room_name, start_time, end_time }) => ({ expert_id, room_name, start_time, end_time }));
-                const { error: roomError } = await supabase.schema('espan').from('room_bookings').insert(cleanRooms);
-                if (roomError) throw roomError;
-            }
-
-            // C. Tallennetaan legacy jonoon
-            if (stagedData.legacyQueue.length > 0) {
-                const queueInserts = stagedData.legacyQueue.map(q => ({ expert_id: q.expert_id, ics_uid: q.ics_uid, start_time: q.start_time, end_time: q.end_time, masked_summary: q.masked_summary, status: q.status }));
-                const { error: queueError } = await supabase.schema('espan').from('ics_review_queue').upsert(queueInserts, { onConflict: 'expert_id, ics_uid' });
-                if (queueError) throw queueError;
-            }
-
-            // D. Tallennetaan sanakirja selaimen muistiin
-            if (hasDictUpdates) {
-                localStorage.setItem('espan_ics_dictionary', JSON.stringify(newDictionary));
-                setLearnedDictionary(newDictionary);
-            }
-
-            setStagedData(null); // Sulje välitila
-            await fetchReviewQueue();
-            if (onImportComplete) onImportComplete();
-            alert("Tuonti ja täsmäytys onnistui!");
-
+            setLocalQueue(prev => prev.filter(q => q.id !== item.id));
         } catch (err) {
             console.error("Tallennusvirhe:", err);
-            alert("Tallennuksessa tapahtui virhe.");
-        } finally {
-            setIsProcessing(false);
+            alert("Tallennus epäonnistui.");
         }
     };
 
-    // Apufunktio välitilan valikoiden päivittämiseen
-    const updateStagedItem = (listName, id, key, value) => {
-        setStagedData(prev => ({
-            ...prev,
-            [listName]: prev[listName].map(item => item.id === id ? { ...item, [key]: value } : item)
-        }));
+    const discardLocalItem = (id) => {
+        setLocalQueue(prev => prev.filter(q => q.id !== id));
+    };
+
+    const resolveLegacyItem = async (item, cat, method) => {
+        try {
+            const finalCategory = cat === 'hylkaa' ? 'hylatty' : cat;
+            const dbEvent = { expert_id: asiantuntijaId, ics_uid: item.ics_uid, start_time: item.start_time, end_time: item.end_time, is_all_day: item.start_time.includes('00:00:00'), event_category: finalCategory, contact_method: method || null };
+            
+            const { error: insErr } = await supabase.schema('espan').from('ics_events').upsert(dbEvent, { onConflict: 'expert_id, ics_uid' });
+            if (insErr) throw insErr;
+
+            const { error: delErr } = await supabase.schema('espan').from('ics_review_queue').delete().eq('id', item.id);
+            if (delErr) throw delErr;
+
+            setReviewQueue(prev => prev.filter(r => r.id !== item.id));
+        } catch (error) {
+            console.error("Virhe ratkaisussa:", error);
+            alert("Tapahtuman siirto epäonnistui.");
+        }
     };
 
     return (
         <Card title="Tuo Outlook-kalenteri (.ics)" icon={Calendar} variant="default">
-            
-            {/* VÄLITILA NÄKYMÄ (Staging Area) */}
-            {stagedData ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                    <h3 style={{ fontSize: '1.1rem', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '8px', color: '#0f172a' }}>
-                        <BookOpen size={20} color="#3b82f6" /> Kalenterin täsmäytys
-                    </h3>
-
-                    {/* Vihreä alue (Automaattiset) */}
-                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                        <Badge variant="success" icon={CheckCircle}>Varmat osumat: {stagedData.ready.length}</Badge>
-                        <Badge style={{ backgroundColor: '#f3e8ff', color: '#6b21a8' }} icon={DoorOpen}>Huonevaraukset: {stagedData.rooms.length}</Badge>
-                        {stagedData.legacyQueue.length > 0 && <Badge variant="warning">Ratkaisukeskukseen: {stagedData.legacyQueue.length}</Badge>}
-                    </div>
-
-                    {/* Opetettavat (Teach) */}
-                    {stagedData.teach.length > 0 && (
-                        <div>
-                            <h4 style={{ fontSize: '0.9rem', color: '#b45309', marginBottom: '0.5rem' }}>Poikkeavat otsikot ({stagedData.teach.length})</h4>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {stagedData.teach.map(item => (
-                                    <div key={item.id} style={{ padding: '0.75rem', backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', fontSize: '0.85rem' }}>
-                                        <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>{item.original_summary}</div>
-                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                            <select value={item.selectedCat} onChange={e => updateStagedItem('teach', item.id, 'selectedCat', e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: '1px solid #d1d5db' }}>
-                                                <option value="peruttu">Peruttu</option>
-                                                <option value="noshow">Asiakas ei saapunut (No-show)</option>
-                                                <option value="siirretty">Siirretty</option>
-                                            </select>
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                                                <input type="checkbox" checked={item.learnNew} onChange={e => updateStagedItem('teach', item.id, 'learnNew', e.target.checked)} />
-                                                Muista sääntö jatkossa
-                                            </label>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Muu työ (Other) */}
-                    {stagedData.other.length > 0 && (
-                        <div>
-                            <h4 style={{ fontSize: '0.9rem', color: '#1e40af', marginBottom: '0.5rem' }}>Muu työ ({stagedData.other.length})</h4>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {stagedData.other.map(item => (
-                                    <div key={item.id} style={{ padding: '0.75rem', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-                                        <span style={{ fontWeight: '500' }}>{item.original_summary}</span>
-                                        <select value={item.selectedCat} onChange={e => updateStagedItem('other', item.id, 'selectedCat', e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: '1px solid #93c5fd' }}>
-                                            <option value="sisainen_palaveri">Sisäinen palaveri</option>
-                                            <option value="koulutus">Koulutus</option>
-                                            <option value="hallinto">Hallinto / Sähköpostit</option>
-                                            <option value="muu_tyo">Muu varattu aika</option>
-                                        </select>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '1rem' }}>
-                        <Button variant="primary" icon={Save} onClick={commitStagedEvents} disabled={isProcessing}>
-                            {isProcessing ? 'Tallennetaan...' : 'Vahvista ja tallenna kantaan'}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                
+                {/* TUONTIALUE */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <input type="file" accept=".ics" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
+                        <Button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} icon={isProcessing ? Loader2 : Upload} variant="primary">
+                            {isProcessing ? 'Käsitellään...' : 'Valitse .ics tiedosto'}
                         </Button>
-                        <Button variant="secondary" onClick={() => setStagedData(null)} disabled={isProcessing}>Peruuta</Button>
-                    </div>
-                </div>
-            ) : (
-                /* NORMAALI TUONTINÄKYMÄ (Kun ei olla välitilassa) */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <input type="file" accept=".ics" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
-                            <Button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} icon={isProcessing ? Loader2 : Upload} variant="primary">
-                                {isProcessing ? 'Käsitellään...' : 'Valitse .ics tiedosto'}
-                            </Button>
-                            {isProcessing && <span className="text-sm text-slate-500 font-italic">Tarkistetaan tapahtumia...</span>}
-                        </div>
-
-                        <div className="text-xs text-slate-500 font-italic lh-tight" style={{ borderLeft: '3px solid #cbd5e1', paddingLeft: '8px' }}>
-                            Kalenteridata tarkistetaan automaattisesti ennen tallennusta.
-                        </div>
+                        {isProcessing && <span className="text-sm text-slate-500 font-italic">Tarkistetaan tapahtumia...</span>}
                     </div>
 
-                    {/* LEGACY RATKAISUKESKUS (Näkyy vain kun on selvitettävää) */}
-                    {reviewQueue.length > 0 && (
-                        <div style={{ marginTop: '1rem', paddingTop: '1.5rem', borderTop: '1px solid #e2e8f0' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem' }}>
-                                <AlertTriangle size={20} color="#eab308" />
-                                <h3 className="text-md fw-bold m-0" style={{ color: '#854d0e' }}>
-                                    Ratkaisukeskus: Epäselvät merkinnät ({reviewQueue.length})
-                                </h3>
-                            </div>
-                            
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {reviewQueue.map((item) => {
-                                    const startDate = new Date(item.start_time);
-                                    return (
-                                        <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', padding: '12px', backgroundColor: '#fefce8', border: '1px solid #fef08a', borderRadius: '6px' }}>
-                                            <div>
-                                                <div className="text-sm-dense text-slate-500 font-mono mb-1">
-                                                    {item.start_time.includes('00:00:00') ? `${startDate.toLocaleDateString('fi-FI')} (Koko päivä)` : `${startDate.toLocaleDateString('fi-FI')} klo ${startDate.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' })}`}
-                                                </div>
-                                                <div className="text-sm fw-bold text-slate-700">{item.masked_summary}</div>
-                                            </div>
-                                            
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                {/* HUOM: Resolve-funktiota ei ole tässä snippetissä laajennettu, käytetään vanhaa logiikkaa */}
-                                                <Button variant="secondary" icon={UserCheck} onClick={() => alert('Ratkaisu toimii vanhalla koodillasi!')}>Läsnä</Button>
-                                                <Button variant="secondary" icon={PhoneCall} onClick={() => alert('Ratkaisu toimii vanhalla koodillasi!')}>Soitto</Button>
-                                                <Button variant="danger" icon={Trash2} onClick={() => alert('Ratkaisu toimii vanhalla koodillasi!')}>Hylkää</Button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                    <div className="text-xs text-slate-500 font-italic lh-tight" style={{ borderLeft: '3px solid #cbd5e1', paddingLeft: '8px' }}>
+                        Tunnistetut ja turvalliset tapahtumat sekä tilat tallennetaan suoraan taustalla. Vain epäselvät vaativat huomiotasi.
+                    </div>
+
+                    {results && !results.error && (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                            {results.success > 0 && <Badge variant="success" icon={CheckCircle}>Tuotu {results.success} uutta</Badge>}
+                            {results.rooms > 0 && <Badge style={{ backgroundColor: '#f3e8ff', color: '#6b21a8' }} icon={DoorOpen}>Tilavarauksia {results.rooms}</Badge>}
+                            {results.skipped > 0 && <Badge variant="default" className="text-muted">Ohitettu {results.skipped} (jo tallennettu)</Badge>}
+                            {results.review > 0 && <Badge variant="warning">{results.review} vaatii huomiota</Badge>}
+                            {results.success === 0 && results.review === 0 && results.rooms === 0 && <Badge variant="default" icon={CheckCircle}>Ei uusia tapahtumia</Badge>}
                         </div>
                     )}
+
+                    {results?.error && <AlertBox type="error">{results.error}</AlertBox>}
                 </div>
-            )}
+
+                {/* RATKAISUKESKUS (Yhdistetty paikallinen ja DB jono) */}
+                {(reviewQueue.length > 0 || localQueue.length > 0) && (
+                    <div style={{ marginTop: '1rem', paddingTop: '1.5rem', borderTop: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem' }}>
+                            <AlertTriangle size={20} color="#eab308" />
+                            <h3 className="text-md fw-bold m-0" style={{ color: '#854d0e' }}>
+                                Ratkaisukeskus: Epäselvät merkinnät ({reviewQueue.length + localQueue.length})
+                            </h3>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            
+                            {/* 1. PAIKALLISET: OPETETTAVAT JA MUU TYÖ */}
+                            {localQueue.map((item) => {
+                                const startDate = new Date(item.start_time);
+                                return (
+                                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', padding: '12px', backgroundColor: '#fefce8', border: '1px solid #fef08a', borderRadius: '6px' }}>
+                                        <div>
+                                            <div className="text-sm-dense text-slate-500 font-mono mb-1">
+                                                {item.is_all_day ? `${startDate.toLocaleDateString('fi-FI')} (Koko päivä)` : `${startDate.toLocaleDateString('fi-FI')} klo ${startDate.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' })}`}
+                                            </div>
+                                            <div className="text-sm fw-bold text-slate-700">{item.original_summary}</div>
+                                            {item.queueType === 'teach' && (
+                                                <div style={{ marginTop: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <input type="checkbox" id={`chk-${item.id}`} checked={learnChecks[item.id] || false} onChange={e => setLearnChecks(p => ({ ...p, [item.id]: e.target.checked }))} />
+                                                    <label htmlFor={`chk-${item.id}`} style={{ cursor: 'pointer', color: '#854d0e' }}>Opeta tämä otsikko (valitse ensin kategoria oikealta)</label>
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            {item.queueType === 'teach' ? (
+                                                <>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'peruttu', null)}>Peruttu</Button>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'noshow', null)}>No-show</Button>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'siirretty', null)}>Siirretty</Button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'sisainen_palaveri', null)}>Sisäinen pal.</Button>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'koulutus', null)}>Koulutus</Button>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'hallinto', null)}>Hallinto</Button>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'muu_tyo', null)}>Muu</Button>
+                                                </>
+                                            )}
+                                            <div style={{ width: '1px', backgroundColor: '#fde047', margin: '0 4px' }}></div>
+                                            <Button variant="danger" icon={Trash2} onClick={() => discardLocalItem(item.id)}>Hylkää</Button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+
+                            {/* 2. TIETOKANNAN LEGACY JONO */}
+                            {reviewQueue.map((item) => {
+                                const startDate = new Date(item.start_time);
+                                return (
+                                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', padding: '12px', backgroundColor: '#fefce8', border: '1px solid #fef08a', borderRadius: '6px' }}>
+                                        <div>
+                                            <div className="text-sm-dense text-slate-500 font-mono mb-1">
+                                                {item.start_time.includes('00:00:00') ? `${startDate.toLocaleDateString('fi-FI')} (Koko päivä)` : `${startDate.toLocaleDateString('fi-FI')} klo ${startDate.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' })}`}
+                                            </div>
+                                            <div className="text-sm fw-bold text-slate-700">{item.masked_summary}</div>
+                                        </div>
+                                        
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <Button variant="secondary" icon={UserCheck} onClick={() => resolveLegacyItem(item, 'tapaaminen', 'lasna')}>Läsnä</Button>
+                                            <Button variant="secondary" icon={PhoneCall} onClick={() => resolveLegacyItem(item, 'tapaaminen', 'soitto')}>Soitto</Button>
+                                            <div style={{ width: '1px', backgroundColor: '#fde047', margin: '0 4px' }}></div>
+                                            <Button variant="danger" icon={Trash2} onClick={() => resolveLegacyItem(item, 'hylkaa', null)}>Hylkää</Button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </div>
         </Card>
     );
 };
