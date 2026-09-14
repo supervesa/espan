@@ -186,10 +186,11 @@ const Suunnitelma = ({ state, actions }) => {
             </div>
 
             {/* KOMPONENTOITU RATKAISUKESKUS */}
-            <SmartSuggestionBox 
+          <SmartSuggestionBox 
                 activeSignals={activeSignals}
                 dbPhrases={dbPhrases}
                 onTogglePath={handleTogglePath}
+                appState={state}
             />
 
             <div className="mb-6">

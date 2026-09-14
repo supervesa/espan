@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Compass, Search, Info, PlusCircle, CheckCircle, ExternalLink, Sparkles, FileText, Languages, Lock, AlertCircle, Calendar } from 'lucide-react';
-import { supabase } from '../../../utils/supabaseClient';
+import { macbase } from '../../../utils/supabaseClient';
 
 const CEFR_SCORES = {
     'a1.1': 1, 'a1.2': 2, 'a1.3': 3,
@@ -42,7 +42,7 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
         const fetchServices = async () => {
             setIsLoading(true);
             try {
-                const { data, error } = await supabase.from('services').select('*').order('title', { ascending: true });
+                const { data, error } = await macbase.from('services').select('*').order('title', { ascending: true });
                 if (error) throw error;
                 if (data) {
                     setServices(data);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Compass, Sparkles, Link as LinkIcon, Save, Plus, Trash2, Info, AlertCircle, FileText, Globe, Type, Briefcase, Search, X, Check, CheckCircle, ShieldAlert } from 'lucide-react';
-import { supabase } from '../../utils/supabaseClient';
+import { Compass, Sparkles, Link as LinkIcon, Save, Plus, Trash2, Info, AlertCircle, FileText, Globe, Type, Briefcase, Search, X, Check, CheckCircle, ShieldAlert, Archive } from 'lucide-react';
+import { supabase, macbase } from '../../utils/supabaseClient';
 import AdminPanel from '../common/admin/AdminPanel';
 import AdminAlert from '../common/admin/AdminAlert';
 import SmartInput from '../common/admin/SmartInput';
@@ -16,13 +16,17 @@ const CEFR_LEVELS = ['', 'A1.1', 'A1.2', 'A1.3', 'A2.1', 'A2.2', 'B1.1', 'B1.2',
 
 const ServicesAdmin = () => {
     const [services, setServices] = useState([]);
+    const [archivedServices, setArchivedServices] = useState([]); 
+    
     const [isLoading, setIsLoading] = useState(true);
     const [activeService, setActiveService] = useState(null);
+    const [activeServiceTable, setActiveServiceTable] = useState('services'); 
+    
     const [formData, setFormData] = useState(initialFormState);
     
     const [aiMode, setAiMode] = useState('url'); 
     const [aiInput, setAiInput] = useState(''); 
-    const [aiSuggestions, setAiSuggestions] = useState(null); // Tallentaa tekoälyn ehdottamat dynaamiset metasäännöt tarkistusta varten
+    const [aiSuggestions, setAiSuggestions] = useState(null); 
     
     const [knownCategories, setKnownCategories] = useState([]);
     const [masterDictionary, setMasterDictionary] = useState([]);
@@ -42,8 +46,58 @@ const ServicesAdmin = () => {
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
 
+    // --- TIETOJEN LATAUS ERIYTETYILLÄ TRY-CATCH LOHKOILLA ---
+    const fetchServices = async () => {
+        setIsLoading(true);
+        
+        let loadedActive = [];
+        let loadedOld = [];
+
+        // 1. Hae aktiiviset palvelut
+        try {
+            const { data, error } = await macbase.from('services').select('*').order('title', { ascending: true });
+            if (error) throw error;
+            if (data) {
+                setServices(data);
+                loadedActive = data;
+            }
+        } catch (error) {
+            console.error("Virhe aktiivisten palveluiden latauksessa:", error);
+        }
+
+        // 2. Hae arkistoidut palvelut (services_old)
+        try {
+            const { data, error } = await macbase.from('services_old').select('*').order('title', { ascending: true });
+            if (error) throw error;
+            if (data) {
+                setArchivedServices(data);
+                loadedOld = data;
+            }
+        } catch (error) {
+            console.error("Virhe arkistoitujen palveluiden latauksessa:", error);
+        }
+
+        // 3. Hae sanakirja vanhasta kannasta
+        try {
+            const { data, error } = await supabase.from('view_master_dictionary').select('keyword, label, category, description');
+            if (error) throw error;
+            if (data) {
+                setMasterDictionary(data);
+            }
+        } catch (error) {
+            console.error("Virhe sanakirjan latauksessa:", error);
+        }
+
+        // Aseta kategoriat onnistuneiden hakujen pohjalta
+        const allFetchedCats = [...loadedActive, ...loadedOld].map(s => s.category).filter(Boolean);
+        setKnownCategories([...new Set([...DEFAULT_CATEGORIES, ...allFetchedCats])]);
+
+        setIsLoading(false);
+    };
+
     useEffect(() => { 
         fetchServices(); 
+        
         const handleClickOutside = (event) => {
             if (escoDropdownRef.current && !escoDropdownRef.current.contains(event.target)) {
                 setShowEscoDropdown(false);
@@ -92,30 +146,10 @@ const ServicesAdmin = () => {
         setEscoQuery('');
     };
 
-    const fetchServices = async () => {
-        setIsLoading(true);
-        try {
-            const { data, error } = await supabase.from('services').select('*').order('title', { ascending: true });
-            if (error) throw error;
-            if (data) {
-                setServices(data);
-                const fetchedCats = data.map(s => s.category).filter(Boolean);
-                setKnownCategories([...new Set([...DEFAULT_CATEGORIES, ...fetchedCats])]);
-            }
-
-            const { data: dictData, error: dictError } = await supabase.from('view_master_dictionary').select('keyword, label, category, description');
-            if (!dictError && dictData) {
-                setMasterDictionary(dictData);
-            }
-        } catch (error) {
-            console.error("Latausvirhe:", error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleItemClick = (service) => {
+    const handleItemClick = (service, isArchived = false) => {
         setActiveService(service.id);
+        setActiveServiceTable(isArchived ? 'services_old' : 'services');
+        
         setFormData({
             url: service.url || '', title: service.title || '', service_type: service.service_type || 'palvelu', category: service.category || 'Yleinen',
             description: service.description || '', plan_text: service.plan_text || '', triggers: service.triggers || '',
@@ -134,7 +168,9 @@ const ServicesAdmin = () => {
     };
 
     const handleCreateNew = () => {
-        setActiveService('new'); setFormData(initialFormState);
+        setActiveService('new'); 
+        setActiveServiceTable('services'); 
+        setFormData(initialFormState);
         setAiInput(''); setAiMode('url'); setEscoQuery(''); setAiSuggestions(null);
         setConfirmDelete(false); setSaveSuccess(false);
     };
@@ -146,21 +182,25 @@ const ServicesAdmin = () => {
             const payload = { ...formData };
             if (!payload.enrollment_deadline) payload.enrollment_deadline = null;
             
-            // TVM Saari-turvasääntö tallennuksessa
             if (payload.service_type === 'koulutus') {
                 payload.hard_service = false;
                 payload.requires_referral = false;
             }
 
             if (activeService === 'new') {
-                const { data, error } = await supabase.from('services').insert([payload]).select().single();
+                const { data, error } = await macbase.from('services').insert([payload]).select().single();
                 if (error) throw error;
                 setServices(prev => [...prev, data].sort((a, b) => a.title.localeCompare(b.title)));
                 setActiveService(data.id);
             } else {
-                const { data, error } = await supabase.from('services').update(payload).eq('id', activeService).select().single();
+                const { data, error } = await macbase.from(activeServiceTable).update(payload).eq('id', activeService).select().single();
                 if (error) throw error;
-                setServices(prev => prev.map(s => s.id === activeService ? data : s));
+                
+                if (activeServiceTable === 'services') {
+                    setServices(prev => prev.map(s => s.id === activeService ? data : s));
+                } else {
+                    setArchivedServices(prev => prev.map(s => s.id === activeService ? data : s));
+                }
             }
             fetchServices();
             setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 3000);
@@ -174,10 +214,16 @@ const ServicesAdmin = () => {
     const handleDeleteClick = async () => {
         setIsSaving(true);
         try {
-            const { error } = await supabase.from('services').delete().eq('id', activeService);
+            const { error } = await macbase.from(activeServiceTable).delete().eq('id', activeService);
             if (error) throw error;
-            setServices(prev => prev.filter(s => s.id !== activeService));
-            setActiveService(null); setConfirmDelete(false); setFormData(initialFormState); fetchServices();
+            
+            if (activeServiceTable === 'services') {
+                setServices(prev => prev.filter(s => s.id !== activeService));
+            } else {
+                setArchivedServices(prev => prev.filter(s => s.id !== activeService));
+            }
+            
+            setActiveService(null); setConfirmDelete(false); setFormData(initialFormState);
         } catch (error) {
             alert("Poisto epäonnistui!"); setConfirmDelete(false);
         } finally {
@@ -211,7 +257,6 @@ const ServicesAdmin = () => {
             const isUrl = aiInput.trim().startsWith('http://') || aiInput.trim().startsWith('https://');
             const finalUrl = isUrl ? aiInput.trim() : '';
 
-            // Päivitetään standardikentät lomakkeeseen
             setFormData(prev => ({
                 ...prev,
                 url: aiMode === 'url' ? finalUrl : prev.url,
@@ -229,12 +274,10 @@ const ServicesAdmin = () => {
                 enrollment_deadline: formattedDeadline || prev.enrollment_deadline,
                 esco_title: aiData.esco_title || '', 
                 esco_uri: aiData.esco_uri || '',
-                // Jos ei ole TVM, otetaan liput vastaan valmiiksi muistiin tarkistusta varten
                 requires_referral: aiData.service_type === 'koulutus' ? false : (aiData.requires_referral || false),
                 hard_service: aiData.service_type === 'koulutus' ? false : (aiData.hard_service || false)
             }));
 
-            // Jos tekoäly keksi dynaamisia metasääntöjä, asetetaan ne tarkistusjonoon
             if (aiData.meta && Object.keys(aiData.meta).length > 0 && aiData.service_type !== 'koulutus') {
                 setAiSuggestions(aiData.meta);
             }
@@ -245,7 +288,6 @@ const ServicesAdmin = () => {
         }
     };
 
-    // --- DYNAAMINEN META EDITOR (JSONB Hallinta ilman kovakoodausta) ---
     const handleAddCustomMeta = () => {
         if (!newMetaKey.trim()) return alert("Avain ei voi olla tyhjä");
         const key = newMetaKey.trim().toLowerCase().replace(/ /g, '_');
@@ -279,7 +321,6 @@ const ServicesAdmin = () => {
         delete updatedSuggestions[key];
         setAiSuggestions(Object.keys(updatedSuggestions).length > 0 ? updatedSuggestions : null);
     };
-    // ------------------------------------------------------------------
 
     const safeCurrentTriggers = Array.isArray(formData.triggers) ? formData.triggers.join(', ') : (formData.triggers || '');
     const currentTriggersArray = safeCurrentTriggers.split(',').map(t => t.trim()).filter(Boolean);
@@ -332,28 +373,53 @@ const ServicesAdmin = () => {
 
             <div className="admin-workspace-grid" style={{ margin: 0 }}>
                 {/* VASEN SIVUPALKKI */}
-                <div className="admin-sidebar">
-                    <button className="btn" onClick={handleCreateNew} style={{ width: '100%', marginBottom: '1.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem' }} disabled={isSaving}>
+                <div className="admin-sidebar" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
+                    <button className="btn" onClick={handleCreateNew} style={{ width: '100%', marginBottom: '1.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem', flexShrink: 0 }} disabled={isSaving}>
                         <Plus size={18} /> Uusi palvelu
                     </button>
-                    <h3 style={{ fontSize: '1rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', marginTop: 0 }}>Aktiiviset palvelut ({services.length})</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {services.map(s => {
-                            const isExpired = s.enrollment_deadline && new Date(s.enrollment_deadline) < new Date();
-                            return (
-                                <div key={s.id} className={`admin-menu-item ${activeService === s.id ? 'admin-menu-item--active' : ''}`} onClick={() => handleItemClick(s)} style={{ opacity: isExpired ? 0.6 : 1 }}>
-                                    <div style={{ fontWeight: '600' }}>{s.title}</div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
-                                        {s.service_type === 'koulutus' && <span style={{ color: '#b45309', fontWeight: 'bold' }}>[TVM]</span>}
-                                        {s.category} {s.language_req && `• ${s.language_req}`}
-                                        {s.hard_service && <span style={{ color: 'var(--color-danger)' }}>• Velvoittava</span>}
-                                        {s.requires_referral && <span style={{ color: 'var(--color-success)' }}>• Lähete</span>}
-                                        {isExpired && <span style={{ color: 'var(--color-danger)' }}>(Haku päättynyt)</span>}
+                    
+                    {/* AKTIIVISET PALVELUT LISTA */}
+                    <div style={{ flexShrink: 0, marginBottom: '2rem' }}>
+                        <h3 style={{ fontSize: '1rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Compass size={16} /> Aktiiviset palvelut ({services.length})
+                        </h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {services.map(s => {
+                                const isExpired = s.enrollment_deadline && new Date(s.enrollment_deadline) < new Date();
+                                return (
+                                    <div key={`active-${s.id}`} className={`admin-menu-item ${activeService === s.id && activeServiceTable === 'services' ? 'admin-menu-item--active' : ''}`} onClick={() => handleItemClick(s, false)}>
+                                        <div style={{ fontWeight: '600' }}>{s.title}</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                                            {s.service_type === 'koulutus' && <span style={{ color: '#b45309', fontWeight: 'bold' }}>[TVM]</span>}
+                                            {s.category} {s.language_req && `• ${s.language_req}`}
+                                            {s.hard_service && <span style={{ color: 'var(--color-danger)' }}>• Velvoittava</span>}
+                                            {s.requires_referral && <span style={{ color: 'var(--color-success)' }}>• Lähete</span>}
+                                            {isExpired && <span style={{ color: 'var(--color-danger)' }}>(Haku päättynyt)</span>}
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
                     </div>
+
+                    {/* VANHENTUNEET PALVELUT LISTA */}
+                    {archivedServices.length > 0 && (
+                        <div style={{ flexShrink: 0 }}>
+                            <h3 style={{ fontSize: '1rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', paddingTop: '1rem', borderTop: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Archive size={16} /> Arkistoidut / Vanhentuneet ({archivedServices.length})
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {archivedServices.map(s => (
+                                    <div key={`archived-${s.id}`} className={`admin-menu-item ${activeService === s.id && activeServiceTable === 'services_old' ? 'admin-menu-item--active' : ''}`} onClick={() => handleItemClick(s, true)} style={{ opacity: activeService === s.id ? 1 : 0.7, backgroundColor: activeService === s.id ? 'var(--color-surface)' : '#f8fafc' }}>
+                                        <div style={{ fontWeight: '500' }}>{s.title}</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginTop: '0.2rem' }}>
+                                            {s.category} • Arkistoitu
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* OIKEA TYÖTILA */}
@@ -365,6 +431,17 @@ const ServicesAdmin = () => {
                     ) : (
                         <div className="admin-preview-card" style={{ animation: 'fadeIn 0.3s ease-out' }}>
                             
+                            {/* Arkistoitu-varoitus ylhäälle jos muokataan vanhaa */}
+                            {activeServiceTable === 'services_old' && (
+                                <div style={{ backgroundColor: 'rgba(255,176,32,0.1)', border: '1px solid rgba(255,176,32,0.3)', padding: '1rem', borderRadius: '6px', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--color-warning)' }}>
+                                    <Archive size={20} />
+                                    <div>
+                                        <strong style={{ display: 'block' }}>Muokkaat arkistoitua palvelua</strong>
+                                        <span style={{ fontSize: '0.85rem' }}>Tämä palvelu haetaan services_old -taulusta eikä se näy asiakkaille varattavissa olevissa palveluissa. Tallennukset kohdistuvat arkistotauluun.</span>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* TEKOÄLYN TUONTILAATIKKO */}
                             <div className="smart-analysis-box" style={{ backgroundColor: '#eff6ff', border: '1px solid rgba(37,99,235,0.2)', padding: '1.5rem', marginBottom: '2rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -600,7 +677,7 @@ const ServicesAdmin = () => {
                                 <div>
                                     {activeService !== 'new' && (
                                         !confirmDelete ? (
-                                            <button className="btn btn--secondary" style={{ color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }} onClick={() => setConfirmDelete(true)} disabled={isSaving}>Poista palvelu hakemistosta</button>
+                                            <button className="btn btn--secondary" style={{ color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }} onClick={() => setConfirmDelete(true)} disabled={isSaving}>Poista palvelu</button>
                                         ) : (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                                 <span style={{ color: 'var(--color-danger)', fontWeight: 'bold', fontSize: '0.9rem' }}>Vahvistatko poiston?</span>
