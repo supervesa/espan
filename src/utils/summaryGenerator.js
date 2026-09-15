@@ -70,11 +70,10 @@ export const generateHybridSectionContent = (section, selection, state, dbKnowle
         if (phraseData) {
             let koottuTeksti = processPhrase(phraseData, selection);
             
-            if (selection.alentamisenValmisTeksti || selection.alentamisenVapaaTeksti) {
-                let alennusTeksti = '\nTyönhakuvelvollisuutta on alennettu.';
-                if (selection.alentamisenValmisTeksti) alennusTeksti += ` Perusteet: ${selection.alentamisenValmisTeksti}`;
-                else if (selection.alentamisenVapaaTeksti) alennusTeksti += ` Perusteet: ${selection.alentamisenVapaaTeksti}`; 
-                koottuTeksti += alennusTeksti;
+            if (selection.alentamisenValmisTeksti) {
+                koottuTeksti += `\n${selection.alentamisenValmisTeksti}`;
+            } else if (selection.alentamisenVapaaTeksti) {
+                koottuTeksti += `\nTyönhakuvelvollisuuden alentamisen tai asettamatta jättämisen perusteet:\n${selection.alentamisenVapaaTeksti}`;
             }
 
             if (selection.vakiotekstitYhdistetty) {
@@ -179,11 +178,10 @@ export const generateSectionContent = (section, selection, state) => {
         if (phraseData) {
             let koottuTeksti = processPhrase(phraseData, selection);
             
-            if (selection.alentamisenValmisTeksti || selection.alentamisenVapaaTeksti) {
-                let alennusTeksti = '\nTyönhakuvelvollisuutta on alennettu.';
-                if (selection.alentamisenValmisTeksti) alennusTeksti += ` Perusteet: ${selection.alentamisenValmisTeksti}`;
-                else if (selection.alentamisenVapaaTeksti) alennusTeksti += ` Perusteet: ${selection.alentamisenVapaaTeksti}`;
-                koottuTeksti += alennusTeksti;
+            if (selection.alentamisenValmisTeksti) {
+                koottuTeksti += `\n${selection.alentamisenValmisTeksti}`;
+            } else if (selection.alentamisenVapaaTeksti) {
+                koottuTeksti += `\nTyönhakuvelvollisuuden alentamisen tai asettamatta jättämisen perusteet:\n${selection.alentamisenVapaaTeksti}`;
             }
 
             if (selection.vakiotekstitYhdistetty) {
@@ -339,9 +337,33 @@ export const generateHybridSummary = (state, dbPlanData, dbKnowledge) => {
     if (edellytyksetTeksti) {
         // Puhdistetaan tähdet myös tästä!
         const cleanedEdellytykset = edellytyksetTeksti.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
-        let tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
-        const insertIndex = tyokykyIndex > -1 ? tyokykyIndex + 1 : textParts.length;
+        
+        // KORJAUS: Etsitään ensin Työkyky. Jos sitä ei löydy (koska se on tyhjä), 
+        // tartutaan Työtilanteeseen, jottei tämä osio romahda asiakirjan pohjalle!
+        let ankkuriIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
+        if (ankkuriIndex === -1) {
+            ankkuriIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
+        }
+        
+        const insertIndex = ankkuriIndex > -1 ? ankkuriIndex + 1 : 2;
         textParts.splice(insertIndex, 0, `**Työllistymisen edellytysten arviointi**\n${cleanedEdellytykset}`);
+    }
+
+    // --- KORJATTU: TYÖNHAKUPROFIILI SIIRRETÄÄN SUUNNITELMAN JA THV:N VÄLIIN ---
+    const profiiliIndex = textParts.findIndex(p => p.startsWith('**Työnhakuprofiili**'));
+    if (profiiliIndex > -1) {
+        const profiiliText = textParts.splice(profiiliIndex, 1)[0];
+        let thvIndex = textParts.findIndex(p => p.startsWith('**Työnhakuvelvollisuus**'));
+        if (thvIndex > -1) {
+            textParts.splice(thvIndex, 0, profiiliText);
+        } else {
+            let suunnitelmaIndex = textParts.findIndex(p => p.startsWith('**Suunnitelma**'));
+            if (suunnitelmaIndex > -1) {
+                textParts.splice(suunnitelmaIndex + 1, 0, profiiliText);
+            } else {
+                textParts.push(profiiliText);
+            }
+        }
     }
 
     let cleanedTextParts = textParts.filter(Boolean); 
@@ -440,9 +462,33 @@ export const generateFullSummary = (state) => {
     if (edellytyksetTeksti) {
         // Puhdistetaan tähdet myös tästä!
         const cleanedEdellytykset = edellytyksetTeksti.replace(/\*\*/g, '').replace(/\n{2,}/g, '\n');
-        let tyokykyIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
-        const insertIndex = tyokykyIndex > -1 ? tyokykyIndex + 1 : textParts.length;
+        
+        // KORJAUS: Etsitään ensin Työkyky. Jos sitä ei löydy (koska se on tyhjä), 
+        // tartutaan Työtilanteeseen, jottei tämä osio romahda asiakirjan pohjalle!
+        let ankkuriIndex = textParts.findIndex(p => p.startsWith('**Työkyky**'));
+        if (ankkuriIndex === -1) {
+            ankkuriIndex = textParts.findIndex(p => p.startsWith('**Asiakkaan työtilanne**'));
+        }
+        
+        const insertIndex = ankkuriIndex > -1 ? ankkuriIndex + 1 : 2;
         textParts.splice(insertIndex, 0, `**Työllistymisen edellytysten arviointi**\n${cleanedEdellytykset}`);
+    }
+
+    // --- KORJATTU: TYÖNHAKUPROFIILI SIIRRETÄÄN SUUNNITELMAN JA THV:N VÄLIIN ---
+    const profiiliIndex = textParts.findIndex(p => p.startsWith('**Työnhakuprofiili**'));
+    if (profiiliIndex > -1) {
+        const profiiliText = textParts.splice(profiiliIndex, 1)[0];
+        let thvIndex = textParts.findIndex(p => p.startsWith('**Työnhakuvelvollisuus**'));
+        if (thvIndex > -1) {
+            textParts.splice(thvIndex, 0, profiiliText);
+        } else {
+            let suunnitelmaIndex = textParts.findIndex(p => p.startsWith('**Suunnitelma**'));
+            if (suunnitelmaIndex > -1) {
+                textParts.splice(suunnitelmaIndex + 1, 0, profiiliText);
+            } else {
+                textParts.push(profiiliText);
+            }
+        }
     }
 
     let cleanedTextParts = textParts.filter(Boolean); 

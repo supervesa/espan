@@ -27,11 +27,11 @@ export const planData = {
       fraasit: [
         { lyhenne: "Syntymävuosi", teksti: "Asiakkaan syntymävuosi: [SYNTYMÄVUOSI]", avainsana: "syntymavuosi", muuttujat: { "SYNTYMÄVUOSI": { "tyyppi": "numero", "oletus": 1980 } } },
         { 
-  lyhenne: "Työnhaun alku", 
-  teksti: "Asiakkaan työnhaku on alkanut [TH_ALKU_PVM].", 
-  avainsana: "tyonhaku_alkanut", 
-  muuttujat: { "TH_ALKU_PVM": { "tyyppi": "teksti", "oletus": new Date().toLocaleDateString('fi-FI') } } 
-},
+          lyhenne: "Työnhaun alku", 
+          teksti: "Asiakkaan työnhaku on alkanut [TH_ALKU_PVM].", 
+          avainsana: "tyonhaku_alkanut", 
+          muuttujat: { "TH_ALKU_PVM": { "tyyppi": "teksti", "oletus": new Date().toLocaleDateString('fi-FI') } } 
+        },
         { lyhenne: "Laatimistapa", teksti: "Tämä suunnitelma laadittiin [YHTEYDENOTTOTAPA] [PÄIVÄMÄÄRÄ].", avainsana: "laadittu", muuttujat: { YHTEYDENOTTOTAPA: { tyyppi: "valinta", "vaihtoehdot": ["puhelinajalla", "käyntiajalla"], oletus: "puhelinajalla" }, PÄIVÄMÄÄRÄ: { tyyppi: "teksti", oletus: new Date().toLocaleDateString('fi-FI') } } },
         { lyhenne: "Tapaamisen tyyppi", teksti: "Tapaamisen tyyppi: [TAPAAMISTYYPPI]", avainsana: "tapaamisen_tyyppi", muuttujat: { "TAPAAMISTYYPPI": { "tyyppi": "valinta", "vaihtoehdot": ["Alkuhaastattelu", "3kk Työnhakukeskustelu", "6kk Täydentävä keskustelu"], oletus: "Alkuhaastattelu" } } },
         { lyhenne: "Hyväksyntä (käynti)", teksti: "Asiakas hyväksyi suunnitelman käynnillä.", "avainsana": "hyvaksynta_kaynnilla" },
@@ -58,18 +58,17 @@ export const planData = {
         { lyhenne: "Työkokeilussa", teksti: "Asiakas on työkokeilussa.", "avainsana": "tyokokeilu" }
       ]
     },
-      {
-      otsikko: "Koulutus", // Nimi muutettu
-      id: "koulutus",      // <-- ID MUUTETTU
+    {
+      otsikko: "Koulutus", 
+      id: "koulutus",      
       monivalinta: false,
       fraasit: [
-         // Vain koulutusfraasit jäävät
          { 
            lyhenne: "Koulutustausta", 
            teksti: "Asiakas on koulutukseltaan [KOULUTUS] (v. [VUOSI]).", 
            avainsana: "koulutus_tausta", 
            muuttujat: { KOULUTUS: { tyyppi: "teksti" }, VUOSI: { tyyppi: "teksti" } },
-           ryhma: 'koulutus' // Tämä voi jäädä, ei haittaa mitään
+           ryhma: 'koulutus' 
          },
          { 
            lyhenne: "Ei tutkintoa", 
@@ -83,7 +82,6 @@ export const planData = {
            avainsana: "oppisopimus",
            ryhma: 'koulutus'
          }
-         // Yrittäjyys-fraasi poistettu täältä
       ]
     },
     {
@@ -99,15 +97,14 @@ export const planData = {
          }
       ]
     },
-    // --- LISÄÄ TÄMÄ UUSI OSIO planData.js-TIEDOSTOON ---
     {
-      otsikko: "Ammattikortit", // Otsikolla ei ole väliä, piilotamme sen
-      id: "ammattikortit", // UUSI, OMA ID
-      monivalinta: true, // TÄMÄ ON MONIVALINTAOSIO
+      otsikko: "Ammattikortit", 
+      id: "ammattikortit", 
+      monivalinta: true, 
       fraasit: [
          {
           avainsana: 'hygieniapassi',
-          teksti: 'hygieniapassi', // Yhteenvetoa varten
+          teksti: 'hygieniapassi', 
           tyyppi: 'monivalinta',
           ryhma: 'ammattikortit',
           lyhenne: 'Hygieniapassi'
@@ -133,12 +130,17 @@ export const planData = {
           ryhma: 'ammattikortit',
           lyhenne: 'Alkoholipassi'
         }
-        // Lisää uudet kortit tähän listaan
       ]
     },
     {
       otsikko: "Työkyky",
       id: "tyokyky",
+      tyyppi: "erikoiskomponentti"
+    },
+    // --- LISÄTTY: Edellytykset on nyt virallisesti listalla Työkyvyn perässä ---
+    {
+      otsikko: "Työllistymisen edellytysten arviointi",
+      id: "edellytykset",
       tyyppi: "erikoiskomponentti"
     },
     {
@@ -254,7 +256,13 @@ export const planData = {
           "muuttujat": { "LKM": { "tyyppi": "numero", "oletus": 0 }, "AIKAJAKSO": { "tyyppi": "valinta", "vaihtoehdot": ["kuukaudessa", "kolmen kuukauden aikana"], "oletus": "kuukaudessa" } }
         }
       ]
+    },
+    // --- LISÄTTY: Työnhakuprofiili on nyt virallisesti listalla Suunnitelman / THV:n perässä ---
+    {
+      otsikko: "Työnhakuprofiili",
+      id: "tyonhakuprofiili",
+      tyyppi: "standard",
+      monivalinta: false
     }
-    
   ]
 };

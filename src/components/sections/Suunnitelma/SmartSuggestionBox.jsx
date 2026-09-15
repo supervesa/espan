@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { supabase, macbase } from '../../../utils/supabaseClient'; 
 import { Briefcase, GraduationCap, HeartPulse, Rocket } from 'lucide-react';
 
+// Tuodaan omat common-komponentit
 import SmartResolutionHub from '../../common/SmartResolutionHub';
 import AILoadingSpinner from '../../common/AILoadingSpinner';
 import Card from '../../common/Card';
@@ -36,7 +37,6 @@ const arrayBufferToBase64 = (buffer) => {
 const importPublicKey = async (pem) => {
     const pemHeader = "-----BEGIN PUBLIC KEY-----";
     const pemFooter = "-----END PUBLIC KEY-----";
-    // Siivotaan headerit ja rivinvaihdot pois
     const pemContents = pem.replace(pemHeader, "").replace(pemFooter, "").replace(/[\r\n\s]/g, "");
     const binaryDer = base64ToArrayBuffer(pemContents);
 
@@ -97,12 +97,14 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
     const [suositellutPalvelut, setSuositellutPalvelut] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
 
+    // 1. Muotoillaan näytettävät signaalit yhteistä komponenttia varten
     const displaySignals = useMemo(() => 
         Object.entries(activeSignals)
             .filter(([key, value]) => value && !key.match(/^[0-9a-f]{8}-[0-9a-f]{4}-/i))
             .map(([key]) => ({ label: key.replace(/_/g, ' ') })), 
     [activeSignals]);
 
+    // 2. Lasketaan polut
     const strategyPaths = useMemo(() => {
         const paths = {
             'A': { title: 'Työ edellä', icon: <Briefcase size={16} />, phrases: [] },
@@ -126,6 +128,7 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
         return paths;
     }, [dbPhrases, activeSignals]);
 
+    // 3. Muutetaan datamuoto common-komponentille sopivaksi
     const strategies = Object.entries(strategyPaths)
         .filter(([_, pathData]) => pathData.phrases.length > 0)
         .map(([key, pathData]) => ({
@@ -137,6 +140,7 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
             onAction: () => onTogglePath(pathData.phrases)
         }));
 
+    // --- HAKUFUNKTIO ---
     const haePalvelut = async () => {
         setIsSearching(true);
         setSuositellutPalvelut([]); 
@@ -172,18 +176,13 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
                 filters: activeSignals
             };
 
-            // 2. NIGHTFRIGHT-SALAUS (Varmista että avain löytyy .env tiedostosta!)
+            // 2. NIGHTFRIGHT-SALAUS 
             const publicKeyPem = import.meta.env.VITE_PUBLIC_RSA_KEY; 
             if (!publicKeyPem) {
                 throw new Error("Julkinen RSA-avain puuttuu (VITE_PUBLIC_RSA_KEY)");
             }
             const encryptedPayload = await encryptNightfright(rawPayload, publicKeyPem);
-// --- LOKITUS SELAIN KONSOLIIN: NÄE SALAUS OMIN SILMIN ---
-            console.log("🔒 Nightfright-salaus suoritettu!");
-            console.log("Alkuperäinen data (piilotettu):", rawPayload);
-            console.log("Paketti, joka oikeasti lähtee verkon yli:");
-            console.log(JSON.stringify(encryptedPayload, null, 2));
-            // --------------------------------------------------------
+
             // 3. LÄHETETÄÄN SALATTU PAKETTI API:LLE
             const response = await fetch('https://nsg.asuscomm.com/python/search', {
                 method: 'POST',
@@ -191,7 +190,7 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
                     'Content-Type': 'application/json',
                     'x-api-key': import.meta.env.VITE_PYTHON_API_KEY
                 },
-                body: JSON.stringify(encryptedPayload) // Paljas payload korvattu nf_key, nf_iv ja nf_data!
+                body: JSON.stringify(encryptedPayload)
             });
 
             if (!response.ok) throw new Error(`Verkkovirhe: ${response.status}`);

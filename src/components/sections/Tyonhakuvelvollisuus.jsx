@@ -52,7 +52,7 @@ const Alennustyokalu = ({ alennusPhrases, selection, onUpdate, onCancel }) => {
         }
 
         let teksti = 'Työnhakuvelvollisuuden alentamisen tai asettamatta jättämisen perusteet:\n';
-        teksti += valitutTekstit.map(t => `• ${t}`).join('\n');
+        teksti += valitutTekstit.join('\n');
         
         if (vapaaTeksti) {
             teksti += `\n\nTarkemmat perustelut:\n${vapaaTeksti}`;
