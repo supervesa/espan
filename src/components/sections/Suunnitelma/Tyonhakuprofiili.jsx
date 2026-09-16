@@ -94,13 +94,20 @@ const Tyonhakuprofiili = ({ state, actions }) => {
                     });
                     setPhrases(enrichedPhrases);
 
-                    // TULOSTUKSEN SILTA (planData injektio)
+                  // TULOSTUKSEN SILTA (planData injektio)
                     let sectionInPlanData = planData.aihealueet.find(s => s.id === UI_KEY);
                     if (!sectionInPlanData) {
                         sectionInPlanData = { id: UI_KEY, otsikko: 'Työnhakuprofiili', monivalinta: false, fraasit: [] };
                         planData.aihealueet.push(sectionInPlanData);
                     }
+                    
+                    // KORJAUS TÄSSÄ: Varmistetaan EHDOTTOMASTI, että fraasit on taulukko ennen sen käyttöä!
+                    if (!sectionInPlanData.fraasit) {
+                        sectionInPlanData.fraasit = [];
+                    }
+
                     enrichedPhrases.forEach(dbPhrase => {
+                        // Nyt tämä ei kaadu enää ikinä, koska tiedämme 100% varmasti että .fraasit on olemassa
                         if (!sectionInPlanData.fraasit.find(f => f.avainsana === dbPhrase.avainsana)) {
                             sectionInPlanData.fraasit.push({
                                 avainsana: dbPhrase.avainsana, teksti: dbPhrase.base_text, lyhenne: dbPhrase.short_title, muuttujat: dbPhrase.muuttujat
