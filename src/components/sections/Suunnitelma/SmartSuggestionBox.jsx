@@ -1,6 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { supabase, macbase } from '../../../utils/supabaseClient'; 
-import { Briefcase, GraduationCap, HeartPulse, Rocket, Building, Calendar, Globe, Copy, CheckCircle, ExternalLink } from 'lucide-react';
+import { 
+    Briefcase, GraduationCap, HeartPulse, Rocket, Building, 
+    Calendar, Globe, Copy, CheckCircle, ExternalLink, FileText, 
+    Settings2, Target, BookOpen, MessageCircle, AlertCircle, PenTool 
+} from 'lucide-react';
 
 // Tuodaan omat common-komponentit
 import SmartResolutionHub from '../../common/SmartResolutionHub';
@@ -9,8 +13,11 @@ import Card from '../../common/Card';
 import Badge from '../../common/Badge';
 import Button from '../../common/Button';
 
+// TUODAAN UUSI MODAALI (Varmista että polku on oikein!)
+import Modal from '../../common/Modal'; 
+
 // ==========================================
-// NIGHTFRIGHT - SALAUSLOGIIKKA (Web Crypto)
+// NIGHTFRIGHT - SALAUSLOGIIKKA
 // ==========================================
 
 const base64ToArrayBuffer = (base64) => {
@@ -63,7 +70,6 @@ const encryptNightfright = async (payloadObj, publicKeyPem) => {
     };
 };
 
-// Pvm-muotoilija suomalaiseen formaattiin (pp.kk.vvvv)
 const muotoilePvm = (dateString) => {
     if (!dateString) return null;
     const parts = dateString.split('-');
@@ -79,7 +85,17 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
     
     const [suositellutPalvelut, setSuositellutPalvelut] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
-    const [copiedId, setCopiedId] = useState(null); // Tekstin kopioinnin tilaseuranta
+    const [copiedId, setCopiedId] = useState(null); 
+    
+    // Tarkennetun haun modaalin tilat
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [searchSettings, setSearchSettings] = useState({
+        tavoite: { text: '', active: false },
+        koulutus: { text: '', active: false },
+        kieli: { text: '', active: false },
+        edellytykset: { text: '', active: false },
+        lisatiedot: { text: '', active: true } // Vapaa kenttä, oletuksena aina auki
+    });
 
     const displaySignals = useMemo(() => 
         Object.entries(activeSignals)
@@ -121,30 +137,97 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
             onAction: () => onTogglePath(pathData.phrases)
         }));
 
-    const haePalvelut = async () => {
+    // ==========================================
+    // TEKSTIPESURI
+    // ==========================================
+    const pesuriRegexit = [
+        /asiakas ei ole (tässä vaiheessa )?kiinnostunut yritystoiminnan aloittamisesta\.?/ig,
+        /ei kiinnostusta yrittäjyyteen\.?/ig,
+        /keskusteltiin yrittäjyydestä\.?/ig 
+    ];
+
+    const peseTeksti = (teksti) => {
+        let puhdas = teksti || '';
+        pesuriRegexit.forEach(regex => {
+            puhdas = puhdas.replace(regex, '');
+        });
+        return puhdas.trim();
+    };
+
+    // ==========================================
+    // MODAALIN AVAUS JA TIETOJEN ALUSTUS
+    // ==========================================
+    const handleOpenAdvancedSearch = () => {
+        let escoTeksti = '';
+        if (appState?.valitutAmmattikortit && Array.isArray(appState.valitutAmmattikortit)) {
+            escoTeksti = appState.valitutAmmattikortit.map(kortti => kortti.nimi || kortti.title).join(', ');
+        } else if (typeof appState?.['custom-tavoite_ammatit'] === 'string') {
+            escoTeksti = appState['custom-tavoite_ammatit'].trim();
+        }
+
+        const koulutus = peseTeksti(appState?.['custom-koulutus']?.trim());
+        const kieli = appState?.['custom-kielitaso']?.trim() || '';
+        const edellytykset = peseTeksti((appState?.['custom-lopullinen_33_arvio'] || appState?.['custom-edellytykset'] || '').trim());
+
+        // Alustetaan muuttujat suoraan näkyville modaaliin
+        setSearchSettings({
+            tavoite: { text: escoTeksti, active: !!escoTeksti },
+            koulutus: { text: koulutus, active: !!koulutus },
+            kieli: { text: kieli, active: !!kieli },
+            edellytykset: { text: edellytykset, active: !!edellytykset },
+            lisatiedot: { text: '', active: true }
+        });
+        setIsModalOpen(true);
+    };
+
+    // ==========================================
+    // HAKULOGIIKKA (Käsittelee perushaun ja tarkennetun haun)
+    // ==========================================
+    const haePalvelut = async (isAdvanced = false) => {
         setIsSearching(true);
         setSuositellutPalvelut([]); 
         setCopiedId(null);
         const startTime = performance.now();
         
         try {
-            const koulutusTeksti = appState?.['custom-koulutus']?.trim() || '';
-            const kieliTeksti = appState?.['custom-kielitaso']?.trim() || '';
-            const edellytyksetTeksti = (appState?.['custom-lopullinen_33_arvio'] || appState?.['custom-edellytykset'] || '').trim();
-            
-            let escoTeksti = '';
-            if (appState?.valitutAmmattikortit && Array.isArray(appState.valitutAmmattikortit)) {
-                escoTeksti = appState.valitutAmmattikortit.map(kortti => kortti.nimi || kortti.title).join(', ');
-            } else if (typeof appState?.['custom-tavoite_ammatit'] === 'string') {
-                escoTeksti = appState['custom-tavoite_ammatit'].trim();
-            }
+            // 1. SIIVOTAAN SIGNAALIT KANNAN BONUKSIA VARTEN
+            const siivotutSignaalit = {};
+            Object.entries(activeSignals).forEach(([key, value]) => {
+                if (!value) return; 
+                if (key.match(/^[0-9a-f]{8}-[0-9a-f]{4}-/i)) return; 
+                if (key.startsWith('postinro_') || key.startsWith('kunta_')) return; 
+                if (key.startsWith('nayta_')) return; 
+                
+                siivotutSignaalit[key] = value;
+            });
 
+            // 2. RAKENNETAAN TEKSTIHAKU
             const hakupalat = [];
-            // Korostetaan vahvasti asiakkaan tavoiteammattia, koska meillä on ne metadatassa tallessa!
-            if (escoTeksti) hakupalat.push(`Työllistymistavoite tai tavoiteammatti on: ${escoTeksti}`);
-            if (koulutusTeksti) hakupalat.push(`Koulutustausta: ${koulutusTeksti}`);
-            if (kieliTeksti) hakupalat.push(`Kielitaito: ${kieliTeksti}`);
-            if (edellytyksetTeksti) hakupalat.push(`Huomioitavaa: ${edellytyksetTeksti}`);
+
+            if (isAdvanced) {
+                // Tarkennettu haku: Luetaan tekstit ja valinnat suoraan modaalin tilasta
+                if (searchSettings.tavoite.active && searchSettings.tavoite.text) hakupalat.push(`Työllistymistavoite tai ammatti on: ${searchSettings.tavoite.text}`);
+                if (searchSettings.koulutus.active && searchSettings.koulutus.text) hakupalat.push(`Koulutustausta: ${searchSettings.koulutus.text}`);
+                if (searchSettings.kieli.active && searchSettings.kieli.text) hakupalat.push(`Kielitaito: ${searchSettings.kieli.text}`);
+                if (searchSettings.edellytykset.active && searchSettings.edellytykset.text) hakupalat.push(`Huomioitavaa: ${searchSettings.edellytykset.text}`);
+                if (searchSettings.lisatiedot.active && searchSettings.lisatiedot.text) hakupalat.push(`Erityistoive: ${searchSettings.lisatiedot.text}`);
+            } else {
+                // Pikahaku: Luetaan tekstit appStatesta, pestään ja yhdistetään
+                let escoTeksti = '';
+                if (appState?.valitutAmmattikortit && Array.isArray(appState.valitutAmmattikortit)) {
+                    escoTeksti = appState.valitutAmmattikortit.map(kortti => kortti.nimi || kortti.title).join(', ');
+                } else if (typeof appState?.['custom-tavoite_ammatit'] === 'string') {
+                    escoTeksti = appState['custom-tavoite_ammatit'].trim();
+                }
+                const koulutusTeksti = peseTeksti(appState?.['custom-koulutus']?.trim());
+                const kieliTeksti = appState?.['custom-kielitaso']?.trim() || '';
+                const edellytyksetTeksti = peseTeksti((appState?.['custom-lopullinen_33_arvio'] || appState?.['custom-edellytykset'] || '').trim());
+
+                if (escoTeksti) hakupalat.push(`Työllistymistavoite tai tavoiteammatti on: ${escoTeksti}`);
+                if (koulutusTeksti) hakupalat.push(`Koulutustausta: ${koulutusTeksti}`);
+                if (kieliTeksti) hakupalat.push(`Kielitaito: ${kieliTeksti}`);
+                if (edellytyksetTeksti) hakupalat.push(`Huomioitavaa: ${edellytyksetTeksti}`);
+            }
 
             const searchText = hakupalat.length > 0 
                 ? hakupalat.join('. ') 
@@ -152,9 +235,9 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
 
             const rawPayload = {
                 search_text: searchText,
-                match_count: 5, // Nostetaan ehdotukset kolmesta viiteen, kun TVM dataa on paljon!
+                match_count: 5, 
                 threshold: 0.5,
-                filters: activeSignals
+                filters: siivotutSignaalit
             };
 
             const publicKeyPem = import.meta.env.VITE_PUBLIC_RSA_KEY; 
@@ -176,8 +259,8 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
             const durationMs = Math.round(performance.now() - startTime);
 
             macbase.from('log_services_ai').insert([{
-                search_text: searchText,
-                active_signals: activeSignals,
+                search_text: searchText, 
+                active_signals: siivotutSignaalit,
                 results: result.data || [],
                 duration_ms: durationMs
             }]).then(({ error }) => {
@@ -193,11 +276,40 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
         }
     };
 
-    // Kopiointifunktio suunnitelmatekstille
     const copyToClipboard = (text, id) => {
         navigator.clipboard.writeText(text);
         setCopiedId(id);
-        setTimeout(() => setCopiedId(null), 3000); // Palauttaa ikonin 3 sekunnin päästä
+        setTimeout(() => setCopiedId(null), 3000); 
+    };
+
+    // Apukomponentti modaalin kenttien renderöintiin
+    const renderSettingsField = (key, title, Icon) => {
+        const field = searchSettings[key];
+        return (
+            <div style={{ backgroundColor: field.active ? '#f8fafc' : '#f1f5f9', padding: '1rem', borderRadius: '8px', border: '1px solid', borderColor: field.active ? '#cbd5e1' : '#e2e8f0', transition: 'all 0.2s' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: 600, cursor: 'pointer', color: field.active ? 'var(--color-text-primary)' : '#94a3b8' }}>
+                    <input 
+                        type="checkbox" 
+                        checked={field.active} 
+                        onChange={() => setSearchSettings(prev => ({ ...prev, [key]: { ...prev[key], active: !prev[key].active } }))} 
+                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <Icon size={18} /> {title}
+                </label>
+                {field.active && (
+                    <textarea
+                        value={field.text}
+                        onChange={(e) => setSearchSettings(prev => ({ ...prev, [key]: { ...prev[key], text: e.target.value } }))}
+                        placeholder={key === 'lisatiedot' ? "Esim. 'Etsi erityisesti logistiikka-alan lyhytkoulutuksia' tai 'Painota asiakaspalvelua'." : ""}
+                        style={{ 
+                            width: '100%', padding: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '6px', 
+                            minHeight: key === 'lisatiedot' ? '80px' : '60px', fontFamily: 'inherit', marginTop: '0.75rem',
+                            resize: 'vertical', fontSize: '0.9rem', lineHeight: '1.5'
+                        }}
+                    />
+                )}
+            </div>
+        );
     };
 
     return (
@@ -210,16 +322,27 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
             <div className="ai-service-search" style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #e2e8f0' }}>
                 
                 {isSearching ? (
-                    <AILoadingSpinner text="Työmarkkinatorin tekoälysovittaja etsii osumia..." />
+                    <AILoadingSpinner text="Tekoäly etsii osumia palveluista ja koulutuksista..." />
                 ) : (
-                    <Button 
-                        variant="primary" 
-                        onClick={haePalvelut}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
-                    >
-                        <Rocket size={16} /> 
-                        Etsi sopivia koulutuksia ja palveluita
-                    </Button>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Button 
+                            variant="primary" 
+                            onClick={() => haePalvelut(false)}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+                        >
+                            <Rocket size={16} /> 
+                            Etsi sopivia koulutuksia ja palveluita
+                        </Button>
+
+                        <Button 
+                            variant="outline" 
+                            onClick={handleOpenAdvancedSearch}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', backgroundColor: '#f8fafc' }}
+                        >
+                            <Settings2 size={16} /> 
+                            Tarkennettu haku
+                        </Button>
+                    </div>
                 )}
 
                 {suositellutPalvelut.length > 0 && (
@@ -227,72 +350,117 @@ const SmartSuggestionBox = ({ activeSignals, dbPhrases, onTogglePath, appState }
                         <h4 className="subsection-title" style={{ marginBottom: '1rem' }}>Suositellut osumat</h4>
                         
                         <div className="flex-col-gap">
-                            {suositellutPalvelut.map(palvelu => (
-                                <Card key={palvelu.id} className="mb-2" style={{ padding: '1rem' }}>
-                                    
-                                    {/* Otsikko ja Osumaprosentti */}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-                                        <strong style={{ fontSize: '1.05rem', color: 'var(--color-text-primary)' }}>
-                                            {palvelu.title}
-                                        </strong>
-                                        <Badge variant={palvelu.similarity > 0.8 ? "success" : "info"}>
-                                            {Math.round(palvelu.similarity * 100)}% osuma
-                                        </Badge>
-                                    </div>
-                                    
-                                    {/* Visuaaliset metadatatagit */}
-                                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-                                        {palvelu.provider && (
-                                            <Badge variant="secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                                                <Building size={12}/> {palvelu.provider}
-                                            </Badge>
-                                        )}
-                                        {palvelu.language_req && (
-                                            <Badge variant="warning" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                                                <Globe size={12}/> Väh. {palvelu.language_req}
-                                            </Badge>
-                                        )}
-                                        {palvelu.enrollment_deadline && (
-                                            <Badge variant="danger" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                                                <Calendar size={12}/> Haku päättyy: {muotoilePvm(palvelu.enrollment_deadline)}
-                                            </Badge>
-                                        )}
-                                        {palvelu.ura_number && (
-                                            <Badge variant="outline">URA: {palvelu.ura_number}</Badge>
-                                        )}
-                                    </div>
+                            {suositellutPalvelut.map(palvelu => {
+                                const isPM = palvelu.source_table === 'palvelumanuaali';
 
-                                    {/* Kuvaus */}
-                                    <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', marginBottom: '1rem', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                                        {palvelu.description}
-                                    </p>
-                                    
-                                    {/* Toimintopainikkeet */}
-                                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', borderTop: '1px solid #eee', paddingTop: '0.75rem' }}>
-                                        {palvelu.plan_text && (
-                                            <Button 
-                                                variant="outline" 
-                                                size="sm"
-                                                onClick={() => copyToClipboard(palvelu.plan_text, palvelu.id)}
-                                                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderColor: copiedId === palvelu.id ? 'green' : '' }}
-                                            >
-                                                {copiedId === palvelu.id ? <CheckCircle size={14} color="green" /> : <Copy size={14} />} 
-                                                {copiedId === palvelu.id ? 'Kopioitu!' : 'Kopioi suunnitelmaan'}
-                                            </Button>
-                                        )}
+                                return (
+                                    <Card key={palvelu.id} className="mb-2" style={{ padding: '1rem' }}>
                                         
-                                        {palvelu.url && (
-                                            <a href={palvelu.url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', color: 'var(--color-primary)', textDecoration: 'none', fontWeight: 500 }}>
-                                                Lue lisää Työmarkkinatorilta <ExternalLink size={14} />
-                                            </a>
-                                        )}
-                                    </div>
-                                </Card>
-                            ))}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                                <Badge variant={isPM ? "primary" : "warning"} style={{ alignSelf: 'flex-start', fontSize: '0.7rem', padding: '0.1rem 0.4rem' }}>
+                                                    {isPM ? 'Palvelumanuaali' : 'TV-Koulutus'}
+                                                </Badge>
+                                                <strong style={{ fontSize: '1.05rem', color: 'var(--color-text-primary)' }}>
+                                                    {palvelu.title}
+                                                </strong>
+                                            </div>
+                                            <Badge variant={palvelu.similarity > 0.8 ? "success" : "info"}>
+                                                {Math.round(palvelu.similarity * 100)}% osuma
+                                            </Badge>
+                                        </div>
+                                        
+                                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                                            {palvelu.provider && (
+                                                <Badge variant="secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                    <Building size={12}/> {palvelu.provider}
+                                                </Badge>
+                                            )}
+                                            {palvelu.language_req && (
+                                                <Badge variant="warning" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                    <Globe size={12}/> Väh. {palvelu.language_req}
+                                                </Badge>
+                                            )}
+                                            {palvelu.enrollment_deadline && (
+                                                <Badge variant="danger" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                                    <Calendar size={12}/> Haku päättyy: {muotoilePvm(palvelu.enrollment_deadline)}
+                                                </Badge>
+                                            )}
+                                            {palvelu.ura_number && (
+                                                <Badge variant="outline">URA: {palvelu.ura_number}</Badge>
+                                            )}
+                                        </div>
+
+                                        <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', marginBottom: '1rem', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                                            {palvelu.description}
+                                        </p>
+                                        
+                                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid #eee', paddingTop: '0.75rem' }}>
+                                            {palvelu.plan_text && (
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="sm"
+                                                    onClick={() => copyToClipboard(palvelu.plan_text, palvelu.id)}
+                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', borderColor: copiedId === palvelu.id ? 'green' : '' }}
+                                                >
+                                                    {copiedId === palvelu.id ? <CheckCircle size={14} color="green" /> : <Copy size={14} />} 
+                                                    {copiedId === palvelu.id ? 'Kopioitu!' : 'Kopioi suunnitelmaan'}
+                                                </Button>
+                                            )}
+                                            
+                                            {palvelu.url && (
+                                                <a href={palvelu.url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', color: 'var(--color-primary)', textDecoration: 'none', fontWeight: 500 }}>
+                                                    {isPM ? 'Siirry palvelun sivuille' : 'Lue lisää Työmarkkinatorilta'} <ExternalLink size={14} />
+                                                </a>
+                                            )}
+
+                                            {palvelu.brochure_url && (
+                                                <a href={palvelu.brochure_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', color: 'var(--color-success)', textDecoration: 'none', fontWeight: 500 }}>
+                                                    Avaa esite <FileText size={14} />
+                                                </a>
+                                            )}
+                                        </div>
+                                    </Card>
+                                );
+                            })}
                         </div>
                     </div>
                 )}
             </div>
+
+            {/* TARKENNETUN HAUN MODAALI */}
+            <Modal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                title="Tarkennettu tekoälyhaku"
+                icon={Settings2}
+                maxWidth="800px"
+                footer={
+                    <>
+                        <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+                            Peruuta
+                        </Button>
+                        <Button variant="primary" onClick={() => { setIsModalOpen(false); haePalvelut(true); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Rocket size={16} /> Suorita haku
+                        </Button>
+                    </>
+                }
+            >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.95rem', marginBottom: '0.5rem', lineHeight: '1.5' }}>
+                        Valitse, mitä tietoja haluat lähettää tekoälyn pureskeltavaksi. Voit muokata kenttien sisältöä vapaasti; tekemäsi muutokset vaikuttavat vain tähän yksittäiseen hakuun.
+                    </p>
+
+                    {renderSettingsField('tavoite', 'Työllistymistavoite ja ala', Target)}
+                    {renderSettingsField('koulutus', 'Koulutustausta', BookOpen)}
+                    {renderSettingsField('kieli', 'Kielitaito', MessageCircle)}
+                    {renderSettingsField('edellytykset', 'Asiantuntijan arvio (33 §)', AlertCircle)}
+                    
+                    <div style={{ marginTop: '0.5rem', borderTop: '1px dashed #cbd5e1', paddingTop: '1.5rem' }}>
+                        {renderSettingsField('lisatiedot', 'Omat lisätiedot haulle', PenTool)}
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };

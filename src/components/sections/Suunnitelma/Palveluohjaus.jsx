@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Compass, Search, Info, PlusCircle, CheckCircle, ExternalLink, Sparkles, FileText, Languages, Lock, AlertCircle, Calendar } from 'lucide-react';
+import { Compass, Search, Info, PlusCircle, CheckCircle, ExternalLink, Sparkles, FileText, Languages, Lock, AlertCircle, Calendar, Loader } from 'lucide-react';
 import { macbase } from '../../../utils/supabaseClient';
 
 const CEFR_SCORES = {
@@ -12,10 +12,16 @@ const CEFR_SCORES = {
 };
 
 const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
+    // 1. Työllisyyspalvelut ja TVM (Kokonaan ladatut)
     const [services, setServices] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
     
-    const [activeTab, setActiveTab] = useState('palvelu'); 
+    // 2. Palvelumanuaali (Kevyt lista + raskaat yksityiskohdat erikseen)
+    const [pmServices, setPmServices] = useState([]);
+    const [pmDetails, setPmDetails] = useState({});
+    const [loadingDetailId, setLoadingDetailId] = useState(null);
+
+    const [isLoading, setIsLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('palvelu'); // palvelu, koulutus, palvelumanuaali
     const [visibleCount, setVisibleCount] = useState(6);
     
     const [searchTerm, setSearchTerm] = useState('');
@@ -38,24 +44,83 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
         setVisibleCount(6);
     }, [searchTerm, activeCategory, activeTab]);
 
+    // Haetaan datat (Molemmat macbasesta)
     useEffect(() => {
-        const fetchServices = async () => {
+        const fetchAllServices = async () => {
             setIsLoading(true);
             try {
-                const { data, error } = await macbase.from('services').select('*').order('title', { ascending: true });
-                if (error) throw error;
-                if (data) {
-                    setServices(data);
-                    if (onServicesLoaded) onServicesLoaded(data);
-                }
+                // Haetaan alkuperäiset palvelut ja koulutukset raskaana (kuten ennenkin)
+                const { data: stdData, error: stdError } = await macbase.from('services').select('*').order('title', { ascending: true });
+                if (stdError) throw stdError;
+                if (stdData) setServices(stdData);
+
+                // Haetaan palvelumanuaali kevyenä
+                const { data: pmData, error: pmError } = await macbase.from('palvelumanuaali').select('id, title, category').order('title', { ascending: true });
+                if (pmError) throw pmError;
+                if (pmData) setPmServices(pmData);
+
             } catch (error) {
                 console.error("Virhe palveluiden latauksessa:", error);
             } finally {
                 setIsLoading(false);
             }
         };
-        fetchServices();
-    }, [onServicesLoaded]);
+        fetchAllServices();
+    }, []);
+
+    // Haetaan valittujen Palvelumanuaalin korttien raskaat tiedot automaattisesti taustalla
+    useEffect(() => {
+        const fetchMissingSelectedDetails = async () => {
+            const unresolvedIds = pmServices
+                .filter(s => valinnatObj[s.id] || masterValinnat.includes(s.id))
+                .filter(s => !pmDetails[s.id])
+                .map(s => s.id);
+
+            if (unresolvedIds.length > 0) {
+                try {
+                    const { data } = await macbase.from('palvelumanuaali').select('*').in('id', unresolvedIds);
+                    if (data) {
+                        setPmDetails(prev => {
+                            const next = { ...prev };
+                            data.forEach(d => next[d.id] = d);
+                            return next;
+                        });
+                    }
+                } catch (error) {
+                    console.error("Virhe valittujen PM-palveluiden lisätietojen haussa:", error);
+                }
+            }
+        };
+        if (pmServices.length > 0) {
+            fetchMissingSelectedDetails();
+        }
+    }, [pmServices, valinnatObj, masterValinnat, pmDetails]);
+
+    // Toimitetaan ladattu data ylätasolle 'espan suunnitelma' varten
+    useEffect(() => {
+        if (onServicesLoaded) {
+            const fetchedPmFullList = Object.values(pmDetails);
+            onServicesLoaded([...services, ...fetchedPmFullList]);
+        }
+    }, [services, pmDetails, onServicesLoaded]);
+
+    const loadPMDetails = async (id) => {
+        if (pmDetails[id]) return pmDetails[id];
+        setLoadingDetailId(id);
+        try {
+            const { data, error } = await macbase.from('palvelumanuaali').select('*').eq('id', id).single();
+            if (error) throw error;
+            if (data) {
+                setPmDetails(prev => ({ ...prev, [id]: data }));
+                return data;
+            }
+        } catch (error) {
+            console.error("Virhe PM-palvelun tarkemman tiedon latauksessa:", error);
+        } finally {
+            setLoadingDetailId(null);
+        }
+        return null;
+    };
 
     const checkLanguageMatch = (service, signals, manualLevel) => {
         const req = service.language_req;
@@ -91,6 +156,8 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
     };
 
     const recommendedServices = useMemo(() => {
+        if (activeTab === 'palvelumanuaali') return [];
+
         return services.filter(service => {
             const sType = service.service_type || 'palvelu';
             if (sType !== activeTab) return false;
@@ -109,18 +176,26 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
     }, [services, signals, currentLanguageLevel, activeTab]);
 
     const categories = useMemo(() => {
-        const tabServices = services.filter(s => (s.service_type || 'palvelu') === activeTab);
-        const cats = new Set(tabServices.map(s => s.category).filter(Boolean));
+        const sourceList = activeTab === 'palvelumanuaali' ? pmServices : services.filter(s => (s.service_type || 'palvelu') === activeTab);
+        const cats = new Set(sourceList.map(s => s.category).filter(Boolean));
         return ['Kaikki', ...Array.from(cats)];
-    }, [services, activeTab]);
+    }, [services, pmServices, activeTab]);
 
     const filteredServices = useMemo(() => {
-        let filtered = services.filter(service => {
-            const sType = service.service_type || 'palvelu';
-            if (sType !== activeTab) return false;
+        const sourceList = activeTab === 'palvelumanuaali' ? pmServices : services.filter(s => (s.service_type || 'palvelu') === activeTab);
+        
+        let filtered = sourceList.filter(service => {
+            const titleMatch = (service.title || '').toLowerCase().includes(searchTerm.toLowerCase());
+            
+            // Haetaan kuvaus oikeasta paikasta riippuen tabista
+            let descMatch = false;
+            if (activeTab === 'palvelumanuaali') {
+                descMatch = (pmDetails[service.id]?.description || '').toLowerCase().includes(searchTerm.toLowerCase());
+            } else {
+                descMatch = (service.description || '').toLowerCase().includes(searchTerm.toLowerCase());
+            }
 
-            const matchesSearch = service.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                                  (service.description && service.description.toLowerCase().includes(searchTerm.toLowerCase()));
+            const matchesSearch = titleMatch || descMatch;
             const matchesCategory = activeCategory === 'Kaikki' || service.category === activeCategory;
             return matchesSearch && matchesCategory;
         });
@@ -143,46 +218,69 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
         });
 
         return filtered;
-    }, [services, searchTerm, activeCategory, activeTab]);
+    }, [services, pmServices, pmDetails, searchTerm, activeCategory, activeTab]);
 
     const displayedServices = filteredServices.slice(0, visibleCount);
 
-    const handleToggleService = (id, isChecked) => {
+    const executeToggle = (id, isChecked) => {
         const newValinnat = { ...valinnatObj };
-        
-        if (isChecked) {
-            newValinnat[id] = true;
-        } else {
-            delete newValinnat[id];
-        }
+        if (isChecked) newValinnat[id] = true;
+        else delete newValinnat[id];
 
-        if (actions.updateSectionData) {
-            actions.updateSectionData('suunnitelma', newValinnat);
-        } else if (actions.updateSection) {
-            actions.updateSection('suunnitelma', newValinnat);
-        }
+        if (actions.updateSectionData) actions.updateSectionData('suunnitelma', newValinnat);
+        else if (actions.updateSection) actions.updateSection('suunnitelma', newValinnat);
 
         if (typeof actions.onUpdateAsiakas === 'function') {
             const currentMaster = new Set(masterValinnat);
-            if (isChecked) {
-                currentMaster.add(id);
-            } else {
-                currentMaster.delete(id);
-            }
+            if (isChecked) currentMaster.add(id);
+            else currentMaster.delete(id);
             actions.onUpdateAsiakas('valitut_palvelut_id', Array.from(currentMaster));
         }
     };
 
-    const toggleExpand = (id) => setExpandedService(expandedService === id ? null : id);
+    const handleToggleServiceClick = async (baseService, isChecked, isPM) => {
+        let fullService = baseService;
+        
+        if (isPM && isChecked) {
+            if (!pmDetails[baseService.id]) {
+                const fetched = await loadPMDetails(baseService.id);
+                if (fetched) fullService = { ...baseService, ...fetched };
+            } else {
+                fullService = { ...baseService, ...pmDetails[baseService.id] };
+            }
+            
+            const langCheck = checkLanguageMatch(fullService, signals, currentLanguageLevel);
+            if (!langCheck.match) {
+                setExpandedService(fullService.id);
+                return;
+            }
+        }
 
-    const renderCard = (service, isRecommendation = false) => {
+        executeToggle(baseService.id, isChecked);
+    };
+
+    const handleExpandClick = async (id, isPM) => {
+        if (expandedService === id) {
+            setExpandedService(null);
+            return;
+        }
+        if (isPM && !pmDetails[id]) {
+            await loadPMDetails(id);
+        }
+        setExpandedService(id);
+    };
+
+    const renderCard = (baseService, isRecommendation = false) => {
+        const isPM = activeTab === 'palvelumanuaali';
+        const service = isPM ? { ...baseService, ...(pmDetails[baseService.id] || {}) } : baseService;
+        const isLoadingDetail = loadingDetailId === service.id;
+        
         const isSelected = !!valinnatObj[service.id] || masterValinnat.includes(service.id);
         const cardKey = isRecommendation ? `rec-${service.id}` : service.id;
         
-        const langInfo = checkLanguageMatch(service, signals, currentLanguageLevel);
+        const langInfo = service.language_req ? checkLanguageMatch(service, signals, currentLanguageLevel) : { match: true };
         const isLanguageLocked = !langInfo.match;
         const isExpired = service.enrollment_deadline && new Date(service.enrollment_deadline) < new Date();
-        
         const isLocked = isLanguageLocked || isExpired;
 
         return (
@@ -192,29 +290,25 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                         {service.category || 'Yleinen'}
                     </span>
                     
-                    {/* UUSI: Velvoittava palvelu -merkki */}
                     {service.hard_service && (
                         <span className="tag tag--danger" style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>
-                            <AlertCircle size={12} style={{ marginRight: '4px' }} />
-                            Velvoittava
+                            <AlertCircle size={12} style={{ marginRight: '4px' }} /> Velvoittava
                         </span>
                     )}
 
-                    {/* UUSI: Vaatii lähetteen -merkki */}
                     {service.requires_referral && (
                         <span className="tag tag--success" style={{ marginLeft: '0.5rem', backgroundColor: '#e0f2fe', color: '#0369a1', borderColor: '#bae6fd' }}>
-                            <FileText size={12} style={{ marginRight: '4px' }} />
-                            Vaatii lähetteen
+                            <FileText size={12} style={{ marginRight: '4px' }} /> Vaatii lähetteen
                         </span>
                     )}
 
                     {service.service_type === 'koulutus' && (
                         <span className="tag tag--warning" style={{ marginLeft: '0.5rem', fontWeight: 'bold' }}>TVM</span>
                     )}
+                    
                     {service.language_req && (
                         <span className={`tag ${isLanguageLocked ? 'tag--danger' : 'tag--success'}`} style={{ marginLeft: '0.5rem' }}>
-                            <Languages size={12} style={{ marginRight: '4px' }} />
-                            Taso: {service.language_req}
+                            <Languages size={12} style={{ marginRight: '4px' }} /> Taso: {service.language_req}
                         </span>
                     )}
                 </div>
@@ -239,20 +333,20 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                 )}
                 
                 <div className="service-card-actions">
-                    <button className="btn-icon" onClick={() => toggleExpand(cardKey)} title="Lue palvelukuvaus">
-                        <Info size={18} />
+                    <button className="btn-icon" onClick={() => handleExpandClick(cardKey, isPM)} title="Lue palvelukuvaus" disabled={isLoadingDetail}>
+                        {isLoadingDetail ? <Loader size={18} style={{ opacity: 0.5 }} /> : <Info size={18} />}
                     </button>
                     <button 
                         className={`thv-action-button ${isSelected ? 'btn-selected' : ''} ${isLocked ? 'btn--disabled' : ''}`}
-                        onClick={() => !isLocked && handleToggleService(service.id, !isSelected)}
-                        disabled={isLocked}
+                        onClick={() => !isLocked && handleToggleServiceClick(baseService, !isSelected, isPM)}
+                        disabled={isLocked || isLoadingDetail}
                     >
-                        {isLocked ? (isExpired ? 'Hakuaika päättynyt' : 'Kielitaito ei riitä') : (isSelected ? <CheckCircle size={16} /> : <PlusCircle size={16} />)}
-                        {!isLocked && (isSelected ? 'Valittu' : 'Lisää suunnitelmaan')}
+                        {isLoadingDetail ? <Loader size={16} /> : (isLocked ? (isExpired ? 'Hakuaika päättynyt' : 'Kielitaito ei riitä') : (isSelected ? <CheckCircle size={16} /> : <PlusCircle size={16} />))}
+                        {!isLocked && (isLoadingDetail ? 'Ladataan...' : (isSelected ? 'Valittu' : 'Lisää suunnitelmaan'))}
                     </button>
                 </div>
 
-                {expandedService === cardKey && (
+                {expandedService === cardKey && service.description && (
                     <div className="service-card-details">
                         {isLanguageLocked && (
                             <div className="info-note info-note--error" style={{ marginBottom: '1rem', backgroundColor: '#fff5f5', color: '#c53030', border: '1px solid #feb2b2' }}>
@@ -272,10 +366,13 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                         )}
 
                         <p style={{ whiteSpace: 'pre-line' }}>{service.description}</p>
-                        <p className="service-card-plan-text" style={{ whiteSpace: 'pre-line' }}>
-                            <strong>Suunnitelmaan tuleva teksti:</strong><br/>
-                            {service.plan_text}
-                        </p>
+                        
+                        {service.plan_text && (
+                            <p className="service-card-plan-text" style={{ whiteSpace: 'pre-line' }}>
+                                <strong>Suunnitelmaan tuleva teksti:</strong><br/>
+                                {service.plan_text}
+                            </p>
+                        )}
                         
                         {(service.url || service.brochure_url) && (
                             <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1.2rem', paddingTop: '1rem', borderTop: '1px dashed var(--color-border)', flexWrap: 'wrap' }}>
@@ -299,6 +396,12 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
 
     if (isLoading) return <div style={{ padding: '3rem', textAlign: 'center' }}>Ladataan hakemistoa...</div>;
 
+    const tabs = [
+        { id: 'palvelu', label: 'Työllisyyspalvelut' },
+        { id: 'koulutus', label: 'Työvoimakoulutukset (TVM)' },
+        { id: 'palvelumanuaali', label: 'Palvelumanuaali' }
+    ];
+
     return (
         <div className="palveluohjaus-section">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem', color: 'var(--color-text-primary)' }}>
@@ -307,11 +410,24 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
             </h3>
 
             <div style={{ display: 'flex', gap: '2rem', marginBottom: '1.5rem', borderBottom: '2px solid var(--color-border)' }}>
-                <button onClick={() => setActiveTab('palvelu')} style={{ background: 'none', border: 'none', padding: '0.5rem 0', fontSize: '1.05rem', cursor: 'pointer', color: activeTab === 'palvelu' ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontWeight: activeTab === 'palvelu' ? '600' : 'normal', borderBottom: activeTab === 'palvelu' ? '2px solid var(--color-primary)' : '2px solid transparent', marginBottom: '-2px', transition: 'all 0.2s' }}>Työllisyyspalvelut</button>
-                <button onClick={() => setActiveTab('koulutus')} style={{ background: 'none', border: 'none', padding: '0.5rem 0', fontSize: '1.05rem', cursor: 'pointer', color: activeTab === 'koulutus' ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontWeight: activeTab === 'koulutus' ? '600' : 'normal', borderBottom: activeTab === 'koulutus' ? '2px solid var(--color-primary)' : '2px solid transparent', marginBottom: '-2px', transition: 'all 0.2s' }}>Työvoimakoulutukset (TVM)</button>
+                {tabs.map(tab => (
+                    <button 
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)} 
+                        style={{ 
+                            background: 'none', border: 'none', padding: '0.5rem 0', fontSize: '1.05rem', cursor: 'pointer', 
+                            color: activeTab === tab.id ? 'var(--color-primary)' : 'var(--color-text-secondary)', 
+                            fontWeight: activeTab === tab.id ? '600' : 'normal', 
+                            borderBottom: activeTab === tab.id ? '2px solid var(--color-primary)' : '2px solid transparent', 
+                            marginBottom: '-2px', transition: 'all 0.2s' 
+                        }}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
             </div>
 
-            {recommendedServices.length > 0 ? (
+            {recommendedServices.length > 0 && activeTab !== 'palvelumanuaali' && (
                 <div className="smart-analysis-box" style={{ marginBottom: '2.5rem', border: '1px solid var(--color-warning)' }}>
                     <div className="smart-analysis-header" style={{ backgroundColor: 'rgba(255, 193, 7, 0.1)' }}>
                         <Sparkles size={20} color="var(--color-warning)" />
@@ -321,18 +437,25 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
                         {recommendedServices.map(s => renderCard(s, true))}
                     </div>
                 </div>
-            ) : (
-                <div className="info-note" style={{ marginBottom: '2rem' }}>Ei automaattisia suosituksia valitussa osiossa.</div>
             )}
 
             <div className="service-filter-bar" style={{ marginBottom: '2rem' }}>
                 <div className="search-wrapper" style={{ position: 'relative', flex: 1 }}>
-                    <input type="text" className="form-input" placeholder={`Hae ${activeTab === 'palvelu' ? 'palveluita' : 'koulutuksia'}...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ paddingLeft: '2.5rem', width: '100%' }} />
+                    <input 
+                        type="text" 
+                        className="form-input" 
+                        placeholder={`Hae ${activeTab === 'palvelumanuaali' ? 'palvelumanuaalista' : (activeTab === 'palvelu' ? 'palveluita' : 'koulutuksia')}...`} 
+                        value={searchTerm} 
+                        onChange={(e) => setSearchTerm(e.target.value)} 
+                        style={{ paddingLeft: '2.5rem', width: '100%' }} 
+                    />
                     <Search size={18} style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }} />
                 </div>
                 <div className="category-scroll" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
                     {categories.map(category => (
-                        <button key={category} className={`chip ${activeCategory === category ? 'chip--active' : ''}`} onClick={() => setActiveCategory(category)}>{category}</button>
+                        <button key={category} className={`chip ${activeCategory === category ? 'chip--active' : ''}`} onClick={() => setActiveCategory(category)}>
+                            {category}
+                        </button>
                     ))}
                 </div>
             </div>
@@ -343,7 +466,9 @@ const Palveluohjaus = ({ state, actions, onServicesLoaded }) => {
 
             {filteredServices.length > visibleCount && (
                 <div style={{ display: 'flex', justifyContent: 'center', marginTop: '2rem' }}>
-                    <button className="btn btn--secondary" onClick={() => setVisibleCount(prev => prev + 6)} style={{ padding: '0.75rem 2rem', borderRadius: '99px' }}>Näytä lisää ({filteredServices.length - visibleCount}) ...</button>
+                    <button className="btn btn--secondary" onClick={() => setVisibleCount(prev => prev + 6)} style={{ padding: '0.75rem 2rem', borderRadius: '99px' }}>
+                        Näytä lisää ({filteredServices.length - visibleCount}) ...
+                    </button>
                 </div>
             )}
         </div>
