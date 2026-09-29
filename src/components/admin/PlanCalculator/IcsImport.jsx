@@ -322,19 +322,19 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 });
             });
 
-            // --- KANNAN PÄIVITYS ---
+            // --- KANNAN PÄIVITYS (Pakotetaan lukkojen nimet onConflict -ehtoon 400-virheen välttämiseksi) ---
             if (insertsDict.length > 0) {
-                await supabase.schema('espan').from('ics_dictionary').upsert(insertsDict, { onConflict: 'opittu_sana' });
+                await supabase.schema('espan').from('ics_dictionary').upsert(insertsDict, { onConflict: 'ics_dictionary_opittu_sana_key' });
                 await fetchDictionary(); // Päivitetään muistiin
             }
 
             if (insertsEvents.length > 0) {
-                const { error } = await supabase.schema('espan').from('ics_events').upsert(insertsEvents, { onConflict: 'expert_id,ics_uid' });
+                const { error } = await supabase.schema('espan').from('ics_events').upsert(insertsEvents, { onConflict: 'ics_events_expert_uid_key' });
                 if (error) throw error;
             }
 
             if (insertsRooms.length > 0) {
-                const { error } = await supabase.schema('espan').from('room_bookings').upsert(insertsRooms, { onConflict: 'expert_id,ics_uid' });
+                const { error } = await supabase.schema('espan').from('room_bookings').upsert(insertsRooms, { onConflict: 'room_bookings_expert_uid_key' });
                 if (error) throw error;
             }
 
