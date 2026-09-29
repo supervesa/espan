@@ -104,6 +104,17 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
             let loopDate = new Date(startDate);
             let safety = 0;
 
+            // Korjattu kellonajan irrotus, joka hylkää timezone-tekstit
+            const extractTime = (rawIcsStr) => {
+                if (!rawIcsStr) return '';
+                const cleanStr = rawIcsStr.includes(':') ? rawIcsStr.split(':').pop().trim() : rawIcsStr.trim();
+                const parts = cleanStr.split('T');
+                return parts.length > 1 ? parts[1] : ''; 
+            };
+            
+            const timePart = extractTime(ev.start);
+            const eTimePart = extractTime(ev.end);
+
             while (occurrences < maxCount && safety < 365) {
                 safety++;
                 const currentDayStr = dayMap[loopDate.getDay()];
@@ -113,14 +124,14 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                     const y = loopDate.getFullYear();
                     const m = String(loopDate.getMonth() + 1).padStart(2, '0');
                     const d = String(loopDate.getDate()).padStart(2, '0');
-                    const timePart = ev.start.includes('T') ? ev.start.split('T')[1] : ''; 
+                    
                     const newStartStr = timePart ? `${y}${m}${d}T${timePart}` : `${y}${m}${d}`;
                     
                     const loopEnd = new Date(loopDate.getTime() + durationMs);
                     const ey = loopEnd.getFullYear();
                     const em = String(loopEnd.getMonth() + 1).padStart(2, '0');
                     const ed = String(loopEnd.getDate()).padStart(2, '0');
-                    const eTimePart = ev.end && ev.end.includes('T') ? ev.end.split('T')[1] : '';
+                    
                     const newEndStr = eTimePart ? `${ey}${em}${ed}T${eTimePart}` : `${ey}${em}${ed}`;
 
                     expanded.push({ ...ev, start: `DTSTART:${newStartStr}`, end: `DTEND:${newEndStr}` });
