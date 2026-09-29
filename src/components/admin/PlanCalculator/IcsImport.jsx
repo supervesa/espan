@@ -69,7 +69,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
         return null;
     };
 
-    // Toistuvuuksien purkaja (Korjattu versio, joka erottaa ajan oikein)
     const expandRRule = (events) => {
         const expanded = [];
         events.forEach(ev => {
@@ -105,6 +104,7 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
             let loopDate = new Date(startDate);
             let safety = 0;
 
+            // Korjattu kellonajan irrotus, joka hylkää timezone-tekstit
             const extractTime = (rawIcsStr) => {
                 if (!rawIcsStr) return '';
                 const cleanStr = rawIcsStr.includes(':') ? rawIcsStr.split(':').pop().trim() : rawIcsStr.trim();
@@ -291,7 +291,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
     };
 
     // --- 3. LOPULLINEN TALLENNUS (Commit) ---
-    // Käyttää alkuperäistä supabase-yhteyttä ja alkuperäisiä upsert-komentoja!
     const handleCommit = async () => {
         setIsCommitting(true);
         try {
@@ -310,10 +309,12 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
             // 2. Opetetut sanat
             teachQueue.forEach(group => {
                 const conf = teachConfigs[group.prefix];
-                if (!conf || !conf.kategoria) return;
+                if (!conf || !conf.kategoria) return; // Jos asiantuntija ei valinnut mitään, ohitetaan? Tai perutaan.
                 
+                // Tallennetaan uusi sääntö sanakirjaan!
                 insertsDict.push({ opittu_sana: group.prefix, kategoria: conf.kategoria, metodi: conf.metodi || null, kuvaus: conf.kuvaus || null, is_cancelled: conf.is_cancelled || false });
 
+                // Tallennetaan itse tapahtumat uusilla säännöillä
                 group.events.forEach(ev => {
                     insertsEvents.push({
                         expert_id: ev.expert_id, ics_uid: ev.ics_uid, start_time: ev.start_time, end_time: ev.end_time, is_all_day: ev.is_all_day,
@@ -322,30 +323,34 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                 });
             });
 
-            // 3. Manuaalisesti asetetut
+            // 3. Manuaalisesti asetetut (Muu työ / Hylätty)
             manualQueue.forEach(ev => {
                 const conf = manualConfigs[ev.ics_uid];
-                if (!conf || conf.kategoria === 'hylatty') return;
+                if (!conf || conf.kategoria === 'hylatty') return; // Jos hylätty tai tyhjä, ei tallenneta kantaan
                 insertsEvents.push({
                     expert_id: ev.expert_id, ics_uid: ev.ics_uid, start_time: ev.start_time, end_time: ev.end_time, is_all_day: ev.is_all_day,
                     event_category: conf.kategoria, contact_method: conf.metodi || null
                 });
             });
 
-            // --- KANNAN PÄIVITYS ALKUPERÄISILLÄ KUTSUILLA ---
+            // --- KANNAN PÄIVITYS TÄSMÄLLISILLÄ ONCONFLICT-ASETUKSILLA ---
             if (insertsDict.length > 0) {
-                await supabase.schema('espan').from('ics_dictionary').upsert(insertsDict, { onConflict: 'opittu_sana' });
+                // Käytetään sarakkeen nimeä suoraan (turvallisin tapa PostgRESTissä yhdelle unique-sarakkeelle)
+                const { error: dictError } = await supabase.schema('espan').from('ics_dictionary').upsert(insertsDict, { onConflict: 'opittu_sana' });
+                if (dictError) throw dictError;
                 await fetchDictionary(); 
             }
 
             if (insertsEvents.length > 0) {
-                const { error } = await supabase.schema('espan').from('ics_events').upsert(insertsEvents, { onConflict: 'expert_id,ics_uid' });
-                if (error) throw error;
+                // Sarakkeiden nimet yhdistettynä ILMAN välilyöntiä
+                const { error: evError } = await supabase.schema('espan').from('ics_events').upsert(insertsEvents, { onConflict: 'expert_id,ics_uid' });
+                if (evError) throw evError;
             }
 
             if (insertsRooms.length > 0) {
-                const { error } = await supabase.schema('espan').from('room_bookings').upsert(insertsRooms, { onConflict: 'expert_id,ics_uid' });
-                if (error) throw error;
+                // Täällä käytetään täsmälleen sinun antamaa constraint-nimeä tietokannasta
+                const { error: roomError } = await supabase.schema('espan').from('room_bookings').upsert(insertsRooms, { onConflict: 'room_bookings_expert_uid_key' });
+                if (roomError) throw roomError;
             }
 
             alert(`Tuonti onnistui! Tallennettiin ${insertsEvents.length} tapahtumaa ja ${insertsRooms.length} huonevarausta.`);
@@ -354,7 +359,7 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
 
         } catch (error) {
             console.error("Tallennusvirhe:", error);
-            alert("Virhe tietojen tallennuksessa kantaan.");
+            alert(`Virhe tietojen tallennuksessa kantaan: ${error.message}`);
         } finally {
             setIsCommitting(false);
         }
