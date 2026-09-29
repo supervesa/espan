@@ -329,12 +329,12 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
             }
 
             if (insertsEvents.length > 0) {
-                const { error } = await supabase.schema('espan').from('ics_events').upsert(insertsEvents, { onConflict: 'expert_id, ics_uid' });
+                const { error } = await supabase.schema('espan').from('ics_events').upsert(insertsEvents, { onConflict: 'expert_id,ics_uid' });
                 if (error) throw error;
             }
 
             if (insertsRooms.length > 0) {
-                const { error } = await supabase.schema('espan').from('room_bookings').upsert(insertsRooms, { onConflict: 'expert_id, ics_uid' });
+                const { error } = await supabase.schema('espan').from('room_bookings').upsert(insertsRooms, { onConflict: 'expert_id,ics_uid' });
                 if (error) throw error;
             }
 
@@ -390,7 +390,6 @@ const IcsImport = ({ asiantuntijaId, onImportComplete }) => {
                                     <div key={'a'+i} style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px dashed #e2e8f0' }}>
                                         <div>
                                             <div className="text-sm fw-semibold">{a.original_summary}</div>
-                                            {/* HUOMIOITAVAA: Tässä käytetään kirjastosi apuluokkia selitteen tyylittelyyn![cite: 5] */}
                                             {a.kuvaus && <div className="text-xs text-muted" style={{ marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}><Info size={12}/> {a.kuvaus}</div>}
                                         </div>
                                         <div>
