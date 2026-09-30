@@ -26,9 +26,9 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
     const [manualQueue, setManualQueue] = useState([]);
 
     // Käyttäjän valinnat esikatselussa
-    const [autoSkips, setAutoSkips] = useState(new Set()); // Vihreästä laatikosta hylätyt
-    const [teachConfigs, setTeachConfigs] = useState({});  // Uudet sanat ja kategoriat
-    const [manualConfigs, setManualConfigs] = useState({}); // Manuaalisesti klikkaillut
+    const [autoSkips, setAutoSkips] = useState(new Set()); 
+    const [teachConfigs, setTeachConfigs] = useState({});  
+    const [manualConfigs, setManualConfigs] = useState({}); 
 
     const fileInputRef = useRef(null);
 
@@ -39,7 +39,9 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             if (!error && data) {
                 const dictObj = {};
                 data.forEach(item => {
-                    dictObj[item.opittu_sana.toLowerCase()] = {
+                    // Siivotaan kantaan mahdollisesti tallennetut kaksoispisteet sanan lopusta pois varmuuden vuoksi
+                    const cleanWord = item.opittu_sana.toLowerCase().replace(/:$/, '').trim();
+                    dictObj[cleanWord] = {
                         cat: item.kategoria,
                         method: item.metodi,
                         isCancel: item.is_cancelled
@@ -62,7 +64,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 .order('start_time', { ascending: false });
                 
             if (!error && data) {
-                // Merkitään legacy-tunnisteella
                 const mappedLegacy = data.map(item => ({ ...item, isLegacy: true, summaryDisplay: item.masked_summary }));
                 setLegacyQueue(mappedLegacy);
             }
@@ -238,40 +239,43 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
 
                 const baseEvent = { id: finalUid, expert_id: asiantuntijaId, ics_uid: finalUid, start_time: startTimeIso, end_time: endTimeIso, is_all_day: isAllDay, summaryDisplay: summary, original_summary: summary };
-                const dashMatch = summary.match(/^(.*?)\s*--?\s*(.*)$/);
+                
+                // PÄIVITETTY SÄÄNTÖ: Etsitään - tai -- tai :
+                const dashMatch = summary.match(/^(.*?)\s*(?:--?|:)\s*(.*)$/);
 
-                // 1. LÖYTYY EROTIN (--)
+                // 1. LÖYTYY EROTIN (-, -- tai :)
                 if (dashMatch) {
                     const prefix = dashMatch[1].trim();
                     const dictHit = learnedDictionary[prefix.toLowerCase()];
 
                     if (dictHit) {
-                        // Löytyi sanakirjasta
                         if (dictHit.cat === 'hylatty') {
-                            dictionarySkippedCount++; // Roskasuodatin teki työnsä!
+                            dictionarySkippedCount++; 
                         } else {
                             tAuto.push({ ...baseEvent, category: dictHit.cat, method: dictHit.method, is_cancelled: dictHit.isCancel });
                         }
                     } else {
-                        // Uusi sana
                         tTeach.push({ ...baseEvent, prefix });
                     }
                     return;
                 }
 
-                // 2. Legacy numerokoodit tai peruttu
+                // 2. Tunnistetut ilman viivaa/kaksoispistettä (Legacy, lomat ja sijainnit)
                 const idMatch = summary.match(/\d{14}/);
                 if (idMatch) {
                     const masked = summary.replace(idMatch[0], `${idMatch[0].substring(0, 4)}*******${idMatch[0].substring(11)}`);
                     tManual.push({ ...baseEvent, summaryDisplay: masked, isLegacy: false });
                 } else if (lowerSummary.startsWith('peruttu')) {
                     tAuto.push({ ...baseEvent, category: 'peruttu', method: null, is_cancelled: true });
+                } else if (lowerSummary.match(/malminkatu|viipurinkatu|itäkeskus|etä/)) {
+                    tAuto.push({ ...baseEvent, category: 'sijainti', method: null, is_cancelled: false, location_name: summary });
+                } else if (lowerSummary.match(/loma|tuuraus/)) {
+                    tAuto.push({ ...baseEvent, category: 'poissaolo', method: null, is_cancelled: false });
                 } else {
                     tManual.push({ ...baseEvent, isLegacy: false });
                 }
             });
 
-            // Ryhmitellään uudet sanat
             const groupedTeach = {};
             tTeach.forEach(ev => {
                 if (!groupedTeach[ev.prefix]) groupedTeach[ev.prefix] = [];
@@ -294,14 +298,12 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
         }
     };
 
-    // Aloita Staging pelkällä legacy jonolla ilman ICS tiedostoa
     const handleStartManualReview = () => {
         setAutoQueue([]); setTeachQueue([]); setManualQueue([...legacyQueue]);
         setAutoSkips(new Set()); setTeachConfigs({}); setManualConfigs({});
         setIsStaging(true);
     };
 
-    // UI tilan päivittäjät
     const toggleAutoSkip = (uid) => {
         setAutoSkips(prev => {
             const next = new Set(prev);
@@ -319,16 +321,16 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
     const handleCommit = async () => {
         setIsCommitting(true);
         try {
-            const insertsEvents = [];
+            const rawInsertsEvents = [];
             const insertsDict = [];
             const legacyDeletes = [];
 
             // 1. Vihreä Laatikko (Automaattiset)
             autoQueue.forEach(ev => {
                 if (!autoSkips.has(ev.ics_uid)) {
-                    insertsEvents.push({
+                    rawInsertsEvents.push({
                         expert_id: ev.expert_id, ics_uid: ev.ics_uid, start_time: ev.start_time, end_time: ev.end_time, is_all_day: ev.is_all_day,
-                        event_category: ev.category, contact_method: ev.method, is_cancelled: ev.is_cancelled
+                        event_category: ev.category, contact_method: ev.method, is_cancelled: ev.is_cancelled, location_name: ev.location_name || null
                     });
                 }
             });
@@ -336,22 +338,20 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             // 2. Keltainen Laatikko (Opetettavat)
             teachQueue.forEach(group => {
                 const conf = teachConfigs[group.prefix];
-                if (!conf || !conf.category) return; // Ohitetaan jos asiantuntija ei valinnut kategoriaa
+                if (!conf || !conf.category) return;
 
                 const finalCat = conf.category === 'vapaa' ? (conf.custom || 'muu_tyo') : conf.category;
                 const isCanceled = finalCat === 'peruttu' || finalCat === 'noshow';
 
-                // Tallennetaan tapahtumat jos EI hylätty
                 if (finalCat !== 'hylatty') {
                     group.events.forEach(ev => {
-                        insertsEvents.push({
+                        rawInsertsEvents.push({
                             expert_id: ev.expert_id, ics_uid: ev.ics_uid, start_time: ev.start_time, end_time: ev.end_time, is_all_day: ev.is_all_day,
-                            event_category: finalCat, contact_method: conf.method || null, is_cancelled: isCanceled
+                            event_category: finalCat, contact_method: conf.method || null, is_cancelled: isCanceled, location_name: null
                         });
                     });
                 }
 
-                // Tallennetaan yhteiseen sanakirjaan jos pyydetty
                 if (conf.save) {
                     insertsDict.push({ opittu_sana: group.prefix, kategoria: finalCat, metodi: conf.method || null, is_cancelled: isCanceled });
                 }
@@ -361,22 +361,28 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             manualQueue.forEach(ev => {
                 const conf = manualConfigs[ev.id];
                 if (conf && conf.category) {
-                    // Jos Hylättiin, merkitään legacy poistettavaksi, ICS unohdetaan
                     if (conf.category !== 'hylatty') {
                         const isCanceled = conf.category === 'peruttu' || conf.category === 'noshow';
-                        insertsEvents.push({
+                        rawInsertsEvents.push({
                             expert_id: ev.expert_id, ics_uid: ev.ics_uid, start_time: ev.start_time, end_time: ev.end_time, is_all_day: ev.is_all_day,
-                            event_category: conf.category, contact_method: conf.method || null, is_cancelled: isCanceled
+                            event_category: conf.category, contact_method: conf.method || null, is_cancelled: isCanceled, location_name: ev.location_name || null
                         });
                     }
 
                     if (ev.isLegacy) {
-                        legacyDeletes.push(ev.id); // Hoidettu
+                        legacyDeletes.push(ev.id);
                     }
                 }
             });
 
-            // --- KANNAN PÄIVITYS (TURVALLINEN UPSERT ILMAN VÄLILYÖNTEJÄ ONCONFLICTISSA) ---
+            // ESTETÄÄN 500 ON CONFLICT -VIRHE (Poistetaan tuplat)
+            const uniqueEventsMap = new Map();
+            rawInsertsEvents.forEach(ev => {
+                uniqueEventsMap.set(`${ev.expert_id}_${ev.ics_uid}`, ev);
+            });
+            const insertsEvents = Array.from(uniqueEventsMap.values());
+
+            // --- KANNAN PÄIVITYS ---
             if (insertsDict.length > 0) {
                 const { error: dictError } = await supabase.schema('espan').from('ics_dictionary').upsert(insertsDict, { onConflict: 'opittu_sana' });
                 if (dictError) throw dictError;
@@ -395,7 +401,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             setIsStaging(false);
             alert(`Tallennettu onnistuneesti! (${insertsEvents.length} uutta tapahtumaa)`);
             
-            // Ladataan kaikki uudestaan ja suljetaan näkymä
             await fetchDictionary();
             await fetchReviewQueue();
             if (onImportComplete) onImportComplete();
@@ -425,7 +430,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                         Älykäs esikatselu näyttää kaikki työtehtävät ennen tallennusta. Lounaat siivotaan automaattisesti roskiin.
                     </div>
 
-                    {/* Varoitus selvittämättömästä legacy-jonosta */}
                     {legacyQueue.length > 0 && (
                         <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', padding: '12px', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#92400e' }}>
@@ -442,7 +446,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             {isStaging && (
                 <div className="animation-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                     
-                    {/* INFO HEADER */}
                     <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
                         <div className="text-sm">Siivottu roskikseen suoraan:</div>
                         {stagingStats.lunches > 0 && <Badge variant="default">Lounaat ({stagingStats.lunches})</Badge>}
@@ -464,7 +467,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                                         <div key={ev.ics_uid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '0.5rem', borderBottom: '1px dashed #e2e8f0', opacity: isSkipped ? 0.4 : 1 }}>
                                             <div style={{ textDecoration: isSkipped ? 'line-through' : 'none' }}>
                                                 <div className="text-sm fw-semibold">{ev.summaryDisplay}</div>
-                                                <div className="text-xs text-muted">➔ {ev.category} {ev.method ? `(${ev.method})` : ''}</div>
+                                                <div className="text-xs text-muted">➔ {ev.category} {ev.method ? `(${ev.method})` : ''} {ev.location_name ? `(${ev.location_name})` : ''}</div>
                                             </div>
                                             <Button 
                                                 variant={isSkipped ? "secondary" : "danger"} 
