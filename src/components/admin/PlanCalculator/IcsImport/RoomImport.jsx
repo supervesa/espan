@@ -100,14 +100,15 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
-            // 3. Pusketaan kantaan! Pakotetaan "expert_id, ics_uid" avain estämään 400-virheet
-            if (insertsRooms.length > 0) {
-                const { error } = await supabase.schema('espan')
-                    .from('room_bookings')
-                    .upsert(insertsRooms, { onConflict: 'expert_id,ics_uid' });
-                
-                if (error) throw error;
-            }
+       // 3. Pusketaan kantaan! Käytetään luonnollista avainta (henkilö, huone, aika) 409-virheen estämiseksi
+if (insertsRooms.length > 0) {
+    const { error } = await supabase.schema('espan')
+        .from('room_bookings')
+        .upsert(insertsRooms, { onConflict: 'expert_id,room_name,start_time' });
+    
+    if (error) throw error;
+}
+
 
             setResults({ 
                 success: insertsRooms.length, 
