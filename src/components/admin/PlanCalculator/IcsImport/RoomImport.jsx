@@ -69,50 +69,67 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
             const text = await file.text();
             const rawEvents = parseICS(text);
             
-            // 1. Etsi KAIKKI kalenterista, joissa on määritetty fyysinen tila
+            // 1. Etsi vain tilat ja huonevaraukset kalenterista
             const roomEventsRaw = rawEvents.filter(ev => ev.isResource || (ev.location && ev.location.startsWith('RES')));
             
-            // 2. Parsitaan uid ja estetään tuplat tietokantaa vasten
-            const fileUids = roomEventsRaw.map(ev => ev.uid ? `${ev.uid}_${ev.start ? ev.start.split(':').pop().trim() : ''}` : null).filter(Boolean);
-            const { data: existingRooms } = await supabase.schema('espan').from('room_bookings').select('ics_uid').in('ics_uid', fileUids).eq('expert_id', asiantuntijaId);
-            const existingRoomUids = new Set(existingRooms?.map(d => d.ics_uid) || []);
+            // 2. Haetaan KAIKKI olemassa olevat huonevaraukset tältä asiantuntijalta kerralla
+            const { data: existingRooms, error: fetchError } = await supabase.schema('espan')
+                .from('room_bookings')
+                .select('ics_uid, room_name, start_time')
+                .eq('expert_id', asiantuntijaId);
             
-            const newRoomEvents = roomEventsRaw.filter(ev => {
-                const fUid = ev.uid ? `${ev.uid}_${ev.start ? ev.start.split(':').pop().trim() : ''}` : null;
-                return fUid && !existingRoomUids.has(fUid);
-            });
+            if (fetchError) throw fetchError;
+
+            // Luodaan Sanakirjat, jotta vertailu on salamannopeaa, muunnetaan aika numeeriseksi varmuuden vuoksi
+            const existingUids = new Set(existingRooms?.map(d => d.ics_uid).filter(Boolean));
+            const existingTimeRooms = new Set(existingRooms?.map(d => `${d.room_name}_${new Date(d.start_time).getTime()}`));
             
             const insertsRooms = [];
-            newRoomEvents.forEach(event => {
+            let actualSkippedRooms = 0;
+
+            // 3. Suodatetaan pois KAIKKI mikä on jo tietokannassa jollain tavalla
+            roomEventsRaw.forEach(event => {
                 const datePart = event.start ? (event.start.includes(':') ? event.start.split(':').pop().trim() : event.start.trim()) : '';
                 const finalUid = event.uid ? `${event.uid}_${datePart}` : null;
                 const startTimeIso = parseIcsDate(event.start);
                 const endTimeIso = parseIcsDate(event.end) || startTimeIso; 
+                const roomName = event.location || 'Tuntematon tila';
                 
                 if (startTimeIso && finalUid) {
-                    insertsRooms.push({ 
-                        expert_id: asiantuntijaId, 
-                        ics_uid: finalUid, 
-                        room_name: event.location || 'Tuntematon tila', 
-                        start_time: startTimeIso, 
-                        end_time: endTimeIso 
-                    });
+                    const timeRoomKey = `${roomName}_${new Date(startTimeIso).getTime()}`;
+                    
+                    // ONKO JO OLEMASSA? Joko saman ID:n, tai saman huoneen+ajan perusteella
+                    if (existingUids.has(finalUid) || existingTimeRooms.has(timeRoomKey)) {
+                        actualSkippedRooms++;
+                    } else {
+                        // ON TÄYSIN UUSI -> Mennään eteenpäin
+                        insertsRooms.push({ 
+                            expert_id: asiantuntijaId, 
+                            ics_uid: finalUid, 
+                            room_name: roomName, 
+                            start_time: startTimeIso, 
+                            end_time: endTimeIso 
+                        });
+                        
+                        // Lisätään nämä muistiin, jottei saman tuontitiedoston sisällä oleva tupla tee virhettä
+                        existingUids.add(finalUid);
+                        existingTimeRooms.add(timeRoomKey);
+                    }
                 }
             });
 
-       // 3. Pusketaan kantaan! Käytetään luonnollista avainta (henkilö, huone, aika) 409-virheen estämiseksi
-if (insertsRooms.length > 0) {
-    const { error } = await supabase.schema('espan')
-        .from('room_bookings')
-        .upsert(insertsRooms, { onConflict: 'expert_id,room_name,start_time' });
-    
-    if (error) throw error;
-}
-
+            // 4. Tehdään normaali yksinkertainen INSERT (Ei yritetä päivittää/upsert, joten sääntövirheitä ei tule koskaan)
+            if (insertsRooms.length > 0) {
+                const { error: insertError } = await supabase.schema('espan')
+                    .from('room_bookings')
+                    .insert(insertsRooms);
+                
+                if (insertError) throw insertError;
+            }
 
             setResults({ 
                 success: insertsRooms.length, 
-                skipped: roomEventsRaw.length - insertsRooms.length 
+                skipped: actualSkippedRooms 
             });
 
             if (insertsRooms.length > 0 && onImportComplete) onImportComplete();
@@ -137,13 +154,13 @@ if (insertsRooms.length > 0) {
                 </div>
 
                 <div className="text-xs text-slate-500 font-italic lh-tight" style={{ borderLeft: '3px solid #cbd5e1', paddingLeft: '8px' }}>
-                    Tämä työkalu poimii Outlook-tiedostosta AINOASTAAN huone- ja laitevaraukset (Resource) ja tallentaa ne automaattisesti oikeaan tauluun taustalla. 
+                    Tämä työkalu poimii Outlook-tiedostosta AINOASTAAN huone- ja laitevaraukset (Resource). Tuplat ja samalle ajalle tehdyt varaukset ohitetaan suoraan.
                 </div>
 
                 {results && !results.error && (
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
                         {results.success > 0 && <Badge variant="success" icon={CheckCircle}>Tuotiin {results.success} uutta huonevarausta</Badge>}
-                        {results.skipped > 0 && <Badge variant="default" className="text-muted">Ohitettiin {results.skipped} (jo tallennettu)</Badge>}
+                        {results.skipped > 0 && <Badge variant="default" className="text-muted">Ohitettiin {results.skipped} päällekkäistä varausta</Badge>}
                         {results.success === 0 && <Badge variant="default" icon={CheckCircle}>Ei uusia tilavarauksia</Badge>}
                     </div>
                 )}
