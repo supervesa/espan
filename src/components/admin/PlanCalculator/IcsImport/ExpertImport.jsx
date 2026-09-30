@@ -5,7 +5,7 @@ import Card from '../../../common/Card';
 import Button from '../../../common/Button';
 import Badge from '../../../common/Badge';
 import AlertBox from '../../../common/AlertBox';
-import { Calendar, Upload, Loader2, CheckCircle, AlertTriangle, BookOpen, Trash2, Save, XCircle, CheckSquare } from 'lucide-react';
+import { Calendar, Upload, Loader2, CheckCircle, AlertTriangle, BookOpen, Trash2, Save, XCircle, CheckSquare, Briefcase, PhoneCall, DoorOpen } from 'lucide-react';
 
 const LEGACY_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -256,36 +256,45 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 const maskedSummary = idMatch ? summary.replace(idMatch[0], `${idMatch[0].substring(0, 4)}*******${idMatch[0].substring(11)}`) : summary;
                 baseEvent.summaryDisplay = maskedSummary;
 
-                // 🔍 2. SANAKIRJA (Etsitään erotinta -, -- tai :)
-                const dashMatch = summary.match(/^(.*?)\s*(?:--?|:)\s*(.*)$/);
-                if (dashMatch) {
-                    const prefix = dashMatch[1].trim();
-                    const dictHit = learnedDictionary[prefix.toLowerCase()];
+                // 🔍 2. SANAKIRJA (Koko sana tai erotinviiva/kaksoispiste)
+                let dictHit = learnedDictionary[lowerSummary]; // Katsotaan löytyykö TÄSMÄLLEEN tämä sana
+                let prefix = lowerSummary;
+                let hasDash = false;
 
-                    if (dictHit) {
-                        if (dictHit.cat === 'piilotettu') {
-                            // 👻 OPETETTU HARMAA LISTA: Tiputetaan suoraan taustalla
-                            dictionarySkippedCount++; 
-                        } else if (dictHit.cat === 'hylatty') {
-                            // Opittu Hylkäys -> Näytetään vihreässä laatikossa, mutta ruksi päällä
-                            tAuto.push({ ...baseEvent, category: 'hylatty', method: null, is_cancelled: false });
-                            initialAutoSkips.add(finalUid);
-                        } else {
-                            // Opittu Työ/Poissaolo/yms -> Vihreä laatikko
-                            tAuto.push({ ...baseEvent, category: dictHit.cat, method: dictHit.method, is_cancelled: dictHit.isCancel });
-                        }
+                if (!dictHit) {
+                    const dashMatch = summary.match(/^(.*?)\s*(?:--?|:)\s*(.*)$/);
+                    if (dashMatch) {
+                        hasDash = true;
+                        prefix = dashMatch[1].trim();
+                        dictHit = learnedDictionary[prefix.toLowerCase()];
+                    }
+                }
+
+                if (dictHit) {
+                    if (dictHit.cat === 'piilotettu') {
+                        // 👻 OPETETTU HARMAA LISTA: Tiputetaan suoraan taustalla
+                        dictionarySkippedCount++; 
+                    } else if (dictHit.cat === 'hylatty') {
+                        // Opittu Hylkäys -> Näytetään vihreässä laatikossa, mutta ruksi päällä
+                        tAuto.push({ ...baseEvent, category: 'hylatty', method: null, is_cancelled: false });
+                        initialAutoSkips.add(finalUid);
                     } else {
-                        // Sanaa ei löydy sanakirjasta -> Keltainen laatikko
-                        tTeach.push({ ...baseEvent, prefix });
+                        // Opittu Työ/Poissaolo/yms -> Vihreä laatikko
+                        tAuto.push({ ...baseEvent, category: dictHit.cat, method: dictHit.method, is_cancelled: dictHit.isCancel });
                     }
                     return;
                 }
 
+                // Jos ei löytynyt sanakirjasta, MUTTA siinä oli erotin -> Menee opetusjonoon
+                if (hasDash) {
+                    tTeach.push({ ...baseEvent, prefix });
+                    return;
+                }
+
                 // 🎯 3. ELEGANTTI TUTKA (Kylmäsoitot, Ajanvaraukset ja Sync Tokenit)
-                // Jos tapahtumalla on joko 14 numeroa TAI se on peruttu TAI siitä löytyi Asiantuntija-token
-                if (event.sync_token || idMatch || lowerSummary.startsWith('peruttu')) {
+                if (event.sync_token || idMatch || lowerSummary.startsWith('peruttu') || lowerSummary.startsWith('ajanvaraus')) {
                     let cat = 'tapaaminen';
-                    let method = 'lasna'; // Oletus: Läsnä
+                    let method = 'lasna'; // Oletus
                     let isCancel = false;
 
                     if (lowerSummary.includes('puhelu') || lowerSummary.includes('soitto')) {
@@ -320,7 +329,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 tManual.push({ ...baseEvent, isLegacy: false });
             });
 
-            // Ryhmitellään Opetettavat
             const groupedTeach = {};
             tTeach.forEach(ev => {
                 if (!groupedTeach[ev.prefix]) groupedTeach[ev.prefix] = [];
@@ -399,7 +407,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     });
                 }
 
-                // Mutta tallennetaan ne sanakirjaan, jotta oppivat
                 if (conf.save) {
                     insertsDict.push({ opittu_sana: group.prefix, kategoria: finalCat, metodi: conf.method || null, is_cancelled: isCanceled });
                 }
