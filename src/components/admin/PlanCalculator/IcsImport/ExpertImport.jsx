@@ -14,15 +14,33 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
     const [results, setResults] = useState(null);
     const [reviewQueue, setReviewQueue] = useState([]);
     const [localQueue, setLocalQueue] = useState([]); 
+    
+    // TIETOKANNAN SANAKIRJA
     const [learnedDictionary, setLearnedDictionary] = useState({});
     const [learnChecks, setLearnChecks] = useState({});
 
     const fileInputRef = useRef(null);
 
-    useEffect(() => {
-        const savedDict = localStorage.getItem('espan_ics_dictionary');
-        if (savedDict) setLearnedDictionary(JSON.parse(savedDict));
-    }, []);
+    // 1. HAETAAN TIIMIN YHTEINEN SANAKIRJA KANNASTA
+    const fetchDictionary = async () => {
+        try {
+            const { data, error } = await supabase.schema('espan').from('ics_dictionary').select('*');
+            if (!error && data) {
+                // Muunnetaan taulukko nopeaksi hakemistoksi (Key = sana pienellä)
+                const dictObj = {};
+                data.forEach(item => {
+                    dictObj[item.opittu_sana.toLowerCase()] = {
+                        cat: item.kategoria,
+                        method: item.metodi,
+                        isCancel: item.is_cancelled
+                    };
+                });
+                setLearnedDictionary(dictObj);
+            }
+        } catch (error) {
+            console.error("Virhe sanakirjan latauksessa:", error);
+        }
+    };
 
     const fetchReviewQueue = async () => {
         try {
@@ -38,7 +56,9 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
         }
     };
 
+    // Ladataan tiedot aina, kun komponentti aukeaa tai asiantuntija vaihtuu
     useEffect(() => {
+        fetchDictionary();
         if (asiantuntijaId) fetchReviewQueue();
     }, [asiantuntijaId]);
 
@@ -118,7 +138,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             
             const newEvents = rawEvents.filter(ev => {
                 const fUid = ev.uid ? `${ev.uid}_${ev.start ? ev.start.split(':').pop().trim() : ''}` : null;
-                // Pudotetaan kokonaan pois huonevaraukset (Koska niillä on nyt oma tuontinsa!)
                 const isRoomEvent = ev.isResource || (ev.location && ev.location.startsWith('RES'));
                 return fUid && !existingUids.has(fUid) && !isRoomEvent;
             });
@@ -146,10 +165,12 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
 
                 const baseEvent = { expert_id: asiantuntijaId, ics_uid: finalUid, start_time: startTimeIso, end_time: endTimeIso, is_all_day: isAllDay, sync_token: event.sync_token || null };
-                const learnedPrefix = Object.keys(learnedDictionary).find(p => lowerSummary.startsWith(p.toLowerCase()));
+                
+                // TARKISTETAAN OLEMASSA OLEVASTA SANAKIRJASTA
+                const learnedPrefix = Object.keys(learnedDictionary).find(p => lowerSummary.startsWith(p));
                 const idMatch = summary.match(/\d{14}/);
 
-                // Token tai opittu (VIP)
+                // Token tai jo opittu sana
                 if (event.sync_token || learnedPrefix) {
                     let cat = 'tapaaminen';
                     let method = lowerSummary.includes('puhelu') || lowerSummary.includes('soitto') ? 'soitto' : 'lasna';
@@ -168,8 +189,10 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     const isClean = lowerSummary.startsWith('ajanvaraus') || lowerSummary.startsWith('peruttu');
                     
                     if (event.sync_token && !isClean && !learnedPrefix) {
+                        // Tuntematon, mutta asiallinen asiakasvaraus -> Tarvitsee opetuksen UI:ssa
                         newLocalQueue.push({ ...baseEvent, id: finalUid, original_summary: summary, queueType: 'teach' });
                     } else {
+                        // Varma osuma
                         insertsReady.push({ ...baseEvent, event_category: cat, contact_method: method, is_cancelled: isCancel });
                     }
                     return;
@@ -215,27 +238,55 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
         }
     };
 
+    // =========================================================
+    // KÄSITELLÄÄN PAIKALLINEN JONO (Uudet sanat / Muu työ)
+    // =========================================================
     const resolveLocalItem = async (item, cat, method) => {
         try {
+            const isCanceled = cat === 'peruttu' || cat === 'noshow';
+            
+            // 1. Tallenna itse tapahtuma
             const dbEvent = {
                 expert_id: item.expert_id, ics_uid: item.ics_uid, start_time: item.start_time, end_time: item.end_time,
                 is_all_day: item.is_all_day, sync_token: item.sync_token, event_category: cat, contact_method: method || null,
-                is_cancelled: cat === 'peruttu' || cat === 'noshow'
+                is_cancelled: isCanceled
             };
 
-            const { error } = await supabase.schema('espan').from('ics_events').upsert(dbEvent, { onConflict: 'expert_id, ics_uid' });
-            if (error) throw error;
+            const { error: evError } = await supabase.schema('espan').from('ics_events').upsert(dbEvent, { onConflict: 'expert_id, ics_uid' });
+            if (evError) throw evError;
 
+            // 2. OPETETAAN UUSI SANA TIETOKANTAAN (Jos ruksi on valittu)
             if (item.queueType === 'teach' && learnChecks[item.id]) {
                 const cleanPrefix = item.original_summary.split('-')[0].trim();
-                const newDict = { ...learnedDictionary, [cleanPrefix]: { cat, method, isCancel: dbEvent.is_cancelled } };
-                localStorage.setItem('espan_ics_dictionary', JSON.stringify(newDict));
-                setLearnedDictionary(newDict);
+                
+                const dictInsert = { 
+                    opittu_sana: cleanPrefix, 
+                    kategoria: cat, 
+                    metodi: method || null, 
+                    is_cancelled: isCanceled 
+                };
+
+                const { error: dictError } = await supabase.schema('espan')
+                    .from('ics_dictionary')
+                    .upsert(dictInsert, { onConflict: 'opittu_sana' });
+                
+                if (dictError) {
+                    console.error("Sanan tallennus sanakirjaan epäonnistui:", dictError);
+                } else {
+                    // Päivitetään muistiin heti, jotta seuraavat tuonnit tunnistavat sen
+                    setLearnedDictionary(prev => ({
+                        ...prev,
+                        [cleanPrefix.toLowerCase()]: { cat, method, isCancel: isCanceled }
+                    }));
+                }
             }
 
+            // Poista jonosta
             setLocalQueue(prev => prev.filter(q => q.id !== item.id));
             if (onImportComplete) onImportComplete();
+            
         } catch (err) {
+            console.error(err);
             alert("Tallennus epäonnistui.");
         }
     };
@@ -275,7 +326,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     </div>
 
                     <div className="text-xs text-slate-500 font-italic lh-tight" style={{ borderLeft: '3px solid #cbd5e1', paddingLeft: '8px' }}>
-                        Poimii automaattisesti työtehtävät ja sivuuttaa lounaat. Epäselvät siirtyvät alle ratkaistaviksi.
+                        Poimii automaattisesti työtehtävät ja sivuuttaa lounaat. Epäselvät siirtyvät alle ratkaistaviksi. Voit ohjata uusia sanoja opittavaksi koko tiimin sanakirjaan!
                     </div>
 
                     {results && !results.error && (
@@ -307,12 +358,18 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                                                 {item.is_all_day ? `${startDate.toLocaleDateString('fi-FI')} (Koko päivä)` : `${startDate.toLocaleDateString('fi-FI')} klo ${startDate.toLocaleTimeString('fi-FI', { hour: '2-digit', minute: '2-digit' })}`}
                                             </div>
                                             <div className="text-sm fw-bold text-slate-700">{item.original_summary}</div>
+                                            {item.queueType === 'teach' && (
+                                                <div style={{ marginTop: '6px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <input type="checkbox" id={`chk-${item.id}`} checked={learnChecks[item.id] || false} onChange={e => setLearnChecks(p => ({ ...p, [item.id]: e.target.checked }))} />
+                                                    <label htmlFor={`chk-${item.id}`} style={{ cursor: 'pointer', color: '#854d0e' }}>Tallenna "{item.original_summary.split('-')[0].trim()}" tiimin sanakirjaan!</label>
+                                                </div>
+                                            )}
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                             {item.queueType === 'teach' ? (
                                                 <>
-                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'peruttu', null)}>Peruttu</Button>
-                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'noshow', null)}>No-show</Button>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'tapaaminen', 'lasna')}>Läsnä (Asiakas)</Button>
+                                                    <Button variant="secondary" onClick={() => resolveLocalItem(item, 'tapaaminen', 'soitto')}>Soitto (Asiakas)</Button>
                                                 </>
                                             ) : (
                                                 <>
@@ -322,7 +379,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                                                 </>
                                             )}
                                             <div style={{ width: '1px', backgroundColor: '#fde047', margin: '0 4px' }}></div>
-                                            {/* TÄSSÄ HYLKÄÄ / OHITA NAPPI */}
                                             <Button variant="danger" icon={Trash2} onClick={() => discardLocalItem(item.id)}>Hylkää / Ohita</Button>
                                         </div>
                                     </div>

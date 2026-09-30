@@ -16,7 +16,12 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
         if (!dateStr) return null;
         const cleanStr = dateStr.includes(':') ? dateStr.split(':').pop().trim() : dateStr.trim();
         
-        if (cleanStr.length >= 15) {
+        if (cleanStr.length === 8) {
+            const y = cleanStr.substring(0, 4);
+            const m = cleanStr.substring(4, 6);
+            const d = cleanStr.substring(6, 8);
+            return new Date(`${y}-${m}-${d}T00:00:00Z`).toISOString();
+        } else if (cleanStr.length >= 15) {
             const y = cleanStr.substring(0, 4);
             const m = cleanStr.substring(4, 6);
             const d = cleanStr.substring(6, 8);
@@ -27,6 +32,82 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
             return isUTC ? new Date(`${y}-${m}-${d}T${h}:${min}:${s}Z`).toISOString() : new Date(`${y}-${m}-${d}T${h}:${min}:${s}`).toISOString();
         }
         return null;
+    };
+
+    // TUOTU TAKAISIN: Toistuvuuksien purkaja!
+    const expandRRule = (events) => {
+        const expanded = [];
+        events.forEach(ev => {
+            if (!ev.rrule || !ev.start) {
+                expanded.push(ev);
+                return;
+            }
+            const rules = {};
+            ev.rrule.split(';').forEach(p => {
+                const [k, v] = p.split('=');
+                if (k && v) rules[k] = v;
+            });
+
+            if (rules.FREQ !== 'WEEKLY' && rules.FREQ !== 'DAILY') {
+                expanded.push(ev);
+                return;
+            }
+
+            const startIso = parseIcsDate(ev.start);
+            const endIso = parseIcsDate(ev.end) || startIso;
+            if (!startIso) return;
+
+            const startDate = new Date(startIso);
+            const endDate = new Date(endIso);
+            const durationMs = endDate.getTime() - startDate.getTime();
+
+            const maxCount = parseInt(rules.COUNT) || 50; 
+            const untilDate = rules.UNTIL ? new Date(parseIcsDate(rules.UNTIL)).getTime() : null;
+            const validDays = rules.BYDAY ? rules.BYDAY.split(',') : null;
+            const dayMap = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
+            let occurrences = 0;
+            let loopDate = new Date(startDate);
+            let safety = 0;
+
+            const extractTime = (rawIcsStr) => {
+                if (!rawIcsStr) return '';
+                const cleanStr = rawIcsStr.includes(':') ? rawIcsStr.split(':').pop().trim() : rawIcsStr.trim();
+                const parts = cleanStr.split('T');
+                return parts.length > 1 ? parts[1] : ''; 
+            };
+            
+            const timePart = extractTime(ev.start);
+            const eTimePart = extractTime(ev.end);
+
+            while (occurrences < maxCount && safety < 365) {
+                safety++;
+                const currentDayStr = dayMap[loopDate.getDay()];
+                if (untilDate && loopDate.getTime() > untilDate) break;
+
+                if (!validDays || validDays.includes(currentDayStr)) {
+                    const y = loopDate.getFullYear();
+                    const m = String(loopDate.getMonth() + 1).padStart(2, '0');
+                    const d = String(loopDate.getDate()).padStart(2, '0');
+                    
+                    const newStartStr = timePart ? `${y}${m}${d}T${timePart}` : `${y}${m}${d}`;
+                    
+                    const loopEnd = new Date(loopDate.getTime() + durationMs);
+                    const ey = loopEnd.getFullYear();
+                    const em = String(loopEnd.getMonth() + 1).padStart(2, '0');
+                    const ed = String(loopEnd.getDate()).padStart(2, '0');
+                    
+                    const newEndStr = eTimePart ? `${ey}${em}${ed}T${eTimePart}` : `${ey}${em}${ed}`;
+
+                    expanded.push({ ...ev, start: `DTSTART:${newStartStr}`, end: `DTEND:${newEndStr}` });
+                    occurrences++;
+                }
+
+                if (rules.FREQ === 'DAILY') loopDate.setDate(loopDate.getDate() + (parseInt(rules.INTERVAL) || 1));
+                else if (rules.FREQ === 'WEEKLY') loopDate.setDate(loopDate.getDate() + 1); 
+            }
+        });
+        return expanded;
     };
 
     const parseICS = (icsText) => {
@@ -51,11 +132,14 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
                     if (propName === 'DTSTART') currentEvent.start = line; 
                     if (propName === 'DTEND') currentEvent.end = line;
                     if (propName === 'LOCATION') currentEvent.location = value;
+                    if (propName === 'RRULE') currentEvent.rrule = value; // Lisätty: kerätään toistuvuus
                     if (propName === 'ATTENDEE' && line.includes('CUTYPE=RESOURCE')) currentEvent.isResource = true;
                 }
             }
         });
-        return events;
+        
+        // Ajetaan events toistuvuuksien purkajan läpi ennen palautusta!
+        return expandRRule(events);
     };
 
     const handleFileChange = async (e) => {
@@ -69,10 +153,8 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
             const text = await file.text();
             const rawEvents = parseICS(text);
             
-            // 1. Etsi vain tilat ja huonevaraukset kalenterista
             const roomEventsRaw = rawEvents.filter(ev => ev.isResource || (ev.location && ev.location.startsWith('RES')));
             
-            // 2. Haetaan KAIKKI olemassa olevat huonevaraukset tältä asiantuntijalta kerralla
             const { data: existingRooms, error: fetchError } = await supabase.schema('espan')
                 .from('room_bookings')
                 .select('ics_uid, room_name, start_time')
@@ -80,14 +162,12 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
             
             if (fetchError) throw fetchError;
 
-            // Luodaan Sanakirjat, jotta vertailu on salamannopeaa, muunnetaan aika numeeriseksi varmuuden vuoksi
             const existingUids = new Set(existingRooms?.map(d => d.ics_uid).filter(Boolean));
             const existingTimeRooms = new Set(existingRooms?.map(d => `${d.room_name}_${new Date(d.start_time).getTime()}`));
             
             const insertsRooms = [];
             let actualSkippedRooms = 0;
 
-            // 3. Suodatetaan pois KAIKKI mikä on jo tietokannassa jollain tavalla
             roomEventsRaw.forEach(event => {
                 const datePart = event.start ? (event.start.includes(':') ? event.start.split(':').pop().trim() : event.start.trim()) : '';
                 const finalUid = event.uid ? `${event.uid}_${datePart}` : null;
@@ -98,11 +178,9 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
                 if (startTimeIso && finalUid) {
                     const timeRoomKey = `${roomName}_${new Date(startTimeIso).getTime()}`;
                     
-                    // ONKO JO OLEMASSA? Joko saman ID:n, tai saman huoneen+ajan perusteella
                     if (existingUids.has(finalUid) || existingTimeRooms.has(timeRoomKey)) {
                         actualSkippedRooms++;
                     } else {
-                        // ON TÄYSIN UUSI -> Mennään eteenpäin
                         insertsRooms.push({ 
                             expert_id: asiantuntijaId, 
                             ics_uid: finalUid, 
@@ -111,14 +189,12 @@ const RoomImport = ({ asiantuntijaId, onImportComplete }) => {
                             end_time: endTimeIso 
                         });
                         
-                        // Lisätään nämä muistiin, jottei saman tuontitiedoston sisällä oleva tupla tee virhettä
                         existingUids.add(finalUid);
                         existingTimeRooms.add(timeRoomKey);
                     }
                 }
             });
 
-            // 4. Tehdään normaali yksinkertainen INSERT (Ei yritetä päivittää/upsert, joten sääntövirheitä ei tule koskaan)
             if (insertsRooms.length > 0) {
                 const { error: insertError } = await supabase.schema('espan')
                     .from('room_bookings')
