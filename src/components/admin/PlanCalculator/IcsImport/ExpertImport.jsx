@@ -13,12 +13,10 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [isCommitting, setIsCommitting] = useState(false);
     
-    // Tietokannat ja jonot
     const [learnedDictionary, setLearnedDictionary] = useState({});
     const [validTokens, setValidTokens] = useState([]);
     const [legacyQueue, setLegacyQueue] = useState([]);
     
-    // Pre-flight vaiheen tila ja jonot
     const [isStaging, setIsStaging] = useState(false);
     const [stagingStats, setStagingStats] = useState({ lunches: 0, autoSkipped: 0, newWords: 0 });
     const [autoQueue, setAutoQueue] = useState([]);
@@ -28,7 +26,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
 
     const fileInputRef = useRef(null);
 
-    // 1. LATAA TIIMIN YHTEINEN SANAKIRJA JA HARMAA LISTA
     const fetchDictionary = async () => {
         try {
             const { data, error } = await supabase.schema('espan').from('ics_dictionary').select('*');
@@ -36,11 +33,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 const dictObj = {};
                 data.forEach(item => {
                     const cleanWord = item.opittu_sana.toLowerCase().replace(/:$/, '').trim();
-                    dictObj[cleanWord] = {
-                        cat: item.kategoria,
-                        method: item.metodi,
-                        isCancel: item.is_cancelled
-                    };
+                    dictObj[cleanWord] = { cat: item.kategoria, method: item.metodi, isCancel: item.is_cancelled };
                 });
                 setLearnedDictionary(dictObj);
             }
@@ -49,7 +42,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
         }
     };
 
-    // 2. LATAA TOIVOTUS-TOKENIT LUNTTILAPULLE
     const fetchValidTokens = async () => {
         try {
             const { data, error } = await supabase.schema('espan')
@@ -67,7 +59,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
         }
     };
 
-    // 3. LATAA VANHAT SELVITTÄMÄTTÖMÄT (LEGACY JONO)
     const fetchReviewQueue = async () => {
         try {
             const { data, error } = await supabase.schema('espan')
@@ -93,7 +84,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
         }
     }, [asiantuntijaId]);
 
-    // --- PRE-FLIGHT LUKU ---
     const handleFileChange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -103,7 +93,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
 
         try {
             const text = await file.text();
-            // SYÖTETÄÄN PARSERILLE MYÖS LUNTTILAPPU UUSISTA TOKENEISTA
             const rawEvents = parseICS(text, validTokens);
             
             const fileUids = rawEvents.map(ev => {
@@ -115,7 +104,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             const { data: existingData } = await supabase.schema('espan').from('ics_events').select('ics_uid').in('ics_uid', fileUids).in('expert_id', [asiantuntijaId, LEGACY_ID]);
             const existingUids = new Set(existingData?.map(d => d.ics_uid) || []);
             
-            // KORJATTU: Ei enää tiputeta huonevarauksia pois. Kaikki Vesan kalenterin työ on Vesan työtä!
             const newEvents = rawEvents.filter(ev => {
                 const rawDate = ev.start ? (ev.start.includes(':') ? ev.start.split(':').pop().trim() : ev.start.trim()) : '';
                 const fUid = ev.uid ? `${ev.uid}_${rawDate.substring(0,8)}` : null;
@@ -162,6 +150,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
 
                 // ✂️ 2. SAKSET JA TÄHDET (Ajanvaraukset ja numerot)
                 let hasScissorCut = false;
+                let hasNumberMask = false; 
                 const scissorMatch = displaySummary.match(/^(.*?ajanvaraus.*?)\s+(\d{5,})/i); 
                 
                 if (scissorMatch) {
@@ -171,6 +160,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     displaySummary = `${prefixTxt} ${maskedNum}`; 
                     lowerSummary = displaySummary.toLowerCase();
                     hasScissorCut = true;
+                    hasNumberMask = true;
                 } else {
                     const numMatch = displaySummary.match(/\d{5,}/);
                     if (numMatch) {
@@ -178,7 +168,14 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                         const maskedNum = `${num.substring(0, 4)}` + '***';
                         displaySummary = displaySummary.replace(num, maskedNum);
                         lowerSummary = displaySummary.toLowerCase();
+                        hasNumberMask = true;
                     }
+                }
+
+                // 🛑 2.5. TYHJÄT VARAUSKUORET (Ajanvaraus ilman numeroa tai tokenia)
+                if (lowerSummary.includes('ajanvaraus') && !hasNumberMask && !event.sync_token) {
+                    droppedLunchCount++;
+                    return; // Heitetään roskiin!
                 }
 
                 const baseEvent = { id: finalUid, expert_id: asiantuntijaId, ics_uid: finalUid, start_time: realStartIso, end_time: realEndIso, is_all_day: isAllDay, summaryDisplay: displaySummary, original_summary: originalSummary, sync_token: event.sync_token || null };
@@ -215,11 +212,9 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
 
                 // 🎯 4. ELEGANTTI TUTKA (Tokenit, Leikatut ajanvaraukset, Kylmäsoitot)
-                const hasNumberMask = lowerSummary.includes('***');
-                
                 if (event.sync_token || hasScissorCut || hasNumberMask || lowerSummary.startsWith('peruttu')) {
                     let cat = 'tapaaminen';
-                    let method = 'lasna'; 
+                    let method = 'lasna';
                     let isCancel = false;
 
                     if (lowerSummary.includes('puhelu') || lowerSummary.includes('soitto')) {
@@ -249,7 +244,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     return;
                 }
 
-                // 🤷‍♂️ 6. TÄYSIN TUNNISTAMATON ROSKA
+                // 🤷‍♂️ 6. TUNNISTAMATON (Manuaalijono)
                 tManual.push({ ...baseEvent, isLegacy: false });
             });
 
@@ -291,7 +286,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             const insertsDict = [];
             const legacyDeletes = [];
 
-            // 1. Vihreä Laatikko
             autoQueue.forEach(ev => {
                 if (!autoSkips.has(ev.ics_uid)) {
                     rawInsertsEvents.push({
@@ -301,7 +295,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
-            // 2. Keltainen Laatikko
             teachQueue.forEach(group => {
                 const conf = teachConfigs[group.prefix];
                 if (!conf || !conf.category) return;
@@ -323,7 +316,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
-            // 3. Oranssi Laatikko
             manualQueue.forEach(ev => {
                 const conf = manualConfigs[ev.id];
                 if (conf && conf.category) {
@@ -390,7 +382,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     </div>
                     
                     <div className="text-xs text-slate-500 font-italic lh-tight" style={{ borderLeft: '3px solid #cbd5e1', paddingLeft: '8px' }}>
-                        Älykäs esikatselu näyttää kaikki työtehtävät ennen tallennusta. Lounaat ja opetetut "harmaan listan" tapahtumat ohitetaan automaattisesti taustalla.
+                        Älykäs esikatselu näyttää kaikki työtehtävät ennen tallennusta. Lounaat, tyhjät varauskuoret ja opetetut roskat ohitetaan automaattisesti taustalla.
                     </div>
 
                     {legacyQueue.length > 0 && (

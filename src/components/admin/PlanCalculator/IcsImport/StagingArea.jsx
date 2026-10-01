@@ -18,7 +18,6 @@ const StagingArea = ({
     const [teachConfigs, setTeachConfigs] = useState({});  
     const [manualConfigs, setManualConfigs] = useState({});
 
-    // Apufunktio päivämäärän ja kellonajan kauniiseen muotoiluun
     const formatDateTime = (isoString, isAllDay) => {
         if (!isoString) return '';
         const d = new Date(isoString);
@@ -55,12 +54,11 @@ const StagingArea = ({
             
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
                 <div className="text-sm fw-bold" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Trash2 size={16}/> Piilotettu näkymättömiin:</div>
-                {stagingStats.lunches > 0 && <Badge variant="default">Lounaat/Tauot ({stagingStats.lunches})</Badge>}
+                {stagingStats.lunches > 0 && <Badge variant="default">Lounaat / Tyhjät varauskuoret ({stagingStats.lunches})</Badge>}
                 {stagingStats.autoSkipped > 0 && <Badge variant="default">👻 Harmaa lista ({stagingStats.autoSkipped})</Badge>}
                 {stagingStats.lunches === 0 && stagingStats.autoSkipped === 0 && <Badge variant="default" className="text-muted">Ei ohitettua sisältöä</Badge>}
             </div>
 
-            {/* 🟢 LAATIKKO 1: AUTOMAATTISET */}
             {autoQueue.length > 0 && (
                 <div style={{ border: '1px solid #bbf7d0', borderRadius: '8px', overflow: 'hidden' }}>
                     <div style={{ backgroundColor: '#f0fdf4', padding: '1rem', borderBottom: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -93,7 +91,6 @@ const StagingArea = ({
                 </div>
             )}
 
-            {/* 🟡 LAATIKKO 2: OPETETTAVAT SANAT */}
             {teachQueue.length > 0 && (
                 <div style={{ border: '1px solid #fef08a', borderRadius: '8px', overflow: 'hidden' }}>
                     <div style={{ backgroundColor: '#fefce8', padding: '1rem', borderBottom: '1px solid #fef08a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
