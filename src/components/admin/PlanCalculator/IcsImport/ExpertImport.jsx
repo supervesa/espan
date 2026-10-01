@@ -28,7 +28,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
 
     const fileInputRef = useRef(null);
 
-    // 1. LATAA TIIMIN YHTEINEN SANAKIRJA
+    // 1. LATAA TIIMIN YHTEINEN SANAKIRJA JA HARMAA LISTA
     const fetchDictionary = async () => {
         try {
             const { data, error } = await supabase.schema('espan').from('ics_dictionary').select('*');
@@ -52,7 +52,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
     // 2. LATAA TOIVOTUS-TOKENIT LUNTTILAPULLE
     const fetchValidTokens = async () => {
         try {
-            // Haetaan tämän asiantuntijan generoidut toivotukset
             const { data, error } = await supabase.schema('espan')
                 .from('availability')
                 .select('sync_token')
@@ -107,7 +106,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             // SYÖTETÄÄN PARSERILLE MYÖS LUNTTILAPPU UUSISTA TOKENEISTA
             const rawEvents = parseICS(text, validTokens);
             
-            // Haetaan jo tallennetut kannasta päällekkäisyyksien estämiseksi
             const fileUids = rawEvents.map(ev => {
                 if (!ev.uid) return null;
                 const rawDate = ev.start ? (ev.start.includes(':') ? ev.start.split(':').pop().trim() : ev.start.trim()) : '';
@@ -117,11 +115,11 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             const { data: existingData } = await supabase.schema('espan').from('ics_events').select('ics_uid').in('ics_uid', fileUids).in('expert_id', [asiantuntijaId, LEGACY_ID]);
             const existingUids = new Set(existingData?.map(d => d.ics_uid) || []);
             
+            // KORJATTU: Ei enää tiputeta huonevarauksia pois. Kaikki Vesan kalenterin työ on Vesan työtä!
             const newEvents = rawEvents.filter(ev => {
                 const rawDate = ev.start ? (ev.start.includes(':') ? ev.start.split(':').pop().trim() : ev.start.trim()) : '';
                 const fUid = ev.uid ? `${ev.uid}_${rawDate.substring(0,8)}` : null;
-                const isRoomEvent = ev.isResource || (ev.location && ev.location.startsWith('RES'));
-                return fUid && !existingUids.has(fUid) && !isRoomEvent;
+                return fUid && !existingUids.has(fUid);
             });
 
             const tAuto = []; const tTeach = []; const tManual = [...legacyQueue];
@@ -130,7 +128,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             let dictionarySkippedCount = 0;
 
             newEvents.forEach(event => {
-                // Katkaistaan aikatunniste pituus-selvitystä varten, jotta ei rikota kelloaikoja!
                 const rawDatePart = event.start ? (event.start.includes(':') ? event.start.split(':').pop().trim() : event.start.trim()) : '';
                 const isAllDay = rawDatePart.length === 8 || (event.start && event.start.includes('VALUE=DATE'));
 
@@ -138,7 +135,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 const finalUid = event.uid ? `${event.uid}_${datePart8}` : null;
                 if (!finalUid) return;
 
-                // Haetaan oikea, alkuperäinen aikaleima kantaa varten
                 const extractIso = (icsDateStr) => {
                     const cleanStr = icsDateStr.includes(':') ? icsDateStr.split(':').pop().trim() : icsDateStr.trim();
                     if (cleanStr.length === 8) {
@@ -172,7 +168,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     const prefixTxt = scissorMatch[1].trim(); 
                     const num = scissorMatch[2];
                     const maskedNum = `${num.substring(0, 4)}` + '***'; 
-                    displaySummary = `${prefixTxt} ${maskedNum}`; // Sakset iskee!
+                    displaySummary = `${prefixTxt} ${maskedNum}`; 
                     lowerSummary = displaySummary.toLowerCase();
                     hasScissorCut = true;
                 } else {
@@ -223,7 +219,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 
                 if (event.sync_token || hasScissorCut || hasNumberMask || lowerSummary.startsWith('peruttu')) {
                     let cat = 'tapaaminen';
-                    let method = 'lasna';
+                    let method = 'lasna'; 
                     let isCancel = false;
 
                     if (lowerSummary.includes('puhelu') || lowerSummary.includes('soitto')) {
@@ -295,6 +291,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
             const insertsDict = [];
             const legacyDeletes = [];
 
+            // 1. Vihreä Laatikko
             autoQueue.forEach(ev => {
                 if (!autoSkips.has(ev.ics_uid)) {
                     rawInsertsEvents.push({
@@ -304,6 +301,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
+            // 2. Keltainen Laatikko
             teachQueue.forEach(group => {
                 const conf = teachConfigs[group.prefix];
                 if (!conf || !conf.category) return;
@@ -325,6 +323,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
+            // 3. Oranssi Laatikko
             manualQueue.forEach(ev => {
                 const conf = manualConfigs[ev.id];
                 if (conf && conf.category) {
