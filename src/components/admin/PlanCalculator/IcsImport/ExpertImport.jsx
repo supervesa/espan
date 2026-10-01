@@ -3,9 +3,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../../../../utils/supabaseClient'; 
 import Card from '../../../common/Card';
 import Button from '../../../common/Button';
-import Badge from '../../../common/Badge';
-import AlertBox from '../../../common/AlertBox';
-import { Calendar, Upload, Loader2, CheckCircle, AlertTriangle, BookOpen, Trash2, Save, XCircle, CheckSquare, Briefcase, PhoneCall, DoorOpen } from 'lucide-react';
+import { Calendar, Upload, Loader2, AlertTriangle } from 'lucide-react';
+import { parseICS } from './icsParser';
+import StagingArea from './StagingArea';
 
 const LEGACY_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -15,24 +15,20 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
     
     // Tietokannat ja jonot
     const [learnedDictionary, setLearnedDictionary] = useState({});
+    const [validTokens, setValidTokens] = useState([]);
     const [legacyQueue, setLegacyQueue] = useState([]);
     
-    // Pre-flight vaiheen laatikot
+    // Pre-flight vaiheen tila ja jonot
     const [isStaging, setIsStaging] = useState(false);
     const [stagingStats, setStagingStats] = useState({ lunches: 0, autoSkipped: 0, newWords: 0 });
-    
     const [autoQueue, setAutoQueue] = useState([]);
     const [teachQueue, setTeachQueue] = useState([]);
     const [manualQueue, setManualQueue] = useState([]);
-
-    // Käyttäjän valinnat esikatselussa
-    const [autoSkips, setAutoSkips] = useState(new Set()); 
-    const [teachConfigs, setTeachConfigs] = useState({});  
-    const [manualConfigs, setManualConfigs] = useState({}); 
+    const [initialAutoSkips, setInitialAutoSkips] = useState(new Set());
 
     const fileInputRef = useRef(null);
 
-    // 1. LATAA TIIMIN YHTEINEN SANAKIRJA JA HARMAA LISTA
+    // 1. LATAA TIIMIN YHTEINEN SANAKIRJA
     const fetchDictionary = async () => {
         try {
             const { data, error } = await supabase.schema('espan').from('ics_dictionary').select('*');
@@ -53,7 +49,26 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
         }
     };
 
-    // 2. LATAA VANHAT SELVITTÄMÄTTÖMÄT (LEGACY JONO)
+    // 2. LATAA TOIVOTUS-TOKENIT LUNTTILAPULLE
+    const fetchValidTokens = async () => {
+        try {
+            // Haetaan tämän asiantuntijan generoidut toivotukset
+            const { data, error } = await supabase.schema('espan')
+                .from('availability')
+                .select('sync_token')
+                .eq('expert_id', asiantuntijaId)
+                .not('sync_token', 'is', null);
+                
+            if (!error && data) {
+                const tokens = data.map(d => d.sync_token).filter(Boolean);
+                setValidTokens(tokens);
+            }
+        } catch (err) {
+            console.error("Virhe tokenien latauksessa:", err);
+        }
+    };
+
+    // 3. LATAA VANHAT SELVITTÄMÄTTÖMÄT (LEGACY JONO)
     const fetchReviewQueue = async () => {
         try {
             const { data, error } = await supabase.schema('espan')
@@ -73,131 +88,11 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
 
     useEffect(() => {
         fetchDictionary();
-        if (asiantuntijaId) fetchReviewQueue();
-    }, [asiantuntijaId]);
-
-    const parseIcsDate = (dateStr) => {
-        if (!dateStr) return null;
-        const cleanStr = dateStr.includes(':') ? dateStr.split(':').pop().trim() : dateStr.trim();
-        if (cleanStr.length === 8) {
-            return new Date(`${cleanStr.substring(0, 4)}-${cleanStr.substring(4, 6)}-${cleanStr.substring(6, 8)}T00:00:00Z`).toISOString();
-        } else if (cleanStr.length >= 15) {
-            const isUTC = cleanStr.endsWith('Z');
-            const isoBase = `${cleanStr.substring(0, 4)}-${cleanStr.substring(4, 6)}-${cleanStr.substring(6, 8)}T${cleanStr.substring(9, 11)}:${cleanStr.substring(11, 13)}:${cleanStr.substring(13, 15)}`;
-            return isUTC ? new Date(`${isoBase}Z`).toISOString() : new Date(isoBase).toISOString();
+        if (asiantuntijaId) {
+            fetchValidTokens();
+            fetchReviewQueue();
         }
-        return null;
-    };
-
-    const expandRRule = (events) => {
-        const expanded = [];
-        events.forEach(ev => {
-            if (!ev.rrule || !ev.start) {
-                expanded.push(ev);
-                return;
-            }
-            const rules = {};
-            ev.rrule.split(';').forEach(p => {
-                const [k, v] = p.split('=');
-                if (k && v) rules[k] = v;
-            });
-
-            if (rules.FREQ !== 'WEEKLY' && rules.FREQ !== 'DAILY') {
-                expanded.push(ev);
-                return;
-            }
-
-            const startIso = parseIcsDate(ev.start);
-            const endIso = parseIcsDate(ev.end) || startIso;
-            if (!startIso) return;
-
-            const startDate = new Date(startIso);
-            const endDate = new Date(endIso);
-            const durationMs = endDate.getTime() - startDate.getTime();
-
-            const maxCount = parseInt(rules.COUNT) || 50; 
-            const untilDate = rules.UNTIL ? new Date(parseIcsDate(rules.UNTIL)).getTime() : null;
-            const validDays = rules.BYDAY ? rules.BYDAY.split(',') : null;
-            const dayMap = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
-
-            let occurrences = 0;
-            let loopDate = new Date(startDate);
-            let safety = 0;
-
-            const extractTime = (rawIcsStr) => {
-                if (!rawIcsStr) return '';
-                const cleanStr = rawIcsStr.includes(':') ? rawIcsStr.split(':').pop().trim() : rawIcsStr.trim();
-                const parts = cleanStr.split('T');
-                return parts.length > 1 ? parts[1] : ''; 
-            };
-            
-            const timePart = extractTime(ev.start);
-            const eTimePart = extractTime(ev.end);
-
-            while (occurrences < maxCount && safety < 365) {
-                safety++;
-                const currentDayStr = dayMap[loopDate.getDay()];
-                if (untilDate && loopDate.getTime() > untilDate) break;
-
-                if (!validDays || validDays.includes(currentDayStr)) {
-                    const y = loopDate.getFullYear();
-                    const m = String(loopDate.getMonth() + 1).padStart(2, '0');
-                    const d = String(loopDate.getDate()).padStart(2, '0');
-                    const newStartStr = timePart ? `${y}${m}${d}T${timePart}` : `${y}${m}${d}`;
-                    
-                    const loopEnd = new Date(loopDate.getTime() + durationMs);
-                    const newEndStr = eTimePart ? `${loopEnd.getFullYear()}${String(loopEnd.getMonth() + 1).padStart(2, '0')}${String(loopEnd.getDate()).padStart(2, '0')}T${eTimePart}` : `${loopEnd.getFullYear()}${String(loopEnd.getMonth() + 1).padStart(2, '0')}${String(loopEnd.getDate()).padStart(2, '0')}`;
-
-                    expanded.push({ ...ev, start: `DTSTART:${newStartStr}`, end: `DTEND:${newEndStr}` });
-                    occurrences++;
-                }
-
-                if (rules.FREQ === 'DAILY') loopDate.setDate(loopDate.getDate() + (parseInt(rules.INTERVAL) || 1));
-                else if (rules.FREQ === 'WEEKLY') loopDate.setDate(loopDate.getDate() + 1); 
-            }
-        });
-        return expanded;
-    };
-
-    const parseICS = (icsText) => {
-        const events = [];
-        const unfoldedText = icsText.replace(/\r?\n[ \t]/g, '');
-        const lines = unfoldedText.split(/\r?\n/);
-        let currentEvent = null;
-
-        lines.forEach(line => {
-            if (line.startsWith('BEGIN:VEVENT')) {
-                currentEvent = {};
-            } else if (line.startsWith('END:VEVENT') && currentEvent) {
-                events.push(currentEvent);
-                currentEvent = null;
-            } else if (currentEvent) {
-                const colonIndex = line.indexOf(':');
-                if (colonIndex > -1) {
-                    const propName = line.substring(0, colonIndex).split(';')[0].toUpperCase(); 
-                    const value = line.substring(colonIndex + 1).trim();
-
-                    if (propName === 'UID') currentEvent.uid = value;
-                    if (propName === 'SUMMARY') currentEvent.summary = value; 
-                    if (propName === 'DTSTART') currentEvent.start = line; 
-                    if (propName === 'DTEND') currentEvent.end = line;
-                    if (propName === 'LOCATION') currentEvent.location = value;
-                    if (propName === 'RRULE') currentEvent.rrule = value;
-                    if (propName === 'ATTENDEE' && line.includes('CUTYPE=RESOURCE')) currentEvent.isResource = true;
-                    
-                    // --- ELEGANTTI TOKEN TUTKA ON TÄÄLLÄ ---
-                    if (propName === 'DESCRIPTION') {
-                        currentEvent.description = value;
-                        const tokenMatch = value.match(/Asiantuntija Vesa Nessling(?:\\n|\n)(.+)/);
-                        if (tokenMatch && tokenMatch[1]) {
-                            currentEvent.sync_token = tokenMatch[1].replace(/\\n/g, '').trim();
-                        }
-                    }
-                }
-            }
-        });
-        return expandRRule(events);
-    };
+    }, [asiantuntijaId]);
 
     // --- PRE-FLIGHT LUKU ---
     const handleFileChange = async (e) => {
@@ -206,42 +101,62 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
 
         setIsProcessing(true);
         setIsStaging(false);
-        
-        setAutoQueue([]); setTeachQueue([]); setManualQueue([]);
-        
-        // Luodaan setti oletuksena hylättäville riveille
-        const initialAutoSkips = new Set();
-        setTeachConfigs({}); setManualConfigs({});
 
         try {
             const text = await file.text();
-            const rawEvents = parseICS(text);
+            // SYÖTETÄÄN PARSERILLE MYÖS LUNTTILAPPU UUSISTA TOKENEISTA
+            const rawEvents = parseICS(text, validTokens);
             
-            const fileUids = rawEvents.map(ev => ev.uid ? `${ev.uid}_${ev.start ? ev.start.split(':').pop().trim().substring(0,8) : ''}` : null).filter(Boolean);
+            // Haetaan jo tallennetut kannasta päällekkäisyyksien estämiseksi
+            const fileUids = rawEvents.map(ev => {
+                if (!ev.uid) return null;
+                const rawDate = ev.start ? (ev.start.includes(':') ? ev.start.split(':').pop().trim() : ev.start.trim()) : '';
+                return `${ev.uid}_${rawDate.substring(0,8)}`;
+            }).filter(Boolean);
+
             const { data: existingData } = await supabase.schema('espan').from('ics_events').select('ics_uid').in('ics_uid', fileUids).in('expert_id', [asiantuntijaId, LEGACY_ID]);
             const existingUids = new Set(existingData?.map(d => d.ics_uid) || []);
             
             const newEvents = rawEvents.filter(ev => {
-                const datePart = ev.start ? (ev.start.includes(':') ? ev.start.split(':').pop().trim().substring(0,8) : ev.start.trim().substring(0,8)) : '';
-                const fUid = ev.uid ? `${ev.uid}_${datePart}` : null;
+                const rawDate = ev.start ? (ev.start.includes(':') ? ev.start.split(':').pop().trim() : ev.start.trim()) : '';
+                const fUid = ev.uid ? `${ev.uid}_${rawDate.substring(0,8)}` : null;
                 const isRoomEvent = ev.isResource || (ev.location && ev.location.startsWith('RES'));
                 return fUid && !existingUids.has(fUid) && !isRoomEvent;
             });
 
             const tAuto = []; const tTeach = []; const tManual = [...legacyQueue];
+            const tempAutoSkips = new Set();
             let droppedLunchCount = 0;
             let dictionarySkippedCount = 0;
 
             newEvents.forEach(event => {
-                const datePart = event.start ? (event.start.includes(':') ? event.start.split(':').pop().trim().substring(0,8) : event.start.trim().substring(0,8)) : '';
-                const finalUid = event.uid ? `${event.uid}_${datePart}` : null;
+                // Katkaistaan aikatunniste pituus-selvitystä varten, jotta ei rikota kelloaikoja!
+                const rawDatePart = event.start ? (event.start.includes(':') ? event.start.split(':').pop().trim() : event.start.trim()) : '';
+                const isAllDay = rawDatePart.length === 8 || (event.start && event.start.includes('VALUE=DATE'));
+
+                const datePart8 = rawDatePart.substring(0, 8);
+                const finalUid = event.uid ? `${event.uid}_${datePart8}` : null;
                 if (!finalUid) return;
 
-                const startTimeIso = parseIcsDate(event.start);
-                const endTimeIso = parseIcsDate(event.end) || startTimeIso; 
-                const isAllDay = datePart.length === 8 || (event.start && event.start.includes('VALUE=DATE'));
-                const summary = event.summary || '';
-                const lowerSummary = summary.toLowerCase();
+                // Haetaan oikea, alkuperäinen aikaleima kantaa varten
+                const extractIso = (icsDateStr) => {
+                    const cleanStr = icsDateStr.includes(':') ? icsDateStr.split(':').pop().trim() : icsDateStr.trim();
+                    if (cleanStr.length === 8) {
+                        return new Date(`${cleanStr.substring(0, 4)}-${cleanStr.substring(4, 6)}-${cleanStr.substring(6, 8)}T00:00:00Z`).toISOString();
+                    } else if (cleanStr.length >= 15) {
+                        const isUTC = cleanStr.endsWith('Z');
+                        const isoBase = `${cleanStr.substring(0, 4)}-${cleanStr.substring(4, 6)}-${cleanStr.substring(6, 8)}T${cleanStr.substring(9, 11)}:${cleanStr.substring(11, 13)}:${cleanStr.substring(13, 15)}`;
+                        return isUTC ? new Date(`${isoBase}Z`).toISOString() : new Date(isoBase).toISOString();
+                    }
+                    return null;
+                };
+
+                const realStartIso = extractIso(event.start);
+                const realEndIso = extractIso(event.end || event.start);
+
+                let originalSummary = event.summary || '';
+                let displaySummary = originalSummary;
+                let lowerSummary = displaySummary.toLowerCase();
 
                 // 🛑 1. KOVAKOODATTU HARMAA LISTA (Lounaat)
                 if (lowerSummary.includes('lounas') || lowerSummary.includes('lunch') || lowerSummary.includes('ruokatauko')) {
@@ -249,20 +164,36 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     return;
                 }
 
-                const baseEvent = { id: finalUid, expert_id: asiantuntijaId, ics_uid: finalUid, start_time: startTimeIso, end_time: endTimeIso, is_all_day: isAllDay, summaryDisplay: summary, original_summary: summary, sync_token: event.sync_token || null };
+                // ✂️ 2. SAKSET JA TÄHDET (Ajanvaraukset ja numerot)
+                let hasScissorCut = false;
+                const scissorMatch = displaySummary.match(/^(.*?ajanvaraus.*?)\s+(\d{5,})/i); 
                 
-                // Anonymisoidaan otsikosta 14-numeroiset asiakastunnukset valmiiksi
-                const idMatch = summary.match(/\d{14}/);
-                const maskedSummary = idMatch ? summary.replace(idMatch[0], `${idMatch[0].substring(0, 4)}*******${idMatch[0].substring(11)}`) : summary;
-                baseEvent.summaryDisplay = maskedSummary;
+                if (scissorMatch) {
+                    const prefixTxt = scissorMatch[1].trim(); 
+                    const num = scissorMatch[2];
+                    const maskedNum = `${num.substring(0, 4)}` + '***'; 
+                    displaySummary = `${prefixTxt} ${maskedNum}`; // Sakset iskee!
+                    lowerSummary = displaySummary.toLowerCase();
+                    hasScissorCut = true;
+                } else {
+                    const numMatch = displaySummary.match(/\d{5,}/);
+                    if (numMatch) {
+                        const num = numMatch[0];
+                        const maskedNum = `${num.substring(0, 4)}` + '***';
+                        displaySummary = displaySummary.replace(num, maskedNum);
+                        lowerSummary = displaySummary.toLowerCase();
+                    }
+                }
 
-                // 🔍 2. SANAKIRJA (Koko sana tai erotinviiva/kaksoispiste)
-                let dictHit = learnedDictionary[lowerSummary]; // Katsotaan löytyykö TÄSMÄLLEEN tämä sana
+                const baseEvent = { id: finalUid, expert_id: asiantuntijaId, ics_uid: finalUid, start_time: realStartIso, end_time: realEndIso, is_all_day: isAllDay, summaryDisplay: displaySummary, original_summary: originalSummary, sync_token: event.sync_token || null };
+
+                // 🔍 3. SANAKIRJA JA HARMAA LISTA
+                let dictHit = learnedDictionary[lowerSummary];
                 let prefix = lowerSummary;
                 let hasDash = false;
 
                 if (!dictHit) {
-                    const dashMatch = summary.match(/^(.*?)\s*(?:--?|:)\s*(.*)$/);
+                    const dashMatch = displaySummary.match(/^(.*?)\s*(?:--?|:)\s*(.*)$/);
                     if (dashMatch) {
                         hasDash = true;
                         prefix = dashMatch[1].trim();
@@ -272,37 +203,34 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
 
                 if (dictHit) {
                     if (dictHit.cat === 'piilotettu') {
-                        // 👻 OPETETTU HARMAA LISTA: Tiputetaan suoraan taustalla
                         dictionarySkippedCount++; 
                     } else if (dictHit.cat === 'hylatty') {
-                        // Opittu Hylkäys -> Näytetään vihreässä laatikossa, mutta ruksi päällä
                         tAuto.push({ ...baseEvent, category: 'hylatty', method: null, is_cancelled: false });
-                        initialAutoSkips.add(finalUid);
+                        tempAutoSkips.add(finalUid);
                     } else {
-                        // Opittu Työ/Poissaolo/yms -> Vihreä laatikko
                         tAuto.push({ ...baseEvent, category: dictHit.cat, method: dictHit.method, is_cancelled: dictHit.isCancel });
                     }
                     return;
                 }
 
-                // Jos ei löytynyt sanakirjasta, MUTTA siinä oli erotin -> Menee opetusjonoon
-                if (hasDash) {
+                if (hasDash && !hasScissorCut) {
                     tTeach.push({ ...baseEvent, prefix });
                     return;
                 }
 
-                // 🎯 3. ELEGANTTI TUTKA (Kylmäsoitot, Ajanvaraukset ja Sync Tokenit)
-                if (event.sync_token || idMatch || lowerSummary.startsWith('peruttu') || lowerSummary.startsWith('ajanvaraus')) {
+                // 🎯 4. ELEGANTTI TUTKA (Tokenit, Leikatut ajanvaraukset, Kylmäsoitot)
+                const hasNumberMask = lowerSummary.includes('***');
+                
+                if (event.sync_token || hasScissorCut || hasNumberMask || lowerSummary.startsWith('peruttu')) {
                     let cat = 'tapaaminen';
-                    let method = 'lasna'; // Oletus
+                    let method = 'lasna';
                     let isCancel = false;
 
                     if (lowerSummary.includes('puhelu') || lowerSummary.includes('soitto')) {
                         method = 'soitto';
                     }
                     
-                    // Kylmäsoitot / Prospektit: 14 numeroa, eikä otsikossa lue "läsnä"
-                    if (idMatch && !lowerSummary.includes('läsnä') && !lowerSummary.includes('lasna') && !lowerSummary.includes('ajanvaraus')) {
+                    if (hasNumberMask && !lowerSummary.includes('läsnä') && !lowerSummary.includes('lasna') && !lowerSummary.includes('ajanvaraus')) {
                         method = 'soitto'; 
                     }
 
@@ -316,16 +244,16 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                     return;
                 }
 
-                // 🌍 4. SIJAINNIT JA LOMAT
+                // 🌍 5. SIJAINNIT JA LOMAT
                 if (lowerSummary.match(/malminkatu|viipurinkatu|itäkeskus|etä/)) {
-                    tAuto.push({ ...baseEvent, category: 'sijainti', method: null, is_cancelled: false, location_name: summary });
+                    tAuto.push({ ...baseEvent, category: 'sijainti', method: null, is_cancelled: false, location_name: displaySummary });
                     return;
                 } else if (lowerSummary.match(/loma|tuuraus/)) {
                     tAuto.push({ ...baseEvent, category: 'poissaolo', method: null, is_cancelled: false });
                     return;
                 }
 
-                // 🤷‍♂️ 5. TÄYSIN TUNNISTAMATON ROSKA (Manuaalijono)
+                // 🤷‍♂️ 6. TÄYSIN TUNNISTAMATON ROSKA
                 tManual.push({ ...baseEvent, isLegacy: false });
             });
 
@@ -335,7 +263,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 groupedTeach[ev.prefix].push(ev);
             });
 
-            setAutoSkips(initialAutoSkips);
+            setInitialAutoSkips(tempAutoSkips);
             setAutoQueue(tAuto);
             setTeachQueue(Object.entries(groupedTeach).map(([prefix, events]) => ({ prefix, events })));
             setManualQueue(tManual);
@@ -354,32 +282,19 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
 
     const handleStartManualReview = () => {
         setAutoQueue([]); setTeachQueue([]); setManualQueue([...legacyQueue]);
-        setAutoSkips(new Set()); setTeachConfigs({}); setManualConfigs({});
+        setInitialAutoSkips(new Set());
+        setStagingStats({ lunches: 0, autoSkipped: 0, newWords: 0 });
         setIsStaging(true);
     };
 
-    const toggleAutoSkip = (uid) => {
-        setAutoSkips(prev => {
-            const next = new Set(prev);
-            if (next.has(uid)) next.delete(uid);
-            else next.add(uid);
-            return next;
-        });
-    };
-
-    const updateManual = (id, category, method) => {
-        setManualConfigs(prev => ({ ...prev, [id]: { category, method } }));
-    };
-
     // --- LOPULLINEN TALLENNUS ---
-    const handleCommit = async () => {
+    const handleCommit = async (autoSkips, teachConfigs, manualConfigs) => {
         setIsCommitting(true);
         try {
             const rawInsertsEvents = [];
             const insertsDict = [];
             const legacyDeletes = [];
 
-            // 1. Vihreä Laatikko (Automaattiset)
             autoQueue.forEach(ev => {
                 if (!autoSkips.has(ev.ics_uid)) {
                     rawInsertsEvents.push({
@@ -389,7 +304,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
-            // 2. Keltainen Laatikko (Opetettavat)
             teachQueue.forEach(group => {
                 const conf = teachConfigs[group.prefix];
                 if (!conf || !conf.category) return;
@@ -397,7 +311,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 const finalCat = conf.category === 'vapaa' ? (conf.custom || 'muu_tyo') : conf.category;
                 const isCanceled = finalCat === 'peruttu' || finalCat === 'noshow';
 
-                // Ohitetaan kokonaan Harmaan listan (piilotettu) ja Roskiksen (hylatty) valinnat tuonnissa
                 if (finalCat !== 'hylatty' && finalCat !== 'piilotettu') {
                     group.events.forEach(ev => {
                         rawInsertsEvents.push({
@@ -412,7 +325,6 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
-            // 3. Oranssi Laatikko (Manuaaliset + Legacy)
             manualQueue.forEach(ev => {
                 const conf = manualConfigs[ev.id];
                 if (conf && conf.category) {
@@ -430,14 +342,12 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                 }
             });
 
-            // ESTETÄÄN 500 ON CONFLICT -VIRHE (Poistetaan UIDs tuplat listan sisältä)
             const uniqueEventsMap = new Map();
             rawInsertsEvents.forEach(ev => {
                 uniqueEventsMap.set(`${ev.expert_id}_${ev.ics_uid}`, ev);
             });
             const insertsEvents = Array.from(uniqueEventsMap.values());
 
-            // --- KANNAN PÄIVITYS ---
             if (insertsDict.length > 0) {
                 const { error: dictError } = await supabase.schema('espan').from('ics_dictionary').upsert(insertsDict, { onConflict: 'opittu_sana' });
                 if (dictError) throw dictError;
@@ -471,8 +381,7 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
     return (
         <Card title="Asiantuntijan tapahtumat" icon={Calendar} variant="default">
             
-            {/* OLETUSNÄKYMÄ (Latauspainikkeet ja tiedotteet) */}
-            {!isStaging && (
+            {!isStaging ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                         <input type="file" accept=".ics" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
@@ -495,161 +404,17 @@ const ExpertImport = ({ asiantuntijaId, onImportComplete }) => {
                         </div>
                     )}
                 </div>
-            )}
-
-            {/* PRE-FLIGHT ESIKATSELU */}
-            {isStaging && (
-                <div className="animation-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    
-                    {/* STATISTIIKKA (Roskat ja harmaat) */}
-                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
-                        <div className="text-sm fw-bold" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Trash2 size={16}/> Piilotettu näkymättömiin:</div>
-                        {stagingStats.lunches > 0 && <Badge variant="default">Lounaat/Tauot ({stagingStats.lunches})</Badge>}
-                        {stagingStats.autoSkipped > 0 && <Badge variant="default">👻 Harmaa lista ({stagingStats.autoSkipped})</Badge>}
-                        {stagingStats.lunches === 0 && stagingStats.autoSkipped === 0 && <Badge variant="default" className="text-muted">Ei ohitettua sisältöä</Badge>}
-                    </div>
-
-                    {/* 🟢 LAATIKKO 1: AUTOMAATTISET */}
-                    {autoQueue.length > 0 && (
-                        <div style={{ border: '1px solid #bbf7d0', borderRadius: '8px', overflow: 'hidden' }}>
-                            <div style={{ backgroundColor: '#f0fdf4', padding: '1rem', borderBottom: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <CheckCircle size={20} color="#16a34a" />
-                                <h3 className="m-0 text-md fw-bold text-success">Automaattisesti tunnistetut ({autoQueue.length})</h3>
-                            </div>
-                            <div style={{ padding: '1rem', backgroundColor: '#fff', display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '300px', overflowY: 'auto' }}>
-                                {autoQueue.map((ev) => {
-                                    const isSkipped = autoSkips.has(ev.ics_uid);
-                                    return (
-                                        <div key={ev.ics_uid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '0.5rem', borderBottom: '1px dashed #e2e8f0', opacity: isSkipped ? 0.4 : 1 }}>
-                                            <div style={{ textDecoration: isSkipped ? 'line-through' : 'none' }}>
-                                                <div className="text-sm fw-semibold">{ev.summaryDisplay}</div>
-                                                <div className="text-xs text-muted">➔ {ev.category} {ev.method ? `(${ev.method})` : ''} {ev.location_name ? `(${ev.location_name})` : ''}</div>
-                                            </div>
-                                            <Button 
-                                                variant={isSkipped ? "secondary" : "danger"} 
-                                                size="small" 
-                                                icon={isSkipped ? CheckSquare : XCircle} 
-                                                onClick={() => toggleAutoSkip(ev.ics_uid)}
-                                                style={{ padding: '4px 8px' }}
-                                            >
-                                                {isSkipped ? 'Palauta' : 'Hylkää'}
-                                            </Button>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 🟡 LAATIKKO 2: OPETETTAVAT SANAT */}
-                    {teachQueue.length > 0 && (
-                        <div style={{ border: '1px solid #fef08a', borderRadius: '8px', overflow: 'hidden' }}>
-                            <div style={{ backgroundColor: '#fefce8', padding: '1rem', borderBottom: '1px solid #fef08a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <BookOpen size={20} color="#ca8a04" />
-                                <h3 className="m-0 text-md fw-bold text-warning">Opetettavat uudet sanat ({teachQueue.length} sääntöä)</h3>
-                            </div>
-                            <div style={{ padding: '1rem', backgroundColor: '#fff', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                <p className="text-sm text-slate-700 m-0">Nämä etuliitteet ovat järjestelmälle uusia. Määritä säännöt, niin ne tallentuvat koko tiimin yhteiseen sanakirjaan!</p>
-                                
-                                {teachQueue.map(group => {
-                                    const conf = teachConfigs[group.prefix] || { category: '', custom: '', method: '', save: false };
-                                    const updateConf = (updates) => setTeachConfigs(prev => ({ ...prev, [group.prefix]: { ...conf, ...updates } }));
-
-                                    return (
-                                        <div key={group.prefix} style={{ padding: '1rem', backgroundColor: '#fafafa', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-                                            <div style={{ marginBottom: '1rem' }}>
-                                                <span className="text-lg fw-bold text-primary">"{group.prefix}"</span>
-                                                <span className="text-xs text-muted ml-2">({group.events.length} tapahtumaa tässä tuonnissa)</span>
-                                            </div>
-                                            
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    <label className="text-xs fw-bold">Miten tämä luokitellaan?</label>
-                                                    <select className="modern-select" value={conf.category} onChange={(e) => updateConf({ category: e.target.value })}>
-                                                        <option value="">-- Valitse --</option>
-                                                        <option value="tapaaminen">Asiakastapaaminen</option>
-                                                        <option value="muu_tyo">Muu työ</option>
-                                                        <option value="sisainen_palaveri">Sisäinen palaveri</option>
-                                                        <option value="koulutus">Koulutus / Kehitys</option>
-                                                        <option value="peruttu">Peruttu (Tapahtuma peruttu)</option>
-                                                        <option value="noshow">No-show (Asiakas ei saapunut)</option>
-                                                        <option value="vapaa">✏️ Muu (Vapaa sana) ➔</option>
-                                                        <option disabled>──────────</option>
-                                                        <option value="hylatty">❌ Hylkää / Ohita (Tälle kerralle)</option>
-                                                        <option value="piilotettu">👻 Harmaa lista (Piilota ja ohita aina taustalla)</option>
-                                                    </select>
-                                                    {conf.category === 'vapaa' && (
-                                                        <input type="text" className="form-input" placeholder="Kirjoita oma kategoria..." value={conf.custom} onChange={(e) => updateConf({ custom: e.target.value })} style={{ padding: '0.45rem', fontSize: '0.85rem' }} />
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs fw-bold">Toteutustapa</label>
-                                                    <select className="modern-select" value={conf.method} onChange={(e) => updateConf({ method: e.target.value })} disabled={conf.category !== 'tapaaminen'}>
-                                                        <option value="">-</option>
-                                                        <option value="lasna">Läsnä</option>
-                                                        <option value="soitto">Puhelu / Etä</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            
-                                            <div style={{ marginTop: '1rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.5rem' }}>
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem' }}>
-                                                    <input type="checkbox" checked={conf.save} onChange={(e) => updateConf({ save: e.target.checked })} />
-                                                    <span style={{ color: '#0369a1', fontWeight: 'bold' }}>Tallenna tämä sääntö koko tiimin yhteiseen sanakirjaan!</span>
-                                                </label>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 🟠 LAATIKKO 3: MANUAALINEN JONO */}
-                    {manualQueue.length > 0 && (
-                        <div style={{ border: '1px solid #fed7aa', borderRadius: '8px', overflow: 'hidden' }}>
-                            <div style={{ backgroundColor: '#ffedd5', padding: '1rem', borderBottom: '1px solid #fed7aa', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <AlertTriangle size={20} color="#ea580c" />
-                                <h3 className="m-0 text-md fw-bold" style={{ color: '#9a3412' }}>Manuaalinen ratkaisukeskus ({manualQueue.length})</h3>
-                            </div>
-                            <div style={{ padding: '1rem', backgroundColor: '#fff', display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '400px', overflowY: 'auto' }}>
-                                <p className="text-sm text-slate-700 m-0 mb-2">Näistä puuttuu viivaerotin, tai ne ovat vanhoja merkintöjä. Valitse kategoria yksitellen.</p>
-                                
-                                {manualQueue.map(ev => {
-                                    const conf = manualConfigs[ev.id] || { category: '', method: '' };
-                                    
-                                    return (
-                                        <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', border: '1px solid #e2e8f0', borderRadius: '6px', backgroundColor: conf.category === 'hylatty' ? '#f1f5f9' : '#fff' }}>
-                                            <div className="text-sm fw-semibold" style={{ textDecoration: conf.category === 'hylatty' ? 'line-through' : 'none', color: conf.category === 'hylatty' ? '#94a3b8' : '#0f172a' }}>
-                                                {ev.summaryDisplay}
-                                            </div>
-                                            
-                                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                <Button variant={conf.category === 'tapaaminen' && conf.method === 'lasna' ? 'primary' : 'secondary'} size="small" onClick={() => updateManual(ev.id, 'tapaaminen', 'lasna')} icon={Briefcase}>Läsnä</Button>
-                                                <Button variant={conf.category === 'tapaaminen' && conf.method === 'soitto' ? 'primary' : 'secondary'} size="small" onClick={() => updateManual(ev.id, 'tapaaminen', 'soitto')} icon={PhoneCall}>Soitto</Button>
-                                                <Button variant={conf.category === 'muu_tyo' ? 'primary' : 'secondary'} size="small" onClick={() => updateManual(ev.id, 'muu_tyo', null)}>Muu työ</Button>
-                                                <div style={{ width: '1px', backgroundColor: '#e2e8f0', margin: '0 4px' }}></div>
-                                                <Button variant={conf.category === 'hylatty' ? 'danger' : 'secondary'} size="small" onClick={() => updateManual(ev.id, 'hylatty', null)} icon={Trash2}>Hylkää</Button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* VAHVISTUS-ALUE */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '1.5rem', borderTop: '2px solid #e2e8f0' }}>
-                        <div>
-                            <Button variant="secondary" onClick={() => setIsStaging(false)}>Peruuta ja tyhjennä näkymä</Button>
-                        </div>
-                        <div>
-                            <Button variant="primary" icon={Save} disabled={isCommitting} onClick={handleCommit}>
-                                {isCommitting ? 'Tallennetaan...' : 'Vahvista ja tallenna valinnat'}
-                            </Button>
-                        </div>
-                    </div>
-                </div>
+            ) : (
+                <StagingArea 
+                    stagingStats={stagingStats}
+                    autoQueue={autoQueue}
+                    teachQueue={teachQueue}
+                    manualQueue={manualQueue}
+                    initialAutoSkips={initialAutoSkips}
+                    onCancel={() => setIsStaging(false)}
+                    onCommit={handleCommit}
+                    isCommitting={isCommitting}
+                />
             )}
         </Card>
     );
