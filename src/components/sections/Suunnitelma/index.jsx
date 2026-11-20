@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../utils/supabaseClient';
-import { CheckSquare, AlertTriangle, UserPlus } from 'lucide-react';
+import { CheckSquare, AlertTriangle, UserPlus, ClipboardCheck } from 'lucide-react';
 
 // Kontekstit ja apufunktiot
 import { useSignal } from '../../signals/useSignal';
@@ -9,7 +9,8 @@ import { useSmartText } from '../TyollistymisenEdellytykset/useSmartText';
 // Kansion sisäiset komponentit
 import Palveluohjaus from './Palveluohjaus';
 import Tyonhakuprofiili from './Tyonhakuprofiili';
-import SmartSuggestionBox from './SmartSuggestionBox'; // UUSI TUONTI
+import SmartSuggestionBox from './SmartSuggestionBox';
+import TapaamiskirjausModal from './TapaamiskirjausModal';
 
 // Yleiset komponentit
 import AlertBox from '../../common/AlertBox';
@@ -17,10 +18,12 @@ import Checkbox from '../../common/Checkbox';
 import Card from '../../common/Card';
 import SmartTextPreview from '../../common/SmartTextPreview';
 import Accordion from '../../common/Accordion';
+import Button from '../../common/Button';
 
 const Suunnitelma = ({ state, actions }) => {
     const DB_SUUNNITELMA = 'd76dd312-1d0d-442e-bc6a-aefea2a655f8';
     const UI_KEY = 'suunnitelma'; 
+    const KIRJAUS_KEY = 'tapaamiskirjaus';
 
     const { activeSignals, actions: signalActions } = useSignal();
     const { buildKokoPalveluhistoriaText } = useSmartText();
@@ -28,6 +31,7 @@ const Suunnitelma = ({ state, actions }) => {
     const [dbPhrases, setDbPhrases] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadedServices, setLoadedServices] = useState([]);
+    const [isKirjausModalOpen, setIsKirjausModalOpen] = useState(false);
 
     const rawValinnat = state[UI_KEY];
     const valinnat = useMemo(() => {
@@ -38,6 +42,7 @@ const Suunnitelma = ({ state, actions }) => {
     }, [rawValinnat]);
 
     const customText = state[`custom-${UI_KEY}`] || '';
+    const savedKirjausText = state[`custom-${KIRJAUS_KEY}`] || '';
     const prevTextRef = useRef(null);
     const prevIdsRef = useRef(null);
 
@@ -115,14 +120,25 @@ const Suunnitelma = ({ state, actions }) => {
         // eslint-disable-next-line
     }, [activeSignals, dbPhrases]);
 
-    const activeServices = useMemo(() => loadedServices.filter(service => valinnat[service.id]), [loadedServices, valinnat]);
+    const activeServices = useMemo(
+        () => loadedServices.filter(service => valinnat[service.id]),
+        [loadedServices, valinnat]
+    );
     const hardServices = activeServices.filter(s => s.hard_service);
     const referralServices = activeServices.filter(s => s.requires_referral);
 
-    const generatedText = useMemo(() => {
-        const activePhrases = dbPhrases.filter(phrase => valinnat[phrase.id]);
-        activePhrases.sort((a, b) => (parseInt(b.priority) || 0) - (parseInt(a.priority) || 0));
+    const activePhrases = useMemo(() => {
+        const list = dbPhrases.filter(phrase => valinnat[phrase.id]);
+        list.sort((a, b) => (parseInt(b.priority) || 0) - (parseInt(a.priority) || 0));
+        return list;
+    }, [dbPhrases, valinnat]);
 
+    const jatkuvatPalvelut = useMemo(
+        () => (state.services || []).filter(s => ['alkanut', 'ohjattu'].includes(s.tila?.toLowerCase())),
+        [state.services]
+    );
+
+    const generatedText = useMemo(() => {
         const tyokokeiluKesto = state.palkkatuki?.tyokokeilu_kesto_kk || 'X';
         const phraseTexts = activePhrases.map(phrase => phrase.teksti.replace(/\[KESTO_KK\]/g, tyokokeiluKesto));
         const serviceTexts = activeServices.map(service => service.plan_text);
@@ -134,13 +150,12 @@ const Suunnitelma = ({ state, actions }) => {
             finalTexts.push(`HUOMIO: Asiakkaalle on suunnitelmassa asetettu velvoittava palvelu (${hardTitles}). Palvelusta kieltäytyminen tai sen keskeyttäminen ilman pätevää syytä voi johtaa työttömyysturvalain mukaiseen seuraamukseen. Työnhakuvelvollisuutta voidaan mahdollisesti alentaa palvelun keston ajaksi.`);
         }
 
-        const jatkuvatPalvelut = (state.services || []).filter(s => ['alkanut', 'ohjattu'].includes(s.tila?.toLowerCase()));
         if (jatkuvatPalvelut.length > 0 && buildKokoPalveluhistoriaText) {
             finalTexts.push(`Asiakas jatkaa aiemmin sovituissa palveluissa:\n${buildKokoPalveluhistoriaText(jatkuvatPalvelut)}`);
         }
 
         return finalTexts.join('\n\n');
-    }, [dbPhrases, valinnat, state.palkkatuki, activeServices, hardServices, state.services, buildKokoPalveluhistoriaText]);
+    }, [activePhrases, state.palkkatuki, activeServices, hardServices, jatkuvatPalvelut, buildKokoPalveluhistoriaText]);
 
     const handleMoveText = () => {
         if (!generatedText) return;
@@ -186,7 +201,7 @@ const Suunnitelma = ({ state, actions }) => {
             </div>
 
             {/* KOMPONENTOITU RATKAISUKESKUS */}
-          <SmartSuggestionBox 
+            <SmartSuggestionBox 
                 activeSignals={activeSignals}
                 dbPhrases={dbPhrases}
                 onTogglePath={handleTogglePath}
@@ -285,6 +300,28 @@ const Suunnitelma = ({ state, actions }) => {
                     style={{ marginTop: '0.5rem', fontFamily: 'var(--font-sans)', lineHeight: '1.6' }}
                 />
             </div>
+
+            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                    variant="primary"
+                    onClick={() => setIsKirjausModalOpen(true)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+                >
+                    <ClipboardCheck size={18} />
+                    {savedKirjausText.trim() ? 'Muokkaa tapaamiskirjausta' : 'Luo tapaamiskirjaus'}
+                </Button>
+            </div>
+
+            <TapaamiskirjausModal
+                isOpen={isKirjausModalOpen}
+                onClose={() => setIsKirjausModalOpen(false)}
+                activeServices={activeServices}
+                activePhrases={activePhrases}
+                jatkuvatPalvelut={jatkuvatPalvelut}
+                activeSignals={activeSignals}
+                savedText={savedKirjausText}
+                onSaveText={(newText) => actions.onUpdateCustomText(KIRJAUS_KEY, newText)}
+            />
         </div>
     );
 };

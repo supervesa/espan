@@ -29,6 +29,9 @@ const Jalkimarkkinointi = ({ state }) => {
     // Haetaan Suunnitelma-komponentin tallentama lopullinen teksti tekoälylle
     const finalPlanText = masterAsiakas.lopullinen_suunnitelma_teksti || '';
 
+    // UUSI: Haetaan Suunnitelma-osion tapaamiskirjaus (asiakasystävällinen yhteenveto)
+    const meetingSummary = state?.['custom-tapaamiskirjaus'] || '';
+
     // 2. HAETAAN LINKIT
     useEffect(() => {
         const fetchSnippets = async () => {
@@ -43,7 +46,7 @@ const Jalkimarkkinointi = ({ state }) => {
         fetchSnippets();
     }, []);
 
-// 3. SUUNNITELMAN KÄÄNNÖS
+    // 3. SUUNNITELMAN KÄÄNNÖS
     useEffect(() => {
         const fetchPlanDetails = async () => {
             const rawPlan = masterAsiakas.valitut_palvelut_id || state?.suunnitelma || [];
@@ -118,14 +121,14 @@ const Jalkimarkkinointi = ({ state }) => {
             ...validPlanArray,
             ...planItems, 
             masterAsiakas.tavoiteammatti_esco_nimi || '',
-            finalPlanText // TÄRKEÄÄ: Lisätään koko lopullinen teksti mukaan turvaverkoksi
+            finalPlanText, // TÄRKEÄÄ: Lisätään koko lopullinen teksti mukaan turvaverkoksi
+            meetingSummary // UUSI: Lisätään myös tapaamiskirjaus (tuo mukana mm. Palvelumanuaalin palvelut ja omat muokkaukset)
         ].map(normalize).join(' ');
 
         const contextString = allContext.replace(/helsinki-lisa/g, 'helsinkilisa').replace(/helsinki-lisä/g, 'helsinkilisa');
         
-        // Ohitetaan super-yleiset triggerit, jotta koko ruutu ei mene ruksille
-   // UUSI LAYER: Ohitetaan super-yleiset triggerit, jotta koko ruutu ei mene ruksille!
-const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irtisanottu', 'alle_6kk_tyossa', 'yrittajyys_kiinnostus'];
+        // UUSI LAYER: Ohitetaan super-yleiset triggerit, jotta koko ruutu ei mene ruksille!
+        const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irtisanottu', 'alle_6kk_tyossa', 'yrittajyys_kiinnostus'];
 
         const preSelected = [];
         snippets.forEach(snippet => {
@@ -138,7 +141,7 @@ const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irti
                     // 1. Estetään liian yleiset sanat
                     if (ignoredTriggers.includes(cleanTrigger)) return false; 
                     
-                    // 2. Estetään liian lyhyet haamusomat
+                    // 2. Estetään liian lyhyet haamuosumat
                     if (cleanTrigger.length < 3) return false; 
 
                     // 3. TASO 1 (Täsmäosuma): Löytyykö trigger suoraan asiakkaan signaaleista? (esim. yrittajyys_kiinnostus)
@@ -153,7 +156,7 @@ const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irti
         });
         
         setSelectedSnippetIds(preSelected);
-    }, [snippets, JSON.stringify(state?.signals), JSON.stringify(masterAsiakas), JSON.stringify(state?.suunnitelma), planItems, finalPlanText]);
+    }, [snippets, JSON.stringify(state?.signals), JSON.stringify(masterAsiakas), JSON.stringify(state?.suunnitelma), planItems, finalPlanText, meetingSummary]);
 
     const toggleSnippet = (id) => {
         setSelectedSnippetIds(prev => 
@@ -179,7 +182,8 @@ const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irti
                     planItems, 
                     obligationsCount: lkmArvo,
                     selectedSnippets: selectedSnippetsData,
-                    finalPlanText: finalPlanText 
+                    finalPlanText: finalPlanText,
+                    meetingSummary: meetingSummary
                 }),
             });
 
@@ -243,12 +247,37 @@ const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irti
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     
                     <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
-                        <strong style={{ width: '120px' }}>Asiakas:</strong>
+                        <strong style={{ width: '140px', flexShrink: 0 }}>Asiakas:</strong>
                         <span>{customerName} ({customerEmail})</span>
                     </div>
 
                     <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
-                        <strong style={{ width: '120px' }}>Toimenpiteet:</strong>
+                        <strong style={{ width: '140px', flexShrink: 0 }}>Tapaamiskirjaus:</strong>
+                        <div style={{ flex: 1 }}>
+                            {meetingSummary.trim() ? (
+                                <div style={{
+                                    backgroundColor: '#ffffff',
+                                    border: '1px solid var(--color-border)',
+                                    borderLeft: '3px solid var(--color-primary)',
+                                    borderRadius: '6px',
+                                    padding: '0.65rem 0.85rem',
+                                    fontSize: '0.9rem',
+                                    lineHeight: '1.5',
+                                    color: 'var(--color-text-primary)',
+                                    whiteSpace: 'pre-wrap'
+                                }}>
+                                    {meetingSummary}
+                                </div>
+                            ) : (
+                                <span style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic', fontSize: '0.9rem' }}>
+                                    Ei vielä laadittu Suunnitelma-osiossa (tekoäly käyttää suunnitelman tietoja).
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
+                        <strong style={{ width: '140px', flexShrink: 0 }}>Toimenpiteet:</strong>
                         <div style={{ flex: 1 }}>
                             {planItems.length > 0 ? (
                                 <ul style={{ margin: 0, paddingLeft: '1.2rem', color: 'var(--color-text-primary)' }}>
@@ -262,7 +291,7 @@ const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irti
 
                     {finalPlanText && (
                         <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
-                            <strong style={{ width: '120px' }}>Suunnitelma:</strong>
+                            <strong style={{ width: '140px', flexShrink: 0 }}>Suunnitelma:</strong>
                             <span style={{ flex: 1, fontSize: '0.85rem', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
                                 ✓ Asiakirjan lopullinen teksti liitetty mukaan tekoälyn pohjadataksi.
                             </span>
@@ -270,12 +299,12 @@ const ignoredTriggers = ['tyoton', 'tyottomyys_pitkittynyt', 'lomautettu', 'irti
                     )}
 
                     <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem' }}>
-                        <strong style={{ width: '120px' }}>Velvollisuus:</strong>
+                        <strong style={{ width: '140px', flexShrink: 0 }}>Velvollisuus:</strong>
                         <span>{lkmArvo > 0 ? `${lkmArvo} työpaikkaa kuukaudessa` : 'Ei määrättyä työnhakuvelvollisuutta'}</span>
                     </div>
 
                     <div style={{ display: 'flex', gap: '1rem' }}>
-                        <strong style={{ width: '120px' }}>Liitteet ja Linkit:</strong>
+                        <strong style={{ width: '140px', flexShrink: 0 }}>Liitteet ja Linkit:</strong>
                         <div style={{ flex: 1 }}>
                             <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
                                 Tekoäly on esivalinnut asiakkaan tilanteeseen sopivat linkit.

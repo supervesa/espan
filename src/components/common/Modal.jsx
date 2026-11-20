@@ -29,7 +29,6 @@ const Modal = ({ isOpen, onClose, title, icon: Icon, children, footer, maxWidth 
                 justifyContent: 'center',
                 backdropFilter: 'blur(2px)'
             }}
-            onClick={onClose}
         >
             <div 
                 className="admin-modal-content" 
@@ -46,7 +45,6 @@ const Modal = ({ isOpen, onClose, title, icon: Icon, children, footer, maxWidth 
                     boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
                     width: '95%'
                 }} 
-                onClick={e => e.stopPropagation()} // Estetään modaalin sulkeutuminen sisältöä klikatessa
             >
                 
                 {/* Header */}

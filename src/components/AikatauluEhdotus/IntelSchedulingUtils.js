@@ -58,12 +58,10 @@ const mergeBlocks = (rules) => {
     return merged;
 };
 
-// 🟢 UUSI: Huoneblokkien yhdistäjä
 // Yhdistää peräkkäiset samassa huoneessa olevat varaukset samana päivänä
 const mergeRoomBlocks = (roomBookings) => {
     if (!roomBookings || roomBookings.length === 0) return [];
     
-    // Ryhmitellään varaukset huoneen ja päivämäärän (YYY-MM-DD) mukaan
     const grouped = {};
     roomBookings.forEach(rb => {
         const startD = new Date(rb.start_time);
@@ -80,7 +78,6 @@ const mergeRoomBlocks = (roomBookings) => {
 
     const mergedBookings = [];
     
-    // Yhdistetään blokit kussakin ryhmässä (huone/päivä)
     for (const key in grouped) {
         const group = grouped[key];
         const sortedBlocks = group.blocks.sort((a, b) => a.startMins - b.startMins);
@@ -90,7 +87,6 @@ const mergeRoomBlocks = (roomBookings) => {
             const current = sortedBlocks[i];
             const last = merged[merged.length - 1];
             
-            // Jos peräkkäiset tai päällekkäiset
             if (current.startMins <= last.endMins) {
                 last.endMins = Math.max(last.endMins, current.endMins);
             } else {
@@ -98,7 +94,6 @@ const mergeRoomBlocks = (roomBookings) => {
             }
         }
         
-        // Tallennetaan tulos uuteen muotoon
         merged.forEach(m => {
             mergedBookings.push({
                 dateKey: group.dateKey,
@@ -112,20 +107,16 @@ const mergeRoomBlocks = (roomBookings) => {
     return mergedBookings;
 };
 
-// 🟢 Älykäs kuormandatan parsija (Tukee sekä Legacy-numeroita että uusia Obj-tavoitteita)
 const getLoadData = (weeklyLoadObj, weekNum) => {
     const data = weeklyLoadObj[weekNum];
-    // Oletusarvona 12 (jos dataa ei löydy)
     if (!data) return { load: 0, limit: 12 };
     
-    // Uusi muoto: { varattu: 15, maksimi_tavoite: 12.30 }
     if (typeof data === 'object') {
         return {
             load: data.varattu || 0,
             limit: data.maksimi_tavoite || 12
         };
     }
-    // Vanha muoto: pelkkä varattujen määrä numeroina
     return {
         load: Number(data) || 0,
         limit: 12
@@ -139,7 +130,8 @@ const scanSlots = (
     typesToSearch, expertRules, bookedSlots, startDate, targetDuration, 
     limitWeeks, settings, is46 = false, expertLocations = [], mockWeeklyLoad = {}, 
     targetMode = 'puhelu', targetLocation = null,
-    mergedRoomBlocks = [] // 🟢 LISÄTTY: Yhdistetyt huonevuorot
+    mergedRoomBlocks = [],
+    nationalHolidays = [] // 🟢 LISÄTTY: Kansalliset juhlapyhät
 ) => {
     const slots = [];
     let current = parseSafeDate(startDate) || new Date();
@@ -160,11 +152,16 @@ const scanSlots = (
         const dateStr = `${year}-${month}-${dayNum}`;
         const jsDay = checkDate.getDay() === 0 ? 7 : checkDate.getDay();
 
-        // 🟢 1. ÄHKYSUOJA DYNAAMISELLA KATTOARVOLLA
+        // 🟢 UUSI: Kansalliset juhlapyhät (esim. Joulu, Loppiainen) ohitetaan AINA
+        const isNationalHoliday = (nationalHolidays || []).some(h => h.date === dateStr);
+        if (isNationalHoliday) {
+            continue; 
+        }
+
+        // 1. ÄHKYSUOJA DYNAAMISELLA KATTOARVOLLA
         const weekNum = getWeekNumber(checkDate);
         const loadData = getLoadData(mockWeeklyLoad, weekNum);
         
-        // Vertaillaan dynaamisen limiitin suhteen (esim 15 >= 12.30 -> Estetään päivä!)
         if (ahkysuoja_aktiivinen && !is46 && loadData.load >= loadData.limit) {
             continue;
         }
@@ -202,7 +199,7 @@ const scanSlots = (
             return { start: startMins, end: startMins + dur };
         });
 
-        // 🟢 4. HAETAAN TÄMÄN PÄIVÄN HUONEVUOROT (Vain jos kohdetila on käynti)
+        // 4. HAETAAN TÄMÄN PÄIVÄN HUONEVUOROT (Vain jos kohdetila on käynti)
         const roomsForToday = targetMode === 'kaynti' ? mergedRoomBlocks.filter(rb => rb.dateKey === dateStr) : [];
 
         const rulesForDay = validRules.filter(r => r.day_of_week === jsDay);
@@ -233,12 +230,12 @@ const scanSlots = (
 
                         let resolvedLocation = locForDay?.location_name || 'Malminkatu';
                         
-                        // 🟢 5. TILAN TARKISTUS: Osuuko tämä aika täydellisesti mihinkään tämän päivän huonevuoroon?
-                        let hasRoom = true; // Oletuksena totta (esim. puheluille)
+                        // 5. TILAN TARKISTUS
+                        let hasRoom = true; 
                         let roomName = null;
                         
                         if (targetMode === 'kaynti') {
-                            hasRoom = false; // Käynneiltä vaaditaan todiste huoneesta
+                            hasRoom = false;
                             const matchingRoom = roomsForToday.find(rb => startMins >= rb.startMins && endMins <= rb.endMins);
                             if (matchingRoom) {
                                 hasRoom = true;
@@ -254,8 +251,8 @@ const scanSlots = (
                             label: borrowLabel, 
                             matchedType: block.type, 
                             duration: targetDuration,
-                            hasRoom: hasRoom,           // 🟢 Välitetään tila-status eteenpäin
-                            roomName: roomName          // 🟢 Välitetään mahdollinen huoneen nimi eteenpäin
+                            hasRoom: hasRoom,
+                            roomName: roomName
                         });
                     }
                 }
@@ -272,7 +269,8 @@ export const findAvailableSlots = (
     meetingType, expertRules, bookedSlots, targetDate, targetDuration = 45, 
     limitWeeks = 1, settings = null, is46 = false, expertLocations = [], 
     mockWeeklyLoad = {}, requestedMode = 'puhelu', clientIdealLocation = null,
-    roomBookings = [] // 🟢 LISÄTTY: Taulu tähän rajapintaan!
+    roomBookings = [],
+    nationalHolidays = [] // 🟢 LISÄTTY
 ) => {
     let defaultLiedennys = settings?.liedennys_jarjestys;
     if (!Array.isArray(defaultLiedennys) || defaultLiedennys.length === 0) {
@@ -285,18 +283,16 @@ export const findAvailableSlots = (
     const automaatio = settings?.automaatio || {};
     const tasaus = automaatio.tasapainotus || {};
 
-    // 🟢 Pre-prosessoidaan huonevaraukset täällä ylätasolla!
     const mergedRoomBlocks = mergeRoomBlocks(roomBookings);
 
-    // 🟢 ÄLYKÄS LIUKUVA IKKUNA (Kaikututka)
+    // ÄLYKÄS LIUKUVA IKKUNA (Kaikututka)
     if (tasaus.liukuva_tasaus_aktiivinen && tasaus.hakeudu_kuoppiin && !is46) {
         const targetWeekNum = getWeekNumber(searchStart);
         const targetData = getLoadData(mockWeeklyLoad, targetWeekNum);
         
-        // Aloitetaan kuopan etsintä VASTA jos tavoiteviikolla on selkeää ruuhkaa (esim > 80% kapasiteetista)
         if ((targetData.load / targetData.limit) > 0.8) {
             
-            const windowLimit = tasaus.tasaus_ikkuna_vko || 2; // Oletuksena +-2 viikkoa
+            const windowLimit = tasaus.tasaus_ikkuna_vko || 2; 
             let bestWeekOffset = 0;
             let lowestRatio = targetData.load / targetData.limit;
 
@@ -304,31 +300,26 @@ export const findAvailableSlots = (
             today.setHours(0,0,0,0);
             const currentWeekNum = getWeekNumber(today);
 
-            // Skannataan viikot asetetun ikkunan sisältä (esim. -3 ... +3)
             for (let offset = -windowLimit; offset <= windowLimit; offset++) {
                 if (offset === 0) continue;
 
                 const checkD = new Date(searchStart);
                 checkD.setDate(checkD.getDate() + (offset * 7));
                 
-                // Aikakone-esto: Ei voida varata aikaa menneisyyteen!
                 if (checkD < today && getWeekNumber(checkD) < currentWeekNum) continue;
 
                 const checkWkNum = getWeekNumber(checkD);
                 const wData = getLoadData(mockWeeklyLoad, checkWkNum);
                 const ratio = wData.load / wData.limit;
 
-                // Jos tältä viikolta löytyy merkittävä "kuoppa" (esim. kuorma on yli 30% pienempi kuin alkuperäisessä)
                 if (ratio < lowestRatio - 0.3) {
                     lowestRatio = ratio;
                     bestWeekOffset = offset;
                 }
             }
 
-            // Jos parempi kuoppa löytyi, siirretään aloitusviikko sinne!
             if (bestWeekOffset !== 0) {
                 searchStart.setDate(searchStart.getDate() + (bestWeekOffset * 7));
-                // Palautetaan osoitin viikon maanantaille puhtaan haun varmistamiseksi
                 const day = searchStart.getDay();
                 const diffToMonday = searchStart.getDate() - day + (day === 0 ? -6 : 1);
                 searchStart.setDate(diffToMonday);
@@ -339,26 +330,26 @@ export const findAvailableSlots = (
     let slots = [];
 
     if (requestedMode === 'kaynti' && clientIdealLocation) {
-        slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, clientIdealLocation, mergedRoomBlocks);
+        slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, clientIdealLocation, mergedRoomBlocks, nationalHolidays);
         
         if (slots.length === 0) {
-            slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks);
+            slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks, nationalHolidays);
             if (slots.length === 0) {
-                slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks * 2, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, clientIdealLocation, mergedRoomBlocks);
+                slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks * 2, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, clientIdealLocation, mergedRoomBlocks, nationalHolidays);
                 if (slots.length === 0) {
-                    slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks * 2, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks);
+                    slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks * 2, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks, nationalHolidays);
                 }
             }
         }
     } else {
-        slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks);
+        slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks, nationalHolidays);
         if (slots.length === 0) {
-            slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks * 2, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks);
+            slots = scanSlots(searchOrder, expertRules, bookedSlots, searchStart, targetDuration, limitWeeks * 2, settings, is46, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks, nationalHolidays);
         }
     }
 
     if (slots.length === 0 && is46 && automaatio.ruuhkareaktiot?.uhraa_puskurit) {
-        slots = scanSlots(searchOrder, expertRules, bookedSlots, targetDate, targetDuration, limitWeeks * 2, settings, true, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks);
+        slots = scanSlots(searchOrder, expertRules, bookedSlots, targetDate, targetDuration, limitWeeks * 2, settings, true, expertLocations, mockWeeklyLoad, requestedMode, null, mergedRoomBlocks, nationalHolidays);
     }
 
     return slots.sort((a, b) => a.time.getTime() - b.time.getTime());
