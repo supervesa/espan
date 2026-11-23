@@ -45,7 +45,7 @@ const LoginScreen = ({ onLogin, isLoggingIn }) => {
 
                     <h2 className="text-xl fw-bold mb-2">Kirjaudu sisään</h2>
                     <p className="text-sm text-secondary mb-4">
-                        Espan-työllisyyssuunnitelmatyökalu
+                        Espan
                     </p>
 
                     <form onSubmit={handleSubmit} style={{ textAlign: 'left' }}>
